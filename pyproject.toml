@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "domasy"
+version = "0.1.0"
+description = "A slim tenant-aware document management and workflow system."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "celery>=5.5,<6",
+  "django>=5.2.8,<6.0",
+  "django-htmx>=1.21,<2",
+  "django-storages[boto3]>=1.14,<2",
+  "psycopg[binary]>=3.2,<4",
+  "redis>=5,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4,<9",
+  "pytest-django>=4.11,<5",
+  "ruff>=0.12,<1",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "domasy.project.settings.test"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E",
+  "F",
+  "I",
+  "UP",
+  "B",
+  "SIM",
+  "DJ",
+]
+ignore = [
+  "DJ008",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/migrations/*.py" = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"

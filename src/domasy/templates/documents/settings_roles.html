@@ -1,0 +1,79 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h2 class="h4 mb-1">Rollen</h2>
+      <p class="text-secondary mb-0">Berechtigungsprofile für diesen Tenant.</p>
+    </div>
+    <a class="btn btn-primary" href="{% url 'documents:settings_role_create' tenant.slug %}">
+      Neue Rolle
+    </a>
+  </div>
+
+  <div class="app-card">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Slug</th>
+            <th>Berechtigungen</th>
+            <th>Box-Zugriff</th>
+            <th>Status</th>
+            <th class="text-end">Aktion</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for role in roles %}
+            <tr>
+              <td>
+                {{ role.name }}
+                {% if role.is_system_role %}
+                  <span class="badge text-bg-light ms-2">Standard</span>
+                {% endif %}
+              </td>
+              <td class="hash-value">{{ role.slug }}</td>
+              <td>{{ role.permissions.count }}</td>
+              <td>
+                {% if role.can_access_all_document_spaces %}
+                  <span class="text-secondary">Alle Boxen</span>
+                {% elif role.document_spaces.all %}
+                  {% for space in role.document_spaces.all %}
+                    <span class="badge text-bg-light me-1">{{ space.path }}</span>
+                  {% endfor %}
+                {% else %}
+                  <span class="text-secondary">Keine Boxen</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if role.is_active %}
+                  <span class="badge text-bg-success">Aktiv</span>
+                {% else %}
+                  <span class="badge text-bg-secondary">Inaktiv</span>
+                {% endif %}
+              </td>
+              <td class="text-end">
+                <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:settings_role_edit' tenant.slug role.id %}">
+                  Bearbeiten
+                </a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6" class="text-secondary">Keine Rollen vorhanden.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}

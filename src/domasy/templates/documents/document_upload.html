@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Dokument hochladen | DoMaSy{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container">
+      <div class="row justify-content-center">
+        <div class="col-lg-7">
+          <div class="mb-4">
+            <h1 class="h3 mb-1">Dokument hochladen</h1>
+            {% if tenant %}
+              <p class="text-secondary mb-0">{{ tenant.name }}</p>
+            {% endif %}
+          </div>
+
+          <form class="app-card p-4" method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+              <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            <div class="mb-3">
+              <label class="form-label" for="{{ form.title.id_for_label }}">Titel</label>
+              {{ form.title }}
+              {{ form.title.errors }}
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label" for="{{ form.space.id_for_label }}">Dokumentenbox</label>
+              {{ form.space }}
+              {{ form.space.errors }}
+            </div>
+
+            <div class="mb-4">
+              <label class="form-label" for="{{ form.file.id_for_label }}">Datei</label>
+              {{ form.file }}
+              {{ form.file.errors }}
+            </div>
+
+            <button class="btn btn-primary" type="submit">
+              {% include "includes/icons.html" with icon="upload" %}
+              <span class="ms-1">Speichern</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </main>
+{% endblock %}

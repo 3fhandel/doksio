@@ -1,0 +1,21 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  <div class="app-card p-4">
+    <h2 class="h5 mb-3">Allgemein</h2>
+    <dl class="row mb-0">
+      <dt class="col-sm-3 metadata-label">Name</dt>
+      <dd class="col-sm-9">{{ tenant.name }}</dd>
+      <dt class="col-sm-3 metadata-label">Slug</dt>
+      <dd class="col-sm-9 hash-value">{{ tenant.slug }}</dd>
+      <dt class="col-sm-3 metadata-label">Status</dt>
+      <dd class="col-sm-9">
+        {% if tenant.is_active %}
+          <span class="badge text-bg-success">Aktiv</span>
+        {% else %}
+          <span class="badge text-bg-secondary">Inaktiv</span>
+        {% endif %}
+      </dd>
+    </dl>
+  </div>
+{% endblock %}

@@ -1,0 +1,114 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="h4 mb-0">{{ form_title }}</h2>
+    <a class="btn btn-outline-secondary" href="{% url 'documents:settings_document_boxes' tenant.slug %}">
+      Zurück
+    </a>
+  </div>
+
+  <div class="app-card p-4">
+    <form method="post">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+      {% endif %}
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.name.id_for_label }}">Name</label>
+          {{ form.name }}
+          {{ form.name.errors }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.slug.id_for_label }}">Slug</label>
+          {{ form.slug }}
+          {{ form.slug.errors }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.parent.id_for_label }}">Übergeordnete Box</label>
+          {{ form.parent }}
+          {{ form.parent.errors }}
+        </div>
+        {% if form.is_active %}
+          <div class="col-md-6 d-flex align-items-end">
+            <div class="form-check mb-2">
+              {{ form.is_active }}
+              <label class="form-check-label" for="{{ form.is_active.id_for_label }}">Aktiv</label>
+            </div>
+          </div>
+        {% endif %}
+        <div class="col-12">
+          <label class="form-label" for="{{ form.description.id_for_label }}">Beschreibung</label>
+          {{ form.description }}
+          {{ form.description.errors }}
+        </div>
+        <div class="col-12">
+          <div class="form-check">
+            {{ form.review_assist_enabled }}
+            <label class="form-check-label" for="{{ form.review_assist_enabled.id_for_label }}">Prüfhilfe aktivieren</label>
+          </div>
+          <div class="form-text">Zeigt in der Dokumentvorschau ein Fadenkreuz als Zeilenhilfe an.</div>
+          {{ form.review_assist_enabled.errors }}
+        </div>
+      </div>
+      <button class="btn btn-primary mt-4" type="submit">{{ submit_label }}</button>
+    </form>
+  </div>
+
+  {% if document_space %}
+    <div class="d-flex justify-content-between align-items-center mt-4 mb-3">
+      <div>
+        <h3 class="h5 mb-1">Metadatenfelder</h3>
+        <p class="text-secondary mb-0">Felder, die Dokumente in dieser Box erfassen können.</p>
+      </div>
+      <a class="btn btn-outline-primary" href="{% url 'documents:settings_metadata_field_create' tenant.slug document_space.id %}">
+        Neues Feld
+      </a>
+    </div>
+
+    <div class="app-card">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Typ</th>
+              <th>Pflicht</th>
+              <th>Status</th>
+              <th class="text-end">Aktion</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for metadata_field in metadata_fields %}
+              <tr>
+                <td>
+                  {{ metadata_field.name }}
+                  <div class="small text-secondary">{{ metadata_field.slug }}</div>
+                </td>
+                <td>{{ metadata_field.get_field_type_display }}</td>
+                <td>{% if metadata_field.is_required %}Ja{% else %}Nein{% endif %}</td>
+                <td>
+                  {% if metadata_field.is_active %}
+                    <span class="badge text-bg-success">Aktiv</span>
+                  {% else %}
+                    <span class="badge text-bg-secondary">Inaktiv</span>
+                  {% endif %}
+                </td>
+                <td class="text-end">
+                  <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:settings_metadata_field_edit' tenant.slug document_space.id metadata_field.id %}">
+                    Bearbeiten
+                  </a>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="5" class="text-secondary">Keine Metadatenfelder definiert.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}

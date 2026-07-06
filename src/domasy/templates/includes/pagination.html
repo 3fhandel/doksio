@@ -1,0 +1,27 @@
+{% load domasy_extras %}
+
+{% if page_obj.paginator.num_pages > 1 %}
+  <nav class="px-4 py-3 border-top" aria-label="{{ label|default:'Seitennavigation' }}">
+    <ul class="pagination pagination-sm mb-0 justify-content-end">
+      <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
+        {% if page_obj.has_previous %}
+          <a class="page-link" href="{% page_url page_param page_obj.previous_page_number %}">Zurück</a>
+        {% else %}
+          <span class="page-link">Zurück</span>
+        {% endif %}
+      </li>
+      {% for page_number in page_obj.paginator.page_range %}
+        <li class="page-item {% if page_number == page_obj.number %}active{% endif %}">
+          <a class="page-link" href="{% page_url page_param page_number %}">{{ page_number }}</a>
+        </li>
+      {% endfor %}
+      <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
+        {% if page_obj.has_next %}
+          <a class="page-link" href="{% page_url page_param page_obj.next_page_number %}">Weiter</a>
+        {% else %}
+          <span class="page-link">Weiter</span>
+        {% endif %}
+      </li>
+    </ul>
+  </nav>
+{% endif %}

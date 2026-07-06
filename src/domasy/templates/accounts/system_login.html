@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}System Login | DoMaSy{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container">
+      <div class="row justify-content-center">
+        <div class="col-md-6 col-lg-4">
+          <div class="mb-4 text-center">
+            <h1 class="h3 mb-1">System Login</h1>
+            <p class="text-secondary mb-0">Plattformverwaltung</p>
+          </div>
+
+          <form class="app-card p-4" method="post">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ next }}">
+
+            {% if form.non_field_errors %}
+              <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            <div class="mb-3">
+              <label class="form-label" for="{{ form.username.id_for_label }}">Benutzername</label>
+              {{ form.username }}
+            </div>
+            <div class="mb-4">
+              <label class="form-label" for="{{ form.password.id_for_label }}">Passwort</label>
+              {{ form.password }}
+            </div>
+
+            <button class="btn btn-primary w-100" type="submit">Anmelden</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </main>
+{% endblock %}

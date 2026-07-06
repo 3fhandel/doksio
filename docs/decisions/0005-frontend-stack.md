@@ -13,24 +13,27 @@ a heavy single-page frontend at the start.
 DoMaSy needs components such as document lists, search dropdowns, filters, tabs,
 badges, modals, comments, forms, icons and PDF preview controls.
 
+The project should not require Node.js for the frontend asset pipeline.
+
 ## Decision
 
-The frontend will use Django templates with HTMX, Alpine.js, Tailwind CSS,
-daisyUI and lucide icons.
+The frontend will use Django templates with HTMX, Alpine.js, Bootstrap and
+lucide SVG icons.
 
 - Django templates render pages and reusable fragments.
 - HTMX provides server-driven partial updates.
 - Alpine.js handles local client-side UI state.
-- Tailwind CSS provides modern utility styling.
-- daisyUI provides a consistent component system on top of Tailwind.
-- lucide icons provide the default icon set for buttons, navigation and document
-  actions.
+- Bootstrap provides a consistent component system without a JavaScript build
+  step.
+- lucide SVG icons provide the default icon set for buttons, navigation and
+  document actions.
 - PDF.js provides document preview.
 
 ## Consequences
 
 - The frontend remains close to Django and easy to iterate.
-- The project avoids SPA complexity while still supporting modern interaction.
-- daisyUI reduces the amount of custom component styling needed.
+- The project avoids SPA and Node.js build complexity while still supporting
+  modern interaction.
+- Bootstrap reduces the amount of custom component styling needed.
 - More specialized JavaScript components can be added later if search dropdowns
   or comboboxes become too complex for HTMX and Alpine.js alone.

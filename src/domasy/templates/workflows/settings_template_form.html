@@ -1,0 +1,108 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <h2 class="h4 mb-0">{{ form_title }}</h2>
+    <a class="btn btn-outline-secondary" href="{% url 'workflows:settings_templates' tenant.slug %}">Zurück</a>
+  </div>
+
+  <section class="app-card p-4 mb-4">
+    <form method="post">
+      {% csrf_token %}
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+          {{ form.name }}
+          {{ form.name.errors }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.slug.id_for_label }}">{{ form.slug.label }}</label>
+          {{ form.slug }}
+          {{ form.slug.errors }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.trigger_type.id_for_label }}">{{ form.trigger_type.label }}</label>
+          {{ form.trigger_type }}
+          {{ form.trigger_type.errors }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.trigger_document_space.id_for_label }}">{{ form.trigger_document_space.label }}</label>
+          {{ form.trigger_document_space }}
+          {% if form.trigger_document_space.help_text %}
+            <div class="form-text">{{ form.trigger_document_space.help_text }}</div>
+          {% endif %}
+          {{ form.trigger_document_space.errors }}
+        </div>
+        <div class="col-md-6 d-flex align-items-end">
+          <div class="form-check mb-2">
+            {{ form.is_active }}
+            <label class="form-check-label" for="{{ form.is_active.id_for_label }}">{{ form.is_active.label }}</label>
+          </div>
+        </div>
+        <div class="col-md-6 d-flex align-items-end">
+          <div class="form-check mb-2">
+            {{ form.trigger_include_child_spaces }}
+            <label class="form-check-label" for="{{ form.trigger_include_child_spaces.id_for_label }}">{{ form.trigger_include_child_spaces.label }}</label>
+          </div>
+        </div>
+        <div class="col-12">
+          <label class="form-label" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+          {{ form.description }}
+          {{ form.description.errors }}
+        </div>
+      </div>
+      <button class="btn btn-primary mt-4" type="submit">{{ submit_label }}</button>
+    </form>
+  </section>
+
+  {% if template %}
+    <section class="app-card p-4">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h3 class="h5 mb-0">Schritte</h3>
+        <a class="btn btn-sm btn-outline-primary" href="{% url 'workflows:settings_step_create' tenant.slug template.id %}">
+          Schritt hinzufügen
+        </a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Reihenfolge</th>
+              <th>Name</th>
+              <th>Typ</th>
+              <th>Rolle</th>
+              <th>Kommentar</th>
+              <th class="text-end">Aktion</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for step in template.steps.all %}
+              <tr>
+                <td>{{ step.sort_order }}</td>
+                <td>{{ step.name }}</td>
+                <td>{{ step.get_step_type_display }}</td>
+                <td>{{ step.assigned_role.name|default:"-" }}</td>
+                <td>{{ step.get_comment_policy_display }}</td>
+                <td class="text-end">
+                  <a class="btn btn-sm btn-outline-primary" href="{% url 'workflows:settings_step_edit' tenant.slug template.id step.id %}">
+                    Bearbeiten
+                  </a>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="6" class="text-center text-secondary py-4">Noch keine Schritte angelegt.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}

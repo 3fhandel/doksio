@@ -1,0 +1,74 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <div>
+      <h2 class="h4 mb-1">Workflows</h2>
+      <p class="text-secondary mb-0">Vorlagen und Schritte für dokumentbezogene Abläufe.</p>
+    </div>
+    <a class="btn btn-primary" href="{% url 'workflows:settings_template_create' tenant.slug %}">
+      Workflow erstellen
+    </a>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="app-card">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Start</th>
+            <th>Trigger-Box</th>
+            <th>Schritte</th>
+            <th>Status</th>
+            <th class="text-end">Aktion</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for template in templates %}
+            <tr>
+              <td>
+                <div class="fw-medium">{{ template.name }}</div>
+                <div class="small text-secondary">{{ template.slug }}</div>
+              </td>
+              <td>{{ template.get_trigger_type_display }}</td>
+              <td>
+                {% if template.trigger_document_space %}
+                  {{ template.trigger_document_space.path }}
+                  {% if template.trigger_include_child_spaces %}
+                    <div class="small text-secondary">inkl. Unterboxen</div>
+                  {% endif %}
+                {% else %}
+                  <span class="text-secondary">Alle</span>
+                {% endif %}
+              </td>
+              <td>{{ template.steps.count }}</td>
+              <td>
+                {% if template.is_active %}
+                  <span class="badge text-bg-success">Aktiv</span>
+                {% else %}
+                  <span class="badge text-bg-secondary">Inaktiv</span>
+                {% endif %}
+              </td>
+              <td class="text-end">
+                <a class="btn btn-sm btn-outline-primary" href="{% url 'workflows:settings_template_edit' tenant.slug template.id %}">
+                  Bearbeiten
+                </a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6" class="text-center text-secondary py-4">Noch keine Workflows angelegt.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}

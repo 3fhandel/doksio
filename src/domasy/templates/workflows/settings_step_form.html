@@ -1,0 +1,50 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <div>
+      <h2 class="h4 mb-1">{{ form_title }}</h2>
+      <p class="text-secondary mb-0">{{ template.name }}</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{% url 'workflows:settings_template_edit' tenant.slug template.id %}">Zurück</a>
+  </div>
+
+  <section class="app-card p-4">
+    <form method="post">
+      {% csrf_token %}
+      <div class="row g-3">
+        <div class="col-md-8">
+          <label class="form-label" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+          {{ form.name }}
+          {{ form.name.errors }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="{{ form.sort_order.id_for_label }}">{{ form.sort_order.label }}</label>
+          {{ form.sort_order }}
+          {{ form.sort_order.errors }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.step_type.id_for_label }}">{{ form.step_type.label }}</label>
+          {{ form.step_type }}
+          {{ form.step_type.errors }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.assigned_role.id_for_label }}">{{ form.assigned_role.label }}</label>
+          {{ form.assigned_role }}
+          {{ form.assigned_role.errors }}
+        </div>
+        <div class="col-12">
+          <label class="form-label" for="{{ form.instructions.id_for_label }}">{{ form.instructions.label }}</label>
+          {{ form.instructions }}
+          {{ form.instructions.errors }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.comment_policy.id_for_label }}">{{ form.comment_policy.label }}</label>
+          {{ form.comment_policy }}
+          {{ form.comment_policy.errors }}
+        </div>
+      </div>
+      <button class="btn btn-primary mt-4" type="submit">{{ submit_label }}</button>
+    </form>
+  </section>
+{% endblock %}

@@ -1,0 +1,101 @@
+{% load static %}
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}DoMaSy{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+    <script>
+      const sidebarPreference = window.localStorage.getItem("domasy.sidebarCollapsed");
+      if (
+        sidebarPreference === "true" ||
+        (sidebarPreference === null && window.matchMedia("(max-width: 991.98px)").matches)
+      ) {
+        document.documentElement.classList.add("app-sidebar-collapsed");
+      }
+    </script>
+    {% block extra_head %}{% endblock %}
+  </head>
+  <body>
+    <div class="app-shell">
+      <nav class="navbar navbar-expand-lg border-bottom bg-white app-topbar">
+        <div class="container-fluid">
+          <div class="d-flex align-items-center gap-2">
+            {% if tenant and user.is_authenticated %}
+              <button class="btn btn-sm btn-outline-secondary app-sidebar-toggle" type="button" data-sidebar-toggle aria-label="Menü ein- oder ausblenden">
+                {% include "includes/icons.html" with icon="menu" %}
+              </button>
+            {% endif %}
+            <a class="navbar-brand fw-semibold" href="{% if tenant and user.is_authenticated %}{% url 'documents:dashboard' tenant.slug %}{% else %}{% url 'index' %}{% endif %}">
+              DoMaSy
+            </a>
+          </div>
+          <div class="d-flex gap-2">
+            {% if user.is_authenticated %}
+              <span class="navbar-text small text-secondary">{{ user.get_username }}</span>
+              {% if user.is_superuser %}
+                <a class="btn btn-sm btn-outline-secondary" href="{% url 'admin:index' %}">System</a>
+              {% endif %}
+              <a class="btn btn-sm btn-outline-secondary" href="{% url 'accounts:logout' %}">Logout</a>
+            {% else %}
+              <a class="btn btn-sm btn-outline-primary" href="{% url 'accounts:system_login' %}">System Login</a>
+            {% endif %}
+          </div>
+        </div>
+      </nav>
+      <div class="app-layout">
+        {% if tenant and user.is_authenticated %}
+          <aside class="app-sidebar">
+            <div class="app-sidebar-tenant">
+              <div class="app-sidebar-label">Mandant</div>
+              <div class="app-sidebar-title">{{ tenant.name }}</div>
+            </div>
+            <nav class="app-sidebar-nav" aria-label="Tenant Navigation">
+              {% with app_name=request.resolver_match.app_name url_name=request.resolver_match.url_name %}
+                <a class="app-sidebar-link {% if url_name == 'dashboard' %}active{% endif %}" href="{% url 'documents:dashboard' tenant.slug %}">
+                  {% include "includes/icons.html" with icon="home" %}
+                  <span>Dashboard</span>
+                </a>
+                <a class="app-sidebar-link {% if url_name == 'list' or url_name == 'detail' or url_name == 'core_metadata_edit' %}active{% endif %}" href="{% url 'documents:list' tenant.slug %}">
+                  {% include "includes/icons.html" with icon="file" %}
+                  <span>Dokumente</span>
+                </a>
+                <a class="app-sidebar-link {% if app_name == 'search' %}active{% endif %}" href="{% url 'search:documents' tenant.slug %}">
+                  {% include "includes/icons.html" with icon="search" %}
+                  <span>Suche</span>
+                </a>
+                <a class="app-sidebar-link app-sidebar-link-primary {% if url_name == 'upload' %}active{% endif %}" href="{% url 'documents:upload' tenant.slug %}">
+                  {% include "includes/icons.html" with icon="upload" %}
+                  <span>Hochladen</span>
+                </a>
+                {% if can_manage_settings or active_settings_section %}
+                  <a class="app-sidebar-link {% if active_settings_section or app_name == 'workflows' %}active{% endif %}" href="{% url 'documents:settings_overview' tenant.slug %}">
+                    {% include "includes/icons.html" with icon="settings" %}
+                    <span>Einstellungen</span>
+                  </a>
+                {% endif %}
+              {% endwith %}
+            </nav>
+          </aside>
+        {% endif %}
+        <div class="app-main">
+          {% block body %}{% endblock %}
+        </div>
+      </div>
+    </div>
+    <script>
+      document.querySelectorAll("[data-sidebar-toggle]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const collapsed = document.documentElement.classList.toggle("app-sidebar-collapsed");
+          window.localStorage.setItem("domasy.sidebarCollapsed", collapsed ? "true" : "false");
+        });
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.7/dist/htmx.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.0/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+    {% block extra_body %}{% endblock %}
+  </body>
+</html>

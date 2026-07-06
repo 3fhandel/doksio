@@ -1,0 +1,46 @@
+{% comment %}Inline lucide-style SVG symbols without a Node.js dependency.{% endcomment %}
+{% if icon == "menu" %}
+  <svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+    <path d="M4 6h16"></path>
+    <path d="M4 12h16"></path>
+    <path d="M4 18h16"></path>
+  </svg>
+{% elif icon == "home" %}
+  <svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+    <path d="m3 10 9-7 9 7"></path>
+    <path d="M5 10v10h14V10"></path>
+    <path d="M9 20v-6h6v6"></path>
+  </svg>
+{% elif icon == "settings" %}
+  <svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+    <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z"></path>
+    <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.37a1.7 1.7 0 0 0-1 .31 1.7 1.7 0 0 0-.7 1.38V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-.7-1.38 1.7 1.7 0 0 0-1-.31 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.63 15a1.7 1.7 0 0 0-.31-1 1.7 1.7 0 0 0-1.38-.7H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.38-.7 1.7 1.7 0 0 0 .31-1 1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.63a1.7 1.7 0 0 0 1-.31 1.7 1.7 0 0 0 .7-1.38V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 .7 1.38 1.7 1.7 0 0 0 1 .31 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.37 9c0 .35.1.69.31 1 .33.5.88.7 1.38.7H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.38.7c-.2.31-.31.65-.31 1z"></path>
+  </svg>
+{% elif icon == "upload" %}
+  <svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+    <path d="M12 3v12"></path>
+    <path d="m17 8-5-5-5 5"></path>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+  </svg>
+{% elif icon == "file" %}
+  <svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+    <path d="M14 2v6h6"></path>
+  </svg>
+{% elif icon == "download" %}
+  <svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+    <path d="M12 3v12"></path>
+    <path d="m7 10 5 5 5-5"></path>
+    <path d="M5 21h14"></path>
+  </svg>
+{% elif icon == "search" %}
+  <svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+    <circle cx="11" cy="11" r="8"></circle>
+    <path d="m21 21-4.35-4.35"></path>
+  </svg>
+{% elif icon == "check-square" %}
+  <svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+    <path d="M9 11l3 3L22 4"></path>
+    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+  </svg>
+{% endif %}

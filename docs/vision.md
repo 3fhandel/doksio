@@ -27,7 +27,7 @@ to be a certified legal long-term archive.
 - Manage business metadata, annotations and audit history.
 - Provide a generic workflow system for document-centered processes.
 - Support invoice approval as a workflow use case.
-- Support secure document spaces such as personnel files.
+- Support secure document boxes such as personnel files.
 - Support configurable export targets, including DATEV-related exports.
 - Provide tenant-aware access control, RBAC and OIDC-compatible authentication.
 - Run as a dockerized web application.

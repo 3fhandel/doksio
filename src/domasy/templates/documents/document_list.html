@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Dokumente | DoMaSy{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container">
+      {% if messages %}
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      <div class="d-flex align-items-center justify-content-between mb-4">
+        <div>
+          <h1 class="h3 mb-1">Dokumente</h1>
+          {% if tenant %}
+            <p class="text-secondary mb-0">{{ tenant.name }}</p>
+          {% endif %}
+        </div>
+        {% if tenant %}
+          <div class="d-flex gap-2">
+            <a class="btn btn-primary" href="{% url 'documents:upload' tenant.slug %}">
+              {% include "includes/icons.html" with icon="upload" %}
+              <span class="ms-1">Hochladen</span>
+            </a>
+          </div>
+        {% endif %}
+      </div>
+
+      {% if documents %}
+        <div class="app-card">
+          <div class="d-flex align-items-center justify-content-between gap-3 border-bottom px-4 py-3">
+            <h2 class="h5 mb-0">Alle Dokumente</h2>
+            <span class="text-secondary small">{{ documents_count }} Dokumente</span>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Titel</th>
+                  <th>Dokumentenbox</th>
+                  <th>Belegdatum</th>
+                  <th>Status</th>
+                  <th>Dateien</th>
+                  <th>Angelegt</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for document in documents %}
+                  <tr>
+                    <td>
+                      <a class="fw-medium text-decoration-none" href="{% url 'documents:detail' tenant.slug document.id %}">
+                        {% include "includes/icons.html" with icon="file" %}
+                        <span class="ms-1">{{ document.title }}</span>
+                      </a>
+                    </td>
+                    <td><span class="badge text-bg-light">{{ document.space.path }}</span></td>
+                    <td>{{ document.document_date|date:"d.m.Y"|default:"-" }}</td>
+                    <td>{{ document.status }}</td>
+                    <td>{{ document.files.count }}</td>
+                    <td>{{ document.created_at|date:"d.m.Y H:i" }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% include "includes/pagination.html" with page_obj=documents_page_obj page_param="page" label="Dokumentenseiten" %}
+        </div>
+      {% else %}
+        <div class="app-card p-4 text-center">
+          <h2 class="h5">Noch keine Dokumente</h2>
+          <p class="text-secondary">Lade das erste Dokument hoch, um den Ablagefluss zu testen.</p>
+          {% if tenant %}
+            <a class="btn btn-primary" href="{% url 'documents:upload' tenant.slug %}">
+              {% include "includes/icons.html" with icon="upload" %}
+              <span class="ms-1">Dokument hochladen</span>
+            </a>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </main>
+{% endblock %}

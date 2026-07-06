@@ -1,0 +1,97 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="h4 mb-0">{{ form_title }}</h2>
+    <a class="btn btn-outline-secondary" href="{% url 'documents:settings_roles' tenant.slug %}">
+      Zurück
+    </a>
+  </div>
+
+  <div class="app-card p-4">
+    {% if role %}
+      <div class="mb-3">
+        <div class="metadata-label">Slug</div>
+        <div class="hash-value">{{ role.slug }}</div>
+      </div>
+    {% endif %}
+    <form method="post">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+      {% endif %}
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.name.id_for_label }}">Name</label>
+          {{ form.name }}
+          {{ form.name.errors }}
+        </div>
+        {% if form.slug %}
+          <div class="col-md-6">
+            <label class="form-label" for="{{ form.slug.id_for_label }}">Slug</label>
+            {{ form.slug }}
+            {{ form.slug.errors }}
+          </div>
+        {% endif %}
+        {% if form.is_active %}
+          <div class="col-md-6 d-flex align-items-end">
+            <div class="form-check mb-2">
+              {{ form.is_active }}
+              <label class="form-check-label" for="{{ form.is_active.id_for_label }}">Aktiv</label>
+            </div>
+          </div>
+        {% endif %}
+        <div class="col-12">
+          <label class="form-label" for="{{ form.description.id_for_label }}">Beschreibung</label>
+          {{ form.description }}
+          {{ form.description.errors }}
+        </div>
+        <div class="col-12">
+          <div class="metadata-label mb-2">Berechtigungen</div>
+          <div class="row">
+            {% for checkbox in form.permissions %}
+              <div class="col-md-6">
+                <div class="form-check">
+                  {{ checkbox.tag }}
+                  <label class="form-check-label" for="{{ checkbox.id_for_label }}">
+                    {{ checkbox.choice_label }}
+                  </label>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+          {{ form.permissions.errors }}
+        </div>
+        <div class="col-12">
+          <div class="metadata-label mb-2">Dokumentenbox-Zugriff</div>
+          <div class="form-check mb-2">
+            {{ form.can_access_all_document_spaces }}
+            <label class="form-check-label" for="{{ form.can_access_all_document_spaces.id_for_label }}">
+              {{ form.can_access_all_document_spaces.label }}
+            </label>
+          </div>
+          {% if form.document_spaces.help_text %}
+            <div class="form-text mb-2">{{ form.document_spaces.help_text }}</div>
+          {% endif %}
+          <div class="row">
+            {% for checkbox in form.document_spaces %}
+              <div class="col-md-6">
+                <div class="form-check">
+                  {{ checkbox.tag }}
+                  <label class="form-check-label" for="{{ checkbox.id_for_label }}">
+                    {{ checkbox.choice_label }}
+                  </label>
+                </div>
+              </div>
+            {% empty %}
+              <div class="col-12 text-secondary">Noch keine Dokumentenboxen vorhanden.</div>
+            {% endfor %}
+          </div>
+          {{ form.can_access_all_document_spaces.errors }}
+          {{ form.document_spaces.errors }}
+        </div>
+      </div>
+      <button class="btn btn-primary mt-4" type="submit">{{ submit_label }}</button>
+    </form>
+  </div>
+{% endblock %}

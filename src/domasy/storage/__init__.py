@@ -1,0 +1,1 @@
+"""Immutable object storage integration."""

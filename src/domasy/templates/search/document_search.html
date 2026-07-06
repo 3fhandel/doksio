@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Suche | DoMaSy{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container-fluid px-4">
+      <div class="d-flex align-items-center justify-content-between mb-4">
+        <div>
+          <h1 class="h3 mb-1">Suche</h1>
+          <p class="text-secondary mb-0">{{ tenant.name }}</p>
+        </div>
+        <a class="btn btn-primary" href="{% url 'documents:upload' tenant.slug %}">
+          {% include "includes/icons.html" with icon="upload" %}
+          <span class="ms-1">Hochladen</span>
+        </a>
+      </div>
+
+      <div class="row g-4">
+        <aside class="col-lg-3">
+          <section class="app-card p-4">
+            <form method="get">
+              <div class="mb-3">
+                <label class="form-label" for="{{ form.q.id_for_label }}">{{ form.q.label }}</label>
+                {{ form.q }}
+              </div>
+              <div class="mb-3">
+                <label class="form-label" for="{{ form.tags.id_for_label }}">{{ form.tags.label }}</label>
+                {{ form.tags }}
+              </div>
+              <div class="row g-2 mb-3">
+                <div class="col-6">
+                  <label class="form-label" for="{{ form.document_date_from.id_for_label }}">{{ form.document_date_from.label }}</label>
+                  {{ form.document_date_from }}
+                </div>
+                <div class="col-6">
+                  <label class="form-label" for="{{ form.document_date_to.id_for_label }}">{{ form.document_date_to.label }}</label>
+                  {{ form.document_date_to }}
+                </div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label" for="{{ form.box.id_for_label }}">{{ form.box.label }}</label>
+                {{ form.box }}
+              </div>
+              <div class="form-check mb-3">
+                {{ form.include_child_boxes }}
+                <label class="form-check-label" for="{{ form.include_child_boxes.id_for_label }}">{{ form.include_child_boxes.label }}</label>
+              </div>
+              <div class="mb-3">
+                <label class="form-label" for="{{ form.ocr_status.id_for_label }}">{{ form.ocr_status.label }}</label>
+                {{ form.ocr_status }}
+              </div>
+              <div class="mb-4">
+                <label class="form-label" for="{{ form.sort.id_for_label }}">{{ form.sort.label }}</label>
+                {{ form.sort }}
+              </div>
+              <div class="d-grid gap-2">
+                <button class="btn btn-primary" type="submit">
+                  {% include "includes/icons.html" with icon="search" %}
+                  <span class="ms-1">Suchen</span>
+                </button>
+                <a class="btn btn-outline-secondary" href="{% url 'search:documents' tenant.slug %}">Zurücksetzen</a>
+              </div>
+            </form>
+          </section>
+        </aside>
+
+        <section class="col-lg-9">
+          <div class="d-flex align-items-center justify-content-between mb-3">
+            <h2 class="h5 mb-0">Ergebnisse</h2>
+            <span class="text-secondary small">{{ documents_count }} Treffer</span>
+          </div>
+          {% if documents %}
+            <div class="app-card">
+              <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th>Titel</th>
+                      <th>Box</th>
+                      <th>Tags</th>
+                      <th>Belegdatum</th>
+                      <th>Dateien</th>
+                      <th>Angelegt</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for document in documents %}
+                      <tr>
+                        <td>
+                          <a class="fw-medium text-decoration-none" href="{% url 'documents:detail' tenant.slug document.id %}">
+                            {% include "includes/icons.html" with icon="file" %}
+                            <span class="ms-1">{{ document.title }}</span>
+                          </a>
+                        </td>
+                        <td><span class="badge text-bg-light">{{ document.space.path }}</span></td>
+                        <td>
+                          {% for assignment in document.tag_assignments.all %}
+                            <span class="badge text-bg-light me-1">{{ assignment.tag.name }}</span>
+                          {% empty %}
+                            <span class="text-secondary">-</span>
+                          {% endfor %}
+                        </td>
+                        <td>{{ document.document_date|date:"d.m.Y"|default:"-" }}</td>
+                        <td>{{ document.files.count }}</td>
+                        <td>{{ document.created_at|date:"d.m.Y H:i" }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              {% include "includes/pagination.html" with page_obj=documents_page_obj page_param="page" label="Suchergebnisseiten" %}
+            </div>
+          {% elif has_search %}
+            <div class="app-card p-4 text-center">
+              <h2 class="h5">Keine Treffer</h2>
+              <p class="text-secondary mb-0">Passe Suchbegriff oder Filter an.</p>
+            </div>
+          {% else %}
+            <div class="app-card p-4 text-center">
+              <h2 class="h5">Suche starten</h2>
+              <p class="text-secondary mb-0">Nutze Suchbegriff und Filter, um Dokumente einzugrenzen.</p>
+            </div>
+          {% endif %}
+        </section>
+      </div>
+    </div>
+  </main>
+{% endblock %}
