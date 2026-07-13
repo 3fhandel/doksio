@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core import mail
+from django.test import override_settings
 from django.urls import reverse
 
 from doksio.accounts.models import TenantMembership, UserProfile
@@ -201,6 +203,153 @@ def test_tenant_admin_can_update_member_from_settings(client):
     target_membership.refresh_from_db()
     assert target_membership.role == roles["viewer"]
     assert target_membership.is_active is False
+
+
+@pytest.mark.django_db
+@override_settings(
+    DOKSIO_PUBLIC_BASE_URL="https://doksio.example.test",
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+)
+def test_tenant_admin_can_send_password_reset_mail(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    admin_user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    target_user = get_user_model().objects.create_user(
+        username="alice",
+        email="alice@example.test",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=admin_user,
+        role=roles["admin"],
+    )
+    target_membership = TenantMembership.objects.create(
+        tenant=tenant,
+        user=target_user,
+        role=roles["member"],
+    )
+    client.force_login(admin_user)
+
+    response = client.post(
+        reverse(
+            "documents:settings_member_send_password_reset",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "membership_id": target_membership.id,
+            },
+        )
+    )
+
+    assert response.status_code == 302
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == ["alice@example.test"]
+    assert "https://doksio.example.test/t/acme/password-reset/" in mail.outbox[0].body
+    assert AuditEvent.objects.filter(
+        event_type="tenant_membership.password_reset_email_sent",
+        object_id=str(target_membership.id),
+    ).exists()
+
+
+@pytest.mark.django_db
+@override_settings(
+    DOKSIO_PUBLIC_BASE_URL="https://doksio.example.test",
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+)
+def test_tenant_password_reset_link_sets_new_password(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    admin_user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    target_user = get_user_model().objects.create_user(
+        username="alice",
+        email="alice@example.test",
+        password="old-secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=admin_user,
+        role=roles["admin"],
+    )
+    target_membership = TenantMembership.objects.create(
+        tenant=tenant,
+        user=target_user,
+        role=roles["member"],
+    )
+    client.force_login(admin_user)
+
+    client.post(
+        reverse(
+            "documents:settings_member_send_password_reset",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "membership_id": target_membership.id,
+            },
+        )
+    )
+    reset_url = next(
+        line
+        for line in mail.outbox[0].body.splitlines()
+        if line.startswith("https://doksio.example.test/t/acme/password-reset/")
+    )
+    reset_path = reset_url.replace("https://doksio.example.test", "")
+    client.logout()
+
+    response = client.post(
+        reset_path,
+        {
+            "new_password1": "New-local-pass-42",
+            "new_password2": "New-local-pass-42",
+        },
+    )
+
+    target_user.refresh_from_db()
+    assert response.status_code == 302
+    assert response.url == reverse(
+        "accounts:tenant_login",
+        kwargs={"tenant_slug": tenant.slug},
+    )
+    assert target_user.check_password("New-local-pass-42") is True
+
+
+@pytest.mark.django_db
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_tenant_admin_cannot_send_password_reset_without_email(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    admin_user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    target_user = get_user_model().objects.create_user(username="alice")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=admin_user,
+        role=roles["admin"],
+    )
+    target_membership = TenantMembership.objects.create(
+        tenant=tenant,
+        user=target_user,
+        role=roles["member"],
+    )
+    client.force_login(admin_user)
+
+    response = client.post(
+        reverse(
+            "documents:settings_member_send_password_reset",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "membership_id": target_membership.id,
+            },
+        )
+    )
+
+    assert response.status_code == 302
+    assert mail.outbox == []
 
 
 @pytest.mark.django_db

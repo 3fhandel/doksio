@@ -17,8 +17,8 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 from doksio.audit.services import RecordAuditEvent
-from doksio.documents.metadata import effective_metadata_fields
 from doksio.documents.mentions import display_name_for_user, mentioned_users_from_text
+from doksio.documents.metadata import effective_metadata_fields
 from doksio.documents.models import (
     Document,
     DocumentComment,
@@ -563,6 +563,7 @@ class CreateDocumentFromUpload:
     content_type: str
     created_by: get_user_model() | None = None
     auto_start_ocr: bool | None = None
+    ocr_title_policy: dict | None = None
     auto_extract_einvoice: bool = True
     auto_start_workflows: bool = True
     document_date: date | None = None
@@ -672,6 +673,7 @@ class CreateDocumentFromUpload:
                     lambda: StartOcrForDocumentFile(
                         document_file=document_file,
                         actor=self.created_by,
+                        title_policy=self.ocr_title_policy,
                     ).execute()
                 )
 

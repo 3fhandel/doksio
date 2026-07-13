@@ -135,6 +135,30 @@ def extract_document_title(text: str) -> str | None:
     return None
 
 
+def title_from_ocr_policy(text: str, policy: dict | None) -> str | None:
+    policy = policy or {}
+    strategy = policy.get("strategy", "automatic")
+    if strategy == "disabled":
+        return None
+    if strategy == "regex":
+        pattern = str(policy.get("regex_search", "")).strip()
+        if not pattern:
+            return None
+        match = re.search(pattern, text, flags=re.MULTILINE)
+        if match is None:
+            return None
+        replacement = str(policy.get("regex_replace", ""))
+        if replacement:
+            title = match.expand(replacement)
+        elif match.groups():
+            title = match.group(1)
+        else:
+            title = match.group(0)
+        title = _normalize_title_candidate(title)
+        return title[:255] if title else None
+    return extract_document_title(text)
+
+
 class LocalOcrProvider:
     """Local OCR/text extraction adapter backed by CLI tools."""
 
@@ -450,6 +474,7 @@ class LocalOcrProvider:
 class CreateOcrJob:
     document_file: DocumentFile
     actor: get_user_model() | None = None
+    metadata: dict | None = None
 
     @transaction.atomic
     def execute(self) -> OcrJob:
@@ -457,6 +482,7 @@ class CreateOcrJob:
             tenant=self.document_file.tenant,
             document_file=self.document_file,
             language=getattr(settings, "OCR_LANGUAGE", "deu+eng"),
+            metadata=self.metadata or {},
             created_by=self.actor,
         )
         RecordAuditEvent(
@@ -538,7 +564,10 @@ class RunOcrJob:
         }:
             return
 
-        title = extract_document_title(extraction.text)
+        title = title_from_ocr_policy(
+            extraction.text,
+            self.job.metadata.get("title_policy", {}),
+        )
         if title is None:
             return
 
@@ -628,12 +657,14 @@ class StartOcrForDocumentFile:
     document_file: DocumentFile
     actor: get_user_model() | None = None
     run_inline: bool | None = None
+    title_policy: dict | None = None
 
     def execute(self) -> OcrJob:
         document_file = self._ocr_document_file()
         job = CreateOcrJob(
             document_file=document_file,
             actor=self.actor,
+            metadata={"title_policy": self.title_policy or {}},
         ).execute()
         should_run_inline = (
             getattr(settings, "OCR_RUN_INLINE", False)

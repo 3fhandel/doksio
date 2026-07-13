@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from django.contrib import messages
-from django.contrib.auth import login, logout, update_session_auth_hash
+from django.contrib.auth import get_user_model, login, logout, update_session_auth_hash
+from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.encoding import force_str
+from django.utils.http import url_has_allowed_host_and_scheme, urlsafe_base64_decode
 
 from doksio.accounts.forms import (
     KEYBOARD_SHORTCUT_ACTIONS,
+    StyledSetPasswordForm,
     SystemLoginForm,
     TenantLoginForm,
     UserProfileForm,
@@ -83,6 +86,53 @@ def tenant_login(request: HttpRequest, tenant_slug: str) -> HttpResponse:
 def sign_out(request: HttpRequest) -> HttpResponse:
     logout(request)
     return redirect("accounts:system_login")
+
+
+def tenant_password_reset_confirm(
+    request: HttpRequest,
+    tenant_slug: str,
+    uidb64: str,
+    token: str,
+) -> HttpResponse:
+    tenant = get_object_or_404(Tenant, slug=tenant_slug, is_active=True)
+    user_model = get_user_model()
+    user = None
+    try:
+        user_id = force_str(urlsafe_base64_decode(uidb64))
+        user = user_model.objects.get(pk=user_id)
+    except (TypeError, ValueError, OverflowError, user_model.DoesNotExist):
+        user = None
+
+    if user is None or not default_token_generator.check_token(user, token):
+        return render(
+            request,
+            "accounts/password_reset_invalid.html",
+            {
+                "tenant": tenant,
+            },
+            status=400,
+        )
+
+    if request.method == "POST":
+        form = StyledSetPasswordForm(user, request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(
+                request,
+                "Das Passwort wurde geändert. Du kannst dich jetzt anmelden.",
+            )
+            return redirect("accounts:tenant_login", tenant_slug=tenant.slug)
+    else:
+        form = StyledSetPasswordForm(user)
+
+    return render(
+        request,
+        "accounts/password_reset_confirm.html",
+        {
+            "tenant": tenant,
+            "form": form,
+        },
+    )
 
 
 def _profile_context(

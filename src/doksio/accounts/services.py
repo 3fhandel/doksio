@@ -3,8 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.tokens import default_token_generator
+from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
+from django.template.loader import render_to_string
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 
 from doksio.accounts.models import (
     Notification,
@@ -16,6 +22,7 @@ from doksio.accounts.models import (
 from doksio.accounts.permissions import DEFAULT_ROLE_PERMISSIONS, PERMISSION_DEFINITIONS
 from doksio.audit.services import RecordAuditEvent
 from doksio.documents.models import DocumentSpace
+from doksio.project.url_helpers import build_public_url
 from doksio.tenancy.models import Tenant
 
 
@@ -215,6 +222,64 @@ class UpdateTenantMembership:
         ).execute()
 
         return self.membership
+
+
+@dataclass(frozen=True)
+class SendTenantPasswordResetEmail:
+    tenant: Tenant
+    membership: TenantMembership
+    actor: get_user_model() | None = None
+
+    def execute(self) -> None:
+        if self.membership.tenant_id != self.tenant.id:
+            raise ValueError("Membership does not belong to tenant.")
+        user = self.membership.user
+        if not user.email:
+            raise ValueError("Für diesen Benutzer ist keine E-Mail-Adresse hinterlegt.")
+
+        uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        reset_path = reverse(
+            "accounts:tenant_password_reset_confirm",
+            kwargs={
+                "tenant_slug": self.tenant.slug,
+                "uidb64": uidb64,
+                "token": token,
+            },
+        )
+        reset_url = build_public_url(reset_path)
+        context = {
+            "tenant": self.tenant,
+            "user": user,
+            "reset_url": reset_url,
+            "actor": self.actor,
+        }
+        subject = render_to_string(
+            "accounts/password_reset_email_subject.txt",
+            context,
+        ).strip()
+        body = render_to_string(
+            "accounts/password_reset_email.txt",
+            context,
+        )
+        message = EmailMultiAlternatives(
+            subject=subject,
+            body=body,
+            to=[user.email],
+        )
+        message.send()
+        RecordAuditEvent(
+            tenant=self.tenant,
+            actor=self.actor,
+            event_type="tenant_membership.password_reset_email_sent",
+            object_type="accounts.TenantMembership",
+            object_id=str(self.membership.id),
+            data={
+                "user_id": user.id,
+                "username": user.get_username(),
+                "email": user.email,
+            },
+        ).execute()
 
 
 @dataclass(frozen=True)

@@ -10,6 +10,11 @@ urlpatterns = [
     path("s/", views.system_login, name="system_login"),
     path("s/logout/", views.sign_out, name="logout"),
     path("t/<slug:tenant_slug>/", views.tenant_login, name="tenant_login"),
+    path(
+        "t/<slug:tenant_slug>/password-reset/<uidb64>/<token>/",
+        views.tenant_password_reset_confirm,
+        name="tenant_password_reset_confirm",
+    ),
     path("t/<slug:tenant_slug>/profile/", views.profile, name="profile"),
     path(
         "t/<slug:tenant_slug>/profile/account/",

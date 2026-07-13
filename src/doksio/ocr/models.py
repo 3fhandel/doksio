@@ -32,6 +32,7 @@ class OcrJob(models.Model):
     language = models.CharField(max_length=40, blank=True)
     extracted_text = models.TextField(blank=True)
     error_message = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         blank=True,

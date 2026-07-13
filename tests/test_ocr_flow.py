@@ -23,6 +23,7 @@ from doksio.ocr.services import (
     RunOcrJob,
     StartOcrForDocumentFile,
     extract_document_title,
+    title_from_ocr_policy,
 )
 from doksio.tenancy.models import Tenant
 
@@ -188,6 +189,29 @@ def test_extract_document_title_ignores_form_field_labels():
     )
 
 
+def test_title_from_ocr_policy_uses_regex_search_replace():
+    title = title_from_ocr_policy(
+        "Lieferant: Acme GmbH\nRechnung Nr. 4711 vom 13.07.2026",
+        {
+            "strategy": "regex",
+            "regex_search": r"Rechnung Nr\. (\d+) vom (\d{2}\.\d{2}\.\d{4})",
+            "regex_replace": r"Rechnung \1 vom \2",
+        },
+    )
+
+    assert title == "Rechnung 4711 vom 13.07.2026"
+
+
+def test_title_from_ocr_policy_can_disable_title_prefill():
+    assert (
+        title_from_ocr_policy(
+            "Betreff: Wartungsvertrag 2026",
+            {"strategy": "disabled"},
+        )
+        is None
+    )
+
+
 @pytest.mark.django_db
 def test_run_ocr_job_stores_extracted_text_and_audit_event():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
@@ -338,6 +362,76 @@ def test_run_ocr_job_updates_existing_ocr_title():
     document.refresh_from_db()
     assert document.title == "Besserer OCR Titel"
     assert document.title_source == Document.TitleSource.OCR
+
+
+@pytest.mark.django_db
+def test_run_ocr_job_uses_stored_regex_title_policy():
+    class RegexOcrProvider:
+        def extract(self, document_file):
+            return OcrExtraction(
+                text="Rechnung Nr. 4711 vom 13.07.2026",
+                engine="test-provider",
+                language="deu",
+            )
+
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    document, document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="",
+        space=space,
+        file_obj=BytesIO(b"invoice content"),
+        original_filename="scan-001.pdf",
+        content_type="application/pdf",
+    ).execute()
+    job = CreateOcrJob(
+        document_file=document_file,
+        metadata={
+            "title_policy": {
+                "strategy": "regex",
+                "regex_search": r"Rechnung Nr\. (\d+) vom (\d{2}\.\d{2}\.\d{4})",
+                "regex_replace": r"Rechnung \1 vom \2",
+            }
+        },
+    ).execute()
+
+    RunOcrJob(job=job, provider=RegexOcrProvider()).execute()
+
+    document.refresh_from_db()
+    assert document.title == "Rechnung 4711 vom 13.07.2026"
+    assert document.title_source == Document.TitleSource.OCR
+
+
+@pytest.mark.django_db
+def test_run_ocr_job_respects_disabled_title_policy():
+    class TitledOcrProvider:
+        def extract(self, document_file):
+            return OcrExtraction(
+                text="Betreff: OCR Titel",
+                engine="test-provider",
+                language="deu",
+            )
+
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    document, document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="",
+        space=space,
+        file_obj=BytesIO(b"invoice content"),
+        original_filename="scan-001.pdf",
+        content_type="application/pdf",
+    ).execute()
+    job = CreateOcrJob(
+        document_file=document_file,
+        metadata={"title_policy": {"strategy": "disabled"}},
+    ).execute()
+
+    RunOcrJob(job=job, provider=TitledOcrProvider()).execute()
+
+    document.refresh_from_db()
+    assert document.title == "scan-001"
+    assert document.title_source == Document.TitleSource.FILENAME
 
 
 @pytest.mark.django_db

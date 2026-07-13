@@ -52,9 +52,17 @@
                 {% endif %}
               </td>
               <td class="text-end">
-                <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:settings_member_edit' tenant.slug membership.id %}">
-                  Bearbeiten
-                </a>
+                <div class="d-inline-flex flex-wrap justify-content-end gap-2">
+                  <form method="post" action="{% url 'documents:settings_member_send_password_reset' tenant.slug membership.id %}">
+                    {% csrf_token %}
+                    <button class="btn btn-sm btn-outline-secondary" type="submit" {% if not membership.user.email %}disabled{% endif %}>
+                      Reset-Mail
+                    </button>
+                  </form>
+                  <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:settings_member_edit' tenant.slug membership.id %}">
+                    Bearbeiten
+                  </a>
+                </div>
               </td>
             </tr>
           {% empty %}

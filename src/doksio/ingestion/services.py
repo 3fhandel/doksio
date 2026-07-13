@@ -16,6 +16,15 @@ from doksio.ingestion.models import ImportJob, ImportSource
 from doksio.tenancy.models import Tenant
 
 
+def ocr_title_policy_from_source(source: ImportSource | None) -> dict:
+    if source is None:
+        return {"strategy": ImportSource.OcrTitleStrategy.AUTOMATIC}
+    return (source.settings or {}).get(
+        "title",
+        {"strategy": ImportSource.OcrTitleStrategy.AUTOMATIC},
+    )
+
+
 @dataclass(frozen=True)
 class ResolveImportDocumentSpace:
     tenant: Tenant
@@ -142,6 +151,7 @@ class ImportDocument:
                 auto_start_ocr=(
                     self.source.auto_start_ocr if self.source is not None else None
                 ),
+                ocr_title_policy=ocr_title_policy_from_source(self.source),
                 auto_extract_einvoice=True,
                 auto_start_workflows=(
                     self.source.start_workflows if self.source is not None else True

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django import forms
 from django.contrib.auth import get_user_model
-from django.contrib.auth.forms import AuthenticationForm
+from django.contrib.auth.forms import AuthenticationForm, SetPasswordForm
 from django.contrib.auth.password_validation import validate_password
 
 from doksio.accounts.models import (
@@ -138,6 +138,23 @@ class TenantLoginForm(StyledAuthenticationForm):
                 self.error_messages["not_tenant_member"],
                 code="not_tenant_member",
             )
+
+
+class StyledSetPasswordForm(SetPasswordForm):
+    def __init__(self, user, *args, **kwargs) -> None:
+        super().__init__(user, *args, **kwargs)
+        self.fields["new_password1"].widget.attrs.update(
+            {
+                "class": "form-control",
+                "autocomplete": "new-password",
+            }
+        )
+        self.fields["new_password2"].widget.attrs.update(
+            {
+                "class": "form-control",
+                "autocomplete": "new-password",
+            }
+        )
 
 
 class UserProfileForm(forms.Form):

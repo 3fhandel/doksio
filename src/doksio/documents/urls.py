@@ -58,6 +58,11 @@ urlpatterns = [
         name="settings_member_edit",
     ),
     path(
+        "t/<slug:tenant_slug>/settings/users/<int:membership_id>/send-password-reset/",
+        views.tenant_settings_member_send_password_reset,
+        name="settings_member_send_password_reset",
+    ),
+    path(
         "t/<slug:tenant_slug>/settings/roles/",
         views.tenant_settings_roles,
         name="settings_roles",

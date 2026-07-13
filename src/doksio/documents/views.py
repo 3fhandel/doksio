@@ -24,6 +24,7 @@ from doksio.accounts.permissions import TenantPermissions
 from doksio.accounts.services import (
     AddTenantMember,
     CreateTenantRole,
+    SendTenantPasswordResetEmail,
     UpdateTenantMembership,
     UpdateTenantRole,
 )
@@ -33,23 +34,23 @@ from doksio.documents.forms import (
     DocumentCommentForm,
     DocumentCoreMetadataForm,
     DocumentDeleteForm,
-    DocumentShareAttachmentForm,
-    DocumentSpaceDeleteForm,
     DocumentMetadataFieldForm,
     DocumentMetadataForm,
+    DocumentShareAttachmentForm,
+    DocumentSpaceDeleteForm,
     DocumentSpaceForm,
     DocumentSpaceUpdateForm,
     DocumentTagForm,
     DocumentUploadForm,
 )
+from doksio.documents.mentions import mention_suggestions_for_tenant
+from doksio.documents.metadata import effective_metadata_fields
 from doksio.documents.models import (
     Document,
     DocumentFile,
     DocumentMetadataField,
     DocumentSpace,
 )
-from doksio.documents.metadata import effective_metadata_fields
-from doksio.documents.mentions import mention_suggestions_for_tenant
 from doksio.documents.policies import (
     can_administer_tenant,
     can_delete_document,
@@ -80,7 +81,10 @@ from doksio.documents.services import (
 )
 from doksio.ingestion.forms import ImportSourceForm, TenantSmtpSettingsForm
 from doksio.ingestion.models import ImportJob, ImportSource, TenantSmtpSettings
-from doksio.ingestion.services import ResolveManualUploadDocumentSpace
+from doksio.ingestion.services import (
+    ResolveManualUploadDocumentSpace,
+    ocr_title_policy_from_source,
+)
 from doksio.ocr.services import StartOcrForDocumentFile
 from doksio.pagination import paginate_queryset
 from doksio.project.url_helpers import build_public_url
@@ -980,6 +984,7 @@ def document_upload(request: HttpRequest, tenant_slug: str) -> HttpResponse:
                             if upload_source is not None
                             else None
                         ),
+                        ocr_title_policy=ocr_title_policy_from_source(upload_source),
                         auto_start_workflows=(
                             upload_source.start_workflows
                             if upload_source is not None
@@ -2283,6 +2288,38 @@ def tenant_settings_member_edit(
             "active_settings_section": "members",
         },
     )
+
+
+def tenant_settings_member_send_password_reset(
+    request: HttpRequest,
+    tenant_slug: str,
+    membership_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+    if request.method != "POST":
+        return redirect("documents:settings_members", tenant_slug=tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_members(request.user, tenant):
+        raise PermissionDenied
+
+    membership = get_object_or_404(
+        TenantMembership.objects.select_related("tenant", "user"),
+        id=membership_id,
+        tenant=tenant,
+    )
+    try:
+        SendTenantPasswordResetEmail(
+            tenant=tenant,
+            membership=membership,
+            actor=request.user,
+        ).execute()
+    except ValueError as error:
+        messages.error(request, str(error))
+    else:
+        messages.success(request, "Passwort-Reset-Mail wurde gesendet.")
+    return redirect("documents:settings_members", tenant_slug=tenant.slug)
 
 
 def tenant_settings_roles(

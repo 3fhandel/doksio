@@ -14,6 +14,7 @@ from doksio.documents.models import Document, DocumentFile, DocumentTagAssignmen
 from doksio.documents.services import CreateDocumentSpace, DuplicateDocumentError
 from doksio.ingestion.models import ImportJob, ImportSource, TenantSmtpSettings
 from doksio.ingestion.services import ImportDocument
+from doksio.ocr.models import OcrJob
 from doksio.tenancy.models import Tenant
 
 MINIMAL_PDF_BYTES = b"%PDF-1.4\n% Doksio test PDF\n%%EOF\n"
@@ -455,6 +456,11 @@ def test_tenant_admin_can_create_import_source_from_import_settings(client):
     assert import_source.document_space == space
     assert import_source.default_tags == ["api", "eingang"]
     assert import_source.settings == {
+        "title": {
+            "strategy": ImportSource.OcrTitleStrategy.AUTOMATIC,
+            "regex_search": "",
+            "regex_replace": "",
+        },
         "common": {
             "max_file_size_mb": 25,
             "allowed_content_types": ["application/pdf"],
@@ -670,6 +676,41 @@ def test_http_import_endpoint_routes_document_space_by_filename_rule(client):
     assert response.status_code == 201
     assert document.space == invoice_space
     assert import_job.document_space == invoice_space
+
+
+@pytest.mark.django_db(transaction=True)
+def test_import_document_passes_source_ocr_title_policy_to_ocr_job(monkeypatch):
+    monkeypatch.setattr("doksio.ocr.tasks.run_ocr_job.delay", lambda job_id: None)
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="API Eingang",
+        source_type=ImportSource.SourceType.HTTP_API,
+        settings={
+            "title": {
+                "strategy": ImportSource.OcrTitleStrategy.REGEX,
+                "regex_search": r"Rechnung Nr\. (\d+)",
+                "regex_replace": r"Rechnung \1",
+            }
+        },
+        auto_start_ocr=True,
+        extract_einvoice=False,
+        start_workflows=False,
+    )
+
+    document, _import_job = ImportDocument(
+        tenant=tenant,
+        source=source,
+        document_space=space,
+        file_obj=BytesIO(MINIMAL_PDF_BYTES),
+        original_filename="rechnung.pdf",
+        content_type="application/pdf",
+    ).execute()
+
+    ocr_job = OcrJob.objects.get(document_file__document=document)
+    assert ocr_job.metadata["title_policy"] == source.settings["title"]
 
 
 @pytest.mark.django_db
