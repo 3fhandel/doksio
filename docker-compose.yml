@@ -10,6 +10,14 @@ x-app-environment: &app-environment
   POSTGRES_HOST: ${POSTGRES_HOST:-db}
   POSTGRES_PORT: ${POSTGRES_PORT:-5432}
   REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  OCR_LANGUAGE: ${OCR_LANGUAGE:-deu+eng}
+  OCR_AUTO_START_ON_UPLOAD: ${OCR_AUTO_START_ON_UPLOAD:-true}
+  OCR_RUN_INLINE: ${OCR_RUN_INLINE:-false}
+  OCR_TESSERACT_TIMEOUT_SECONDS: ${OCR_TESSERACT_TIMEOUT_SECONDS:-120}
+  OCR_IMAGE_MAX_EDGE: ${OCR_IMAGE_MAX_EDGE:-3000}
+  OCR_IMAGE_MAX_PAGES: ${OCR_IMAGE_MAX_PAGES:-25}
+  OCR_IMAGE_ENHANCED_MAX_PAGES: ${OCR_IMAGE_ENHANCED_MAX_PAGES:-1}
+  OMP_THREAD_LIMIT: ${OMP_THREAD_LIMIT:-1}
   S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
   S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-doksio}
   S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-doksio-secret}
@@ -41,7 +49,14 @@ services:
       context: .
       args:
         INSTALL_DEV: "true"
-    command: celery -A doksio.project worker --loglevel=INFO
+    command:
+      - /bin/sh
+      - -c
+      - |
+        exec celery -A doksio.project worker \
+          --loglevel=INFO \
+          --concurrency=$${CELERY_WORKER_CONCURRENCY:-1} \
+          --prefetch-multiplier=$${CELERY_WORKER_PREFETCH_MULTIPLIER:-1}
     environment: *app-environment
     volumes:
       - .:/app

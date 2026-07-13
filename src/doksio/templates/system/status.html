@@ -68,6 +68,20 @@
         </div>
       </section>
 
+      <section class="app-card system-status-storage mb-4">
+        <div>
+          <div class="metadata-label">Object Storage</div>
+          <h2 class="h5 mb-1">Doksio belegt {{ status.storage.used_human }}</h2>
+          <p class="text-secondary mb-0">
+            {{ status.storage.file_count }} gespeicherte Dateiobjekte. Freier Speicher:
+            {{ status.storage.free_human }}.
+          </p>
+        </div>
+        <div class="system-status-storage-note">
+          {{ status.storage.free_note }}
+        </div>
+      </section>
+
       <div class="system-status-grid mb-4">
         <section class="app-card system-status-panel">
           <div class="reports-panel-header">

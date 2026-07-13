@@ -177,7 +177,8 @@ class SearchDocuments:
             documents = documents.filter(status=Document.Status.ACTIVE)
 
         query = self.filters.get("q", "")
-        if query.strip() and connection.vendor == "postgresql":
+        has_text_query = bool(query.strip())
+        if has_text_query and connection.vendor == "postgresql":
             search_query = _postgres_search_query(query)
             documents = documents.filter(search_index__search_vector=search_query)
             documents = documents.annotate(
@@ -241,6 +242,8 @@ class SearchDocuments:
                 workflow_open_count=0,
             )
         sort = self.filters.get("sort") or "relevance"
+        if sort == "relevance" and not has_text_query:
+            sort = "created_desc"
         return self._sort(documents, sort=sort)
 
     def _apply_metadata_filters(

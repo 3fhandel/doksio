@@ -9,10 +9,10 @@ from celery.exceptions import CeleryError
 from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import connection
-from django.db.models import Count
+from django.db.models import Count, Sum
 from django.utils import timezone
 
-from doksio.documents.models import Document
+from doksio.documents.models import Document, DocumentFile
 from doksio.ingestion.models import ImportJob, ImportSource
 from doksio.ocr.models import OcrJob
 from doksio.project.celery import app as celery_app
@@ -140,11 +140,23 @@ def _status_rows(counts: dict[str, int], statuses) -> list[dict[str, Any]]:
     ]
 
 
+def _format_bytes(byte_count: int) -> str:
+    value = float(byte_count)
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if value < 1024 or unit == "TB":
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} TB"
+
+
 def build_system_status(*, tenant: Tenant | None = None) -> dict[str, Any]:
     now = timezone.now()
     last_24h = now - timedelta(hours=24)
 
     documents = Document.objects.all()
+    document_files = DocumentFile.objects.all()
     import_jobs = ImportJob.objects.all()
     ocr_jobs = OcrJob.objects.all()
     import_sources = ImportSource.objects.all()
@@ -154,6 +166,7 @@ def build_system_status(*, tenant: Tenant | None = None) -> dict[str, Any]:
 
     if tenant is not None:
         documents = documents.filter(tenant=tenant)
+        document_files = document_files.filter(tenant=tenant)
         import_jobs = import_jobs.filter(tenant=tenant)
         ocr_jobs = ocr_jobs.filter(tenant=tenant)
         import_sources = import_sources.filter(tenant=tenant)
@@ -188,6 +201,7 @@ def build_system_status(*, tenant: Tenant | None = None) -> dict[str, Any]:
         .select_related("tenant", "document_file", "document_file__document")
         .order_by("-updated_at", "-id")[:8]
     )
+    storage_used_bytes = document_files.aggregate(total=Sum("byte_size"))["total"] or 0
 
     return {
         "generated_at": now,
@@ -203,6 +217,16 @@ def build_system_status(*, tenant: Tenant | None = None) -> dict[str, Any]:
             "open_workflow_tasks": workflow_tasks.filter(
                 status=WorkflowTask.Status.OPEN,
             ).count(),
+        },
+        "storage": {
+            "used_bytes": storage_used_bytes,
+            "used_human": _format_bytes(storage_used_bytes),
+            "file_count": document_files.count(),
+            "free_human": "Nicht über S3 verfügbar",
+            "free_note": (
+                "Die normale S3-API liefert keinen freien Speicherplatz. "
+                "Für MinIO braucht es dafür Admin- oder Host-Monitoring."
+            ),
         },
         "imports": {
             "status_rows": _status_rows(import_counts, ImportJob.Status.choices),

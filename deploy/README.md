@@ -25,6 +25,9 @@ Doksio deployment.
 
 - Do not use `DJANGO_ALLOWED_HOSTS=*` in production.
 - Keep PostgreSQL and MinIO volumes backed up.
+- OCR is CPU-heavy. Start with `CELERY_WORKER_CONCURRENCY=1`,
+  `CELERY_WORKER_PREFETCH_MULTIPLIER=1` and `OMP_THREAD_LIMIT=1`; raise these
+  only after watching CPU load during larger imports.
 - The default stack builds the Doksio image directly from the Git repository.
 - If `web` logs show missing application files, verify that the Stack was
   deployed from the repository root and that the compose path is exactly

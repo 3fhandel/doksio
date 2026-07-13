@@ -2060,6 +2060,24 @@ body {
   padding: 1rem;
 }
 
+.system-status-storage {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1rem;
+}
+
+.system-status-storage-note {
+  background: rgb(239 246 255);
+  border: 1px solid rgb(191 219 254);
+  border-radius: 0.5rem;
+  color: rgb(30 64 175);
+  flex: 0 1 30rem;
+  font-size: 0.875rem;
+  padding: 0.7rem 0.85rem;
+}
+
 .system-status-check {
   border-top: 3px solid rgb(203 213 225);
 }
@@ -2270,9 +2288,14 @@ body {
 
   .reports-header,
   .reports-period,
-  .system-status-header {
+  .system-status-header,
+  .system-status-storage {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .system-status-storage-note {
+    flex-basis: auto;
   }
 
   .reports-period .form-select {

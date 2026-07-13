@@ -467,6 +467,25 @@ def test_search_documents_filters_by_workflow_status():
 
 
 @pytest.mark.django_db
+def test_search_documents_blank_query_does_not_order_by_missing_rank(monkeypatch):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    document, _document_file = _create_document(
+        tenant,
+        space,
+        "Rechnung ohne Suchbegriff",
+    )
+    monkeypatch.setattr("doksio.search.services.connection.vendor", "postgresql")
+
+    results = SearchDocuments(
+        tenant=tenant,
+        filters={"q": "", "sort": "relevance"},
+    ).execute()
+
+    assert list(results) == [document]
+
+
+@pytest.mark.django_db
 def test_search_documents_filters_deleted_documents():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
