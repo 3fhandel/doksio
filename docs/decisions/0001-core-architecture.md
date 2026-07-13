@@ -6,14 +6,14 @@ Accepted
 
 ## Context
 
-DoMaSy is a new document management system for small and medium-sized
+Doksio is a new document management system for small and medium-sized
 businesses. It should be dockerized, web-based and initially focused on document
 storage, search and workflow use cases. Invoice handling is important, but should
 not force the whole architecture into a hard-coded invoice system.
 
 ## Decision
 
-DoMaSy will start as a modular Django monolith using PostgreSQL, object storage,
+Doksio will start as a modular Django monolith using PostgreSQL, object storage,
 local OCR, asynchronous background jobs and server-rendered frontend technology.
 
 The initial stack is:

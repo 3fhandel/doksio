@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Dokument hochladen | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container">
+      <div class="row justify-content-center">
+        <div class="col-lg-7">
+          <div class="mb-4">
+            <h1 class="h3 mb-1">Dokument hochladen</h1>
+            {% if tenant %}
+              <p class="text-secondary mb-0">{{ tenant.name }}</p>
+            {% endif %}
+          </div>
+
+          <form class="app-card p-4" method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+              <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            <div class="mb-3" data-upload-title-field>
+              <label class="form-label" for="{{ form.title.id_for_label }}">Titel</label>
+              {{ form.title }}
+              {% if form.title.help_text %}
+                <div class="form-text">{{ form.title.help_text }}</div>
+              {% endif %}
+              {{ form.title.errors }}
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label" for="{{ form.space.id_for_label }}">Dokumentenbox</label>
+              {{ form.space }}
+              {% if form.space.help_text %}
+                <div class="form-text">{{ form.space.help_text }}</div>
+              {% endif %}
+              {{ form.space.errors }}
+            </div>
+
+            <div class="mb-4">
+              <label class="form-label" for="{{ form.file.id_for_label }}">Dateien</label>
+              <div class="upload-dropzone" data-upload-dropzone>
+                <div class="upload-dropzone-icon">
+                  {% include "includes/icons.html" with icon="upload" %}
+                </div>
+                <div>
+                  <div class="fw-semibold">Dateien hier ablegen</div>
+                  <div class="text-secondary small">oder auswählen. Mehrere Dokumente sind möglich.</div>
+                </div>
+                {{ form.file }}
+              </div>
+              <div class="upload-file-list" data-upload-file-list aria-live="polite"></div>
+              {{ form.file.errors }}
+            </div>
+
+            <button class="btn btn-primary" type="submit">
+              {% include "includes/icons.html" with icon="upload" %}
+              <span class="ms-1">Speichern</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </main>
+{% endblock %}
+
+{% block extra_body %}
+  {{ block.super }}
+  <script src="{% static 'js/document-upload.js' %}?v=1"></script>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% load doksio_extras %}
+
+<article class="workflow-task-row">
+  {% with thumbnail=task.document|document_thumbnail_file %}
+    <div class="document-row-thumbnail workflow-task-thumbnail">
+      {% if thumbnail and task.document.status != "deleted" %}
+        <img src="{% url 'documents:download' task.document.tenant.slug thumbnail.id %}?inline=1" alt="Vorschau {{ task.document.title }}">
+      {% else %}
+        <div class="document-row-thumbnail-fallback">
+          {% include "includes/icons.html" with icon="file" %}
+          <span>{{ task.document|document_file_type }}</span>
+        </div>
+      {% endif %}
+    </div>
+  {% endwith %}
+
+  <div class="workflow-task-main">
+    <div class="workflow-task-step-line">
+      <span class="workflow-task-step-icon">
+        {% include "includes/icons.html" with icon="workflow" %}
+      </span>
+      <span class="workflow-task-step">{{ task.title }}</span>
+    </div>
+    {% if task.step.instructions %}
+      <div class="workflow-task-instructions">{{ task.step.instructions|truncatechars:110 }}</div>
+    {% endif %}
+    <a class="workflow-task-document-title" href="{% url 'documents:detail' tenant.slug task.document.id %}?back={{ request.get_full_path|urlencode }}{% if workflow_task_document_nav %}&amp;nav={{ workflow_task_document_nav|urlencode }}{% endif %}">
+      {{ task.document.title }}
+    </a>
+    <div class="document-row-meta workflow-task-meta">
+      <span class="document-row-box">{{ task.document.space.path }}</span>
+      <span aria-label="Dateityp {{ task.document|document_file_type }}">{{ task.document|document_file_type }}</span>
+      <span>{{ task.instance.template.name }}</span>
+      <span>{{ task.assigned_role.name|default:"Direkt" }}</span>
+      <span>seit {{ task.created_at|date:"d.m.Y H:i" }}</span>
+    </div>
+  </div>
+
+  <div class="workflow-task-side">
+    <div class="document-row-indicators workflow-task-indicators">
+      {% if task.document.einvoice_data %}
+        <span class="document-row-indicator document-row-einvoice-indicator" title="eRechnungs-Daten vorhanden" aria-label="eRechnungs-Daten vorhanden">
+          {% include "includes/icons.html" with icon="receipt" %}
+        </span>
+      {% else %}
+        <span class="document-row-indicator document-row-indicator-empty" aria-hidden="true"></span>
+      {% endif %}
+      <span class="document-row-indicator document-row-workflow search-result-workflow search-result-workflow-open" title="Workflow offen" aria-label="Workflow offen">
+        {% include "includes/icons.html" with icon="workflow" %}
+      </span>
+    </div>
+    <a class="btn btn-sm btn-primary workflow-task-open" href="{% url 'documents:detail' tenant.slug task.document.id %}?back={{ request.get_full_path|urlencode }}{% if workflow_task_document_nav %}&amp;nav={{ workflow_task_document_nav|urlencode }}{% endif %}">
+      Öffnen
+    </a>
+  </div>
+</article>

@@ -6,11 +6,11 @@ import pytest
 from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 
-from domasy.audit.models import AuditEvent
-from domasy.documents.models import Document, DocumentFile
-from domasy.documents.services import CreateDocumentSpace
-from domasy.storage.services import StoreImmutableFile
-from domasy.tenancy.models import Tenant
+from doksio.audit.models import AuditEvent
+from doksio.documents.models import Document, DocumentFile
+from doksio.documents.services import CreateDocumentSpace
+from doksio.storage.services import StoreImmutableFile
+from doksio.tenancy.models import Tenant
 
 
 @pytest.mark.django_db

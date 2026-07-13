@@ -1,1 +1,0 @@
-"""DoMaSy project package."""

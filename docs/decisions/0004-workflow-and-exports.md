@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-Invoice approval is an important use case, but DoMaSy should not hard-code the
+Invoice approval is an important use case, but Doksio should not hard-code the
 product around invoices. Workflows should also support other document-centered
 processes.
 
@@ -15,7 +15,7 @@ step.
 
 ## Decision
 
-DoMaSy will model workflows generically.
+Doksio will model workflows generically.
 
 Workflow definitions should support triggers, steps, conditions and actions.
 Invoice approval can be delivered as a workflow template.

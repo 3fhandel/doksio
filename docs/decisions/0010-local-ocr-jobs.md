@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-DoMaSy should process document text locally. External OCR services are not part
+Doksio should process document text locally. External OCR services are not part
 of the intended architecture, because tenant documents may contain invoices,
 personnel files and other business-sensitive data.
 

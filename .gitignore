@@ -1,5 +1,8 @@
 .DS_Store
 .env
+.env.*
+!.env.example
+!*.env.example
 .venv/
 __pycache__/
 *.py[cod]
@@ -15,3 +18,6 @@ build/
 node_modules/
 staticfiles/
 media/
+postgres-data/
+redis-data/
+minio-data/

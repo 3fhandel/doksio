@@ -6,17 +6,17 @@ Accepted
 
 ## Context
 
-DoMaSy is a document management system, not a document editor. Users may attach
+Doksio is a document management system, not a document editor. Users may attach
 metadata, comments, annotations and workflow decisions to documents, but the
 stored original files must remain unchanged.
 
 The legally relevant archive for accounting documents can be DATEV Unternehmen
-online or another configured archival export target. DoMaSy should still be as
+online or another configured archival export target. Doksio should still be as
 revision-friendly and traceable as possible.
 
 ## Decision
 
-DoMaSy stores original document files immutably.
+Doksio stores original document files immutably.
 
 - Original files are never edited, overwritten or rewritten.
 - Each stored file receives a checksum.
@@ -35,5 +35,5 @@ DoMaSy stores original document files immutably.
 - Audit history can explain changes around a document without implying that the
   original file changed.
 - Later support for object-lock or WORM-like storage remains possible.
-- DoMaSy should not claim certified legal archive behavior unless the storage,
+- Doksio should not claim certified legal archive behavior unless the storage,
   retention and process requirements are explicitly implemented and verified.

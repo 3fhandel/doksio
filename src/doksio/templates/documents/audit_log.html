@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% load doksio_extras %}
+
+{% block title %}Logs/Audit | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container">
+      <div class="mb-4">
+        <h1 class="h3 mb-1">Logs/Audit</h1>
+        <p class="text-secondary mb-0">Importvorgänge und technische Ereignisse für {{ tenant.name }}.</p>
+      </div>
+
+      <section class="app-card mb-4">
+        <div class="p-4 border-bottom">
+          <h2 class="h5 mb-1">Importvorgänge</h2>
+          <p class="text-secondary mb-0">Nachvollziehbar vom Eingang bis zum erzeugten Dokument.</p>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Zeit</th>
+                <th>Quelle</th>
+                <th>Datei</th>
+                <th>Zielbox</th>
+                <th>Status</th>
+                <th>Dokument</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for job in import_jobs_page_obj %}
+                <tr>
+                  <td class="small text-secondary">{{ job.received_at|date:"d.m.Y H:i:s" }}</td>
+                  <td>{% if job.source %}{{ job.source.name }}{% else %}<span class="text-secondary">-</span>{% endif %}</td>
+                  <td>
+                    {{ job.original_filename }}
+                    {% if job.message %}
+                      <div class="small text-secondary">{{ job.message }}</div>
+                    {% endif %}
+                  </td>
+                  <td class="hash-value">{{ job.document_space.path }}</td>
+                  <td>
+                    {% if job.status == "imported" %}
+                      <span class="badge text-bg-success">{{ job.get_status_display }}</span>
+                    {% elif job.status == "failed" %}
+                      <span class="badge text-bg-danger">{{ job.get_status_display }}</span>
+                    {% else %}
+                      <span class="badge text-bg-secondary">{{ job.get_status_display }}</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if job.document %}
+                      <a href="{% url 'documents:detail' tenant.slug job.document.id %}">{{ job.document.title }}</a>
+                    {% else %}
+                      <span class="text-secondary">-</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="6" class="text-secondary">Keine Importvorgänge vorhanden.</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% include "includes/pagination.html" with page_obj=import_jobs_page_obj page_param="imports_page" label="Importvorgänge" %}
+      </section>
+
+      <section class="app-card">
+        <div class="p-4 border-bottom">
+          <h2 class="h5 mb-1">Audit-Events</h2>
+          <p class="text-secondary mb-0">Append-only Ereignisprotokoll für Änderungen und Verarbeitungsschritte.</p>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Zeit</th>
+                <th>Ereignis</th>
+                <th>Objekt</th>
+                <th>Benutzer</th>
+                <th>Daten</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for event in audit_events_page_obj %}
+                <tr>
+                  <td class="small text-secondary">{{ event.created_at|date:"d.m.Y H:i:s" }}</td>
+                  <td>
+                    <div class="fw-semibold">{{ audit_event_labels|get_item:event.event_type|default:event.event_type }}</div>
+                    <code class="small">{{ event.event_type }}</code>
+                  </td>
+                  <td class="small">
+                    {{ event.object_type }}<br>
+                    <span class="hash-value">{{ event.object_id }}</span>
+                  </td>
+                  <td>
+                    {% if event.actor %}
+                      {{ event.actor|display_user }}
+                    {% else %}
+                      <span class="text-secondary">System</span>
+                    {% endif %}
+                  </td>
+                  <td class="small hash-value">{{ event.data }}</td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="5" class="text-secondary">Keine Audit-Events vorhanden.</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% include "includes/pagination.html" with page_obj=audit_events_page_obj page_param="audit_page" label="Audit-Events" %}
+      </section>
+    </div>
+  </main>
+{% endblock %}

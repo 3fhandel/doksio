@@ -1,6 +1,6 @@
-# DoMaSy
+# Doksio
 
-DoMaSy is a slim, tenant-aware document management and workflow system for small
+Doksio is a slim, tenant-aware document management and workflow system for small
 and medium-sized businesses.
 
 The project is intentionally optimized for a clean modular architecture:
@@ -33,13 +33,20 @@ local PostgreSQL server:
 
 ```sh
 .venv/bin/python manage.py migrate
-.venv/bin/python manage.py runserver
+.venv/bin/python manage.py runserver 0.0.0.0:8000
 ```
 
 Open:
 
 ```text
 http://127.0.0.1:8000/s/health/
+```
+
+For access from another device in the local network, open the same URL with the
+development machine's LAN IP, for example:
+
+```text
+http://192.168.178.42:8000/s/health/
 ```
 
 For the first document upload flow, create a demo tenant and an admin user:
@@ -90,6 +97,14 @@ Copy the example environment file and adjust values if needed:
 cp .env.example .env
 ```
 
+Set `DOKSIO_PUBLIC_BASE_URL` in `.env` to the externally reachable system URL.
+Doksio uses this value for generated API URLs, import scripts and later
+notification links. For LAN testing this can be, for example:
+
+```text
+DOKSIO_PUBLIC_BASE_URL=http://192.168.178.42:8000
+```
+
 Install dependencies into an active virtual environment:
 
 ```sh
@@ -103,8 +118,42 @@ make check
 make test
 ```
 
+Rebuild the denormalized document search index after imports or data repairs:
+
+```sh
+.venv/bin/python manage.py rebuild_search_index --tenant demo
+```
+
+Generate local synthetic load data for performance checks:
+
+```sh
+.venv/bin/python manage.py generate_performance_documents --tenant demo --count 50000
+```
+
+Run a small search benchmark against those documents:
+
+```sh
+.venv/bin/python manage.py benchmark_search lasttest --tenant demo --explain
+```
+
 Start the Docker development stack with PostgreSQL, Redis and MinIO:
 
 ```sh
 docker-compose up
 ```
+
+## Portainer Deployment
+
+A production-oriented single-host Portainer stack lives in `deploy/`.
+
+Use:
+
+```text
+deploy/portainer-stack.yml
+deploy/portainer.env.example
+```
+
+Build and push one Doksio image, set `DOKSIO_IMAGE` in Portainer, then deploy
+the stack behind a reverse proxy. The Portainer stack runs Django via Gunicorn,
+uses PostgreSQL/Redis/MinIO services, creates the MinIO bucket automatically and
+serves static files through WhiteNoise.

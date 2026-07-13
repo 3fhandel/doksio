@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% load doksio_extras %}
+
+{% block title %}Dashboard | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container">
+      {% if messages %}
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
+        <div>
+          <h1 class="h3 mb-1">Dashboard</h1>
+          {% if tenant %}
+            <p class="text-secondary mb-0">{{ tenant.name }}</p>
+          {% endif %}
+        </div>
+        {% if tenant and workflow_documents_count %}
+          <div class="dashboard-workflow-indicator">
+            <div>
+              <div class="metadata-label">Workflow</div>
+              <div class="fw-semibold">
+                {{ workflow_documents_count }} Dokument{% if workflow_documents_count != 1 %}e{% endif %} zu bearbeiten
+              </div>
+            </div>
+            <span class="badge document-signal-badge-workflow">{{ workflow_documents_count }}</span>
+          </div>
+        {% endif %}
+      </div>
+
+      {% if not tenant %}
+        <div class="app-card p-4">
+          <h2 class="h5">Kein Mandant verfügbar</h2>
+          <p class="text-secondary mb-3">
+            Lege zuerst einen Demo-Mandanten an und ordne deinen Benutzer als
+            Tenant-Benutzer zu. System-Admins sehen den ersten aktiven Mandanten.
+          </p>
+          <code>.venv/bin/python manage.py bootstrap_demo_tenant</code>
+        </div>
+      {% else %}
+        <section class="app-card mb-4">
+          <div class="d-flex align-items-center justify-content-between gap-3 border-bottom px-4 py-3">
+            <div>
+              <h2 class="h5 mb-1">Meine Aufgaben</h2>
+              <p class="text-secondary mb-0">Offene Workflow-Aufgaben, die dir oder deinen Rollen zugeordnet sind.</p>
+            </div>
+            {% include "includes/workflow_task_filter.html" with workflow_filter_options=workflow_filter_options selected_workflow_id=selected_workflow_id filter_id="dashboard" %}
+          </div>
+          {% if workflow_tasks %}
+            <div class="workflow-task-list">
+              {% for task in workflow_tasks %}
+                {% include "includes/workflow_task_row.html" with task=task tenant=tenant workflow_task_document_nav=workflow_task_document_nav %}
+              {% endfor %}
+            </div>
+            {% include "includes/pagination.html" with page_obj=workflow_tasks_page_obj page_param="tasks_page" label="Aufgabenseiten" %}
+          {% else %}
+            <div class="px-4 py-4 text-secondary">
+              Keine offenen Aufgaben.
+            </div>
+          {% endif %}
+        </section>
+
+        <section class="app-card">
+          <div class="d-flex align-items-center justify-content-between gap-3 border-bottom px-4 py-3">
+            <div>
+              <h2 class="h5 mb-1">Letzte Uploads</h2>
+              <p class="text-secondary mb-0">{{ documents_count }} Dokumente insgesamt.</p>
+            </div>
+            <a class="btn btn-sm btn-outline-secondary" href="{% url 'search:documents' tenant.slug %}">
+              {% include "includes/icons.html" with icon="search" %}
+              <span class="ms-1">Alle finden</span>
+            </a>
+          </div>
+          {% if documents %}
+            <div class="document-row-list">
+              {% for document in documents %}
+                {% include "includes/document_row.html" with document=document tenant=tenant document_nav=document_nav %}
+              {% endfor %}
+            </div>
+            {% include "includes/pagination.html" with page_obj=documents_page_obj page_param="uploads_page" label="Uploadseiten" %}
+          {% else %}
+            <div class="px-4 py-5 text-center">
+              <h2 class="h5">Noch keine Dokumente</h2>
+              <p class="text-secondary">Lade das erste Dokument hoch, um den Ablagefluss zu testen.</p>
+              <a class="btn btn-primary" href="{% url 'documents:upload' tenant.slug %}">
+                {% include "includes/icons.html" with icon="upload" %}
+                <span class="ms-1">Dokument hochladen</span>
+              </a>
+            </div>
+          {% endif %}
+        </section>
+      {% endif %}
+    </div>
+  </main>
+{% endblock %}

@@ -1,0 +1,11 @@
+{% if workflow_filter_options %}
+  <form class="workflow-task-filter" method="get">
+    <label class="workflow-task-filter-label" for="workflow-task-filter-{{ filter_id|default:'default' }}">Workflow</label>
+    <select class="form-select form-select-sm" id="workflow-task-filter-{{ filter_id|default:'default' }}" name="workflow" onchange="this.form.submit()">
+      <option value="">Alle Workflows</option>
+      {% for workflow_template in workflow_filter_options %}
+        <option value="{{ workflow_template.id }}"{% if selected_workflow_id == workflow_template.id %} selected{% endif %}>{{ workflow_template.name }}</option>
+      {% endfor %}
+    </select>
+  </form>
+{% endif %}

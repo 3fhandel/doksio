@@ -34,4 +34,4 @@ runserver:
 	python manage.py runserver 0.0.0.0:8000
 
 celery-worker:
-	celery -A domasy.project worker --loglevel=INFO
+	celery -A doksio.project worker --loglevel=INFO

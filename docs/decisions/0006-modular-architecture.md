@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-DoMaSy is intended to become a clean, maintainable business application. The
+Doksio is intended to become a clean, maintainable business application. The
 project should not trade long-term architecture quality for quick-and-dirty
 implementation speed.
 
@@ -17,7 +17,7 @@ and background tasks.
 
 ## Decision
 
-DoMaSy will optimize for a clean, modular architecture.
+Doksio will optimize for a clean, modular architecture.
 
 Core principles:
 

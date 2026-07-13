@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% load doksio_extras %}
+
+{% block title %}Profil | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container">
+      {% if messages %}
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      <div class="mb-4">
+        <h1 class="h3 mb-1">Profil</h1>
+        <p class="text-secondary mb-0">Persönliche Einstellungen für {{ user|display_user }}.</p>
+      </div>
+
+      <div class="row g-4">
+        <aside class="col-lg-3">
+          <div class="list-group profile-nav">
+            <a class="list-group-item list-group-item-action {% if active_profile_section == 'account' %}active{% endif %}" href="{% url 'accounts:profile_account' tenant.slug %}">
+              Account
+            </a>
+            <a class="list-group-item list-group-item-action {% if active_profile_section == 'notifications' %}active{% endif %}" href="{% url 'accounts:profile_notifications' tenant.slug %}">
+              Benachrichtigungen
+            </a>
+            <a class="list-group-item list-group-item-action {% if active_profile_section == 'shortcuts' %}active{% endif %}" href="{% url 'accounts:profile_shortcuts' tenant.slug %}">
+              Tastenkürzel
+            </a>
+          </div>
+        </aside>
+        <section class="col-lg-9">
+          {% block profile_content %}{% endblock %}
+        </section>
+      </div>
+    </div>
+  </main>
+{% endblock %}

@@ -1,6 +1,6 @@
-# DoMaSy Vision
+# Doksio Vision
 
-DoMaSy is a slim document management system for small and medium-sized
+Doksio is a slim document management system for small and medium-sized
 businesses. It is not a private document archive and not a document editor.
 
 The product manages immutable business documents, metadata, annotations, search,
@@ -10,10 +10,10 @@ system.
 
 ## Product Positioning
 
-DoMaSy is the operational document and workflow system.
+Doksio is the operational document and workflow system.
 
 For accounting documents, the legally authoritative archival system can be DATEV
-Unternehmen online or another configured archival export target. DoMaSy should be
+Unternehmen online or another configured archival export target. Doksio should be
 as traceable and revision-friendly as possible, but it does not initially claim
 to be a certified legal long-term archive.
 
@@ -34,12 +34,12 @@ to be a certified legal long-term archive.
 
 ## Non-Goals
 
-- DoMaSy is not a document editor.
-- DoMaSy should not modify, overwrite or rewrite original document files.
-- DoMaSy is not initially positioned as the legally authoritative archive for
+- Doksio is not a document editor.
+- Doksio should not modify, overwrite or rewrite original document files.
+- Doksio is not initially positioned as the legally authoritative archive for
   accounting records when DATEV Unternehmen online is configured as the archive.
-- DoMaSy is not primarily a bookkeeping system.
-- DoMaSy is not initially a broad enterprise content management suite.
+- Doksio is not primarily a bookkeeping system.
+- Doksio is not initially a broad enterprise content management suite.
 
 ## Initial User Focus
 

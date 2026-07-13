@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-DoMaSy needs workflow capabilities, especially for invoice review. The product
+Doksio needs workflow capabilities, especially for invoice review. The product
 should not hard-code invoice approval as the only workflow shape, because the
 same engine should later support personnel files, document checks, exports and
 other tenant-specific processes.

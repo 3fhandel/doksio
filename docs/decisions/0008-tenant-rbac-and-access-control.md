@@ -6,14 +6,14 @@ Accepted.
 
 ## Context
 
-DoMaSy must distinguish system administration from tenant administration. Django
+Doksio must distinguish system administration from tenant administration. Django
 already provides users, superusers, groups and global permissions, but tenant
 roles need to be scoped to one tenant. A user can be an admin in one tenant and a
 viewer in another tenant.
 
 ## Decision
 
-DoMaSy uses Django users as the platform identity and adds tenant-scoped access
+Doksio uses Django users as the platform identity and adds tenant-scoped access
 control in the `accounts` app.
 
 Core concepts:

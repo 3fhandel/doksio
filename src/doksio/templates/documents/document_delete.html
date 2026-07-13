@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Dokument löschen | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container">
+      <div class="row justify-content-center">
+        <div class="col-lg-7">
+          <div class="mb-4">
+            <a href="{{ detail_url }}" class="text-decoration-none">&larr; Dokument</a>
+            <h1 class="h3 mt-2 mb-1">Dokument löschen</h1>
+            <p class="text-secondary mb-0">{{ document.title }} · {{ document.space.path }}</p>
+          </div>
+
+          <form class="app-card p-4" method="post">
+            {% csrf_token %}
+            <div class="alert alert-warning" role="alert">
+              Das Dokument wird für normale Listen, Suche und Aufgaben ausgeblendet. Die Originaldatei bleibt unverändert gespeichert.
+            </div>
+
+            {% if form.non_field_errors %}
+              <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            <div class="mb-4">
+              <label class="form-label" for="{{ form.reason.id_for_label }}">Löschgrund</label>
+              {{ form.reason }}
+              {{ form.reason.errors }}
+            </div>
+
+            <div class="d-flex align-items-center gap-2">
+              <button class="btn btn-danger" type="submit">Dokument löschen</button>
+              <a class="btn btn-outline-secondary" href="{{ detail_url }}">Abbrechen</a>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </main>
+{% endblock %}

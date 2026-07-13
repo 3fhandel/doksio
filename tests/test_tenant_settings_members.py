@@ -4,15 +4,15 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 
-from domasy.accounts.models import TenantMembership
-from domasy.accounts.permissions import TenantPermissions
-from domasy.accounts.services import (
+from doksio.accounts.models import TenantMembership, UserProfile
+from doksio.accounts.permissions import TenantPermissions
+from doksio.accounts.services import (
     AddTenantMember,
     EnsureDefaultTenantRoles,
     UpdateTenantMembership,
 )
-from domasy.audit.models import AuditEvent
-from domasy.tenancy.models import Tenant
+from doksio.audit.models import AuditEvent
+from doksio.tenancy.models import Tenant
 
 
 @pytest.mark.django_db
@@ -144,6 +144,7 @@ def test_tenant_admin_can_view_members_settings(client):
         username="admin",
         password="secret",
     )
+    UserProfile.objects.create(user=admin_user, display_name="Admin Anzeige")
     TenantMembership.objects.create(
         tenant=tenant,
         user=admin_user,
@@ -155,8 +156,10 @@ def test_tenant_admin_can_view_members_settings(client):
         reverse("documents:settings_members", kwargs={"tenant_slug": tenant.slug})
     )
 
+    content = response.content.decode()
     assert response.status_code == 200
-    assert "Benutzer hinzufügen" in response.content.decode()
+    assert "Benutzer hinzufügen" in content
+    assert "Admin Anzeige" in content
 
 
 @pytest.mark.django_db

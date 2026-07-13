@@ -1,0 +1,70 @@
+{% extends "accounts/profile_base.html" %}
+{% load doksio_extras %}
+
+{% block profile_content %}
+  <form method="post" class="app-card profile-card">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger m-3">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div class="profile-section">
+      <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+        <div>
+          <h2 class="h5 mb-1">Account</h2>
+          <p class="text-secondary mb-0">Name, E-Mail und lokales Passwort.</p>
+        </div>
+        <span class="badge text-bg-light">{{ user|display_user }}</span>
+      </div>
+
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.display_name.id_for_label }}">{{ form.display_name.label }}</label>
+          {{ form.display_name }}
+          {{ form.display_name.errors }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.email.id_for_label }}">{{ form.email.label }}</label>
+          {{ form.email }}
+          {{ form.email.errors }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.first_name.id_for_label }}">{{ form.first_name.label }}</label>
+          {{ form.first_name }}
+          {{ form.first_name.errors }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.last_name.id_for_label }}">{{ form.last_name.label }}</label>
+          {{ form.last_name }}
+          {{ form.last_name.errors }}
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section">
+      <h3 class="h6 mb-3">Passwort ändern</h3>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label" for="{{ form.current_password.id_for_label }}">{{ form.current_password.label }}</label>
+          {{ form.current_password }}
+          {{ form.current_password.errors }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="{{ form.new_password1.id_for_label }}">{{ form.new_password1.label }}</label>
+          {{ form.new_password1 }}
+          {{ form.new_password1.errors }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="{{ form.new_password2.id_for_label }}">{{ form.new_password2.label }}</label>
+          {{ form.new_password2 }}
+          {{ form.new_password2.errors }}
+        </div>
+      </div>
+      <div class="form-text mt-2">Leer lassen, wenn das Passwort unverändert bleiben soll.</div>
+    </div>
+
+    <div class="profile-actions">
+      <button class="btn btn-primary" type="submit">Account speichern</button>
+    </div>
+  </form>
+{% endblock %}

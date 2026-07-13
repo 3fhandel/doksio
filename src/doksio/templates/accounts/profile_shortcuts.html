@@ -1,0 +1,49 @@
+{% extends "accounts/profile_base.html" %}
+{% load static %}
+
+{% block profile_content %}
+  <form method="post" class="app-card profile-card">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger m-3">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div class="profile-section">
+      <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+        <div>
+          <h2 class="h5 mb-1">Tastenkürzel</h2>
+          <p class="text-secondary mb-0">Feld anklicken und gewünschte Tastenkombination drücken. Kürzel gelten nur außerhalb von Eingabefeldern.</p>
+        </div>
+        <span class="badge text-bg-light">Persönlich</span>
+      </div>
+
+      <div class="profile-shortcut-grid">
+        {% for field in form %}
+          {% if field.name|slice:":9" == "shortcut_" %}
+            <div class="profile-shortcut-row">
+              <label class="form-label mb-0" for="{{ field.id_for_label }}">{{ field.label }}</label>
+              <div>
+                <div class="input-group input-group-sm profile-shortcut-input">
+                  {{ field }}
+                  <button class="btn btn-outline-secondary" type="button" data-shortcut-clear="{{ field.id_for_label }}">
+                    Löschen
+                  </button>
+                </div>
+                {{ field.errors }}
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="profile-actions">
+      <button class="btn btn-primary" type="submit">Tastenkürzel speichern</button>
+    </div>
+  </form>
+{% endblock %}
+
+{% block extra_body %}
+  {{ block.super }}
+  <script src="{% static 'js/profile-shortcuts.js' %}?v=1"></script>
+{% endblock %}

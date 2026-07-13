@@ -5,13 +5,13 @@ from io import BytesIO
 import pytest
 from django.contrib.auth import get_user_model
 
-from domasy.accounts.access import AccessControl
-from domasy.accounts.models import TenantMembership, TenantRole
-from domasy.accounts.permissions import TenantPermissions
-from domasy.accounts.services import EnsureDefaultTenantRoles
-from domasy.documents.policies import can_view_document
-from domasy.documents.services import CreateDocumentFromUpload, CreateDocumentSpace
-from domasy.tenancy.models import Tenant
+from doksio.accounts.access import AccessControl
+from doksio.accounts.models import TenantMembership, TenantRole
+from doksio.accounts.permissions import TenantPermissions
+from doksio.accounts.services import EnsureDefaultTenantRoles
+from doksio.documents.policies import can_view_document
+from doksio.documents.services import CreateDocumentFromUpload, CreateDocumentSpace
+from doksio.tenancy.models import Tenant
 
 
 @pytest.mark.django_db
@@ -107,7 +107,7 @@ def test_document_box_role_permissions_are_additive():
         tenant=tenant,
         title="Rechnung",
         space=first_box,
-        file_obj=BytesIO(b"content"),
+        file_obj=BytesIO(b"rechnung content"),
         original_filename="rechnung.pdf",
         content_type="application/pdf",
     ).execute()
@@ -115,7 +115,7 @@ def test_document_box_role_permissions_are_additive():
         tenant=tenant,
         title="Vertrag",
         space=second_box,
-        file_obj=BytesIO(b"content"),
+        file_obj=BytesIO(b"vertrag content"),
         original_filename="vertrag.pdf",
         content_type="application/pdf",
     ).execute()
@@ -123,7 +123,7 @@ def test_document_box_role_permissions_are_additive():
         tenant=tenant,
         title="Personal",
         space=third_box,
-        file_obj=BytesIO(b"content"),
+        file_obj=BytesIO(b"personal content"),
         original_filename="personal.pdf",
         content_type="application/pdf",
     ).execute()

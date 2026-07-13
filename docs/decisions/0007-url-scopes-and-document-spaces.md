@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-DoMaSy is designed as a tenant-aware system that may later run as SaaS. URLs
+Doksio is designed as a tenant-aware system that may later run as SaaS. URLs
 should make the current scope obvious. Tenant-level features and system-level
 features should not share ambiguous paths.
 

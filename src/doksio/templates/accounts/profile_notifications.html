@@ -1,0 +1,84 @@
+{% extends "accounts/profile_base.html" %}
+
+{% block profile_content %}
+  <form method="post" class="app-card profile-card mb-3">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="save_settings">
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger m-3">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div class="profile-section">
+      <h2 class="h5 mb-1">Benachrichtigungen</h2>
+      <p class="text-secondary mb-3">In-App-Benachrichtigungen für neue Aufgaben und wichtige Ereignisse.</p>
+      <div class="form-check form-switch">
+        {{ form.notifications_enabled }}
+        <label class="form-check-label" for="{{ form.notifications_enabled.id_for_label }}">
+          {{ form.notifications_enabled.label }}
+        </label>
+      </div>
+      {{ form.notifications_enabled.errors }}
+    </div>
+
+    <div class="profile-actions">
+      <button class="btn btn-primary" type="submit">Benachrichtigungen speichern</button>
+    </div>
+  </form>
+
+  <section class="app-card profile-card">
+    <div class="profile-section">
+      <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+        <div>
+          <h2 class="h5 mb-1">Posteingang</h2>
+          <p class="text-secondary mb-0">
+            {% if profile_unread_notifications_count %}
+              {{ profile_unread_notifications_count }} ungelesen
+            {% else %}
+              Keine ungelesenen Benachrichtigungen
+            {% endif %}
+          </p>
+        </div>
+        {% if profile_unread_notifications_count %}
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="mark_all_read">
+            <button class="btn btn-sm btn-outline-secondary" type="submit">Alle gelesen</button>
+          </form>
+        {% endif %}
+      </div>
+
+      <div class="notification-list">
+        {% for notification in notifications %}
+          <article class="notification-row {% if not notification.read_at %}notification-row-unread{% endif %}">
+            <div class="notification-row-main">
+              <div class="notification-row-title">
+                {% if notification.link_url %}
+                  <a href="{{ notification.link_url }}">{{ notification.title }}</a>
+                {% else %}
+                  {{ notification.title }}
+                {% endif %}
+              </div>
+              {% if notification.body %}
+                <div class="notification-row-body">{{ notification.body }}</div>
+              {% endif %}
+              <div class="notification-row-meta">
+                {{ notification.created_at|date:"d.m.Y H:i" }}
+                {% if notification.read_at %} · gelesen{% endif %}
+              </div>
+            </div>
+            {% if not notification.read_at %}
+              <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="mark_read">
+                <input type="hidden" name="notification_id" value="{{ notification.id }}">
+                <button class="btn btn-sm btn-outline-secondary" type="submit">Gelesen</button>
+              </form>
+            {% endif %}
+          </article>
+        {% empty %}
+          <p class="text-secondary mb-0">Noch keine Benachrichtigungen vorhanden.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+{% endblock %}

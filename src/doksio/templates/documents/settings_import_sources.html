@@ -1,0 +1,89 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h2 class="h4 mb-1">Import</h2>
+      <p class="text-secondary mb-0">Quellen und Regeln für automatische Dokumentimporte.</p>
+    </div>
+    <a class="btn btn-primary" href="{% url 'documents:settings_import_source_create' tenant.slug %}">
+      Neue Quelle
+    </a>
+  </div>
+
+  <div class="app-card">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Typ</th>
+            <th>Zielauswahl</th>
+            <th>Regeln</th>
+            <th>Status</th>
+            <th class="text-end">Aktion</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for import_source in import_sources %}
+            <tr>
+              <td>
+                {{ import_source.name }}
+                {% if import_source.source_type == "http_api" %}
+                  <div class="small text-secondary">
+                    {% url 'ingestion:http_import' tenant.slug import_source.id %}
+                  </div>
+                {% endif %}
+              </td>
+              <td>{{ import_source.get_source_type_display }}</td>
+              <td>
+                {{ import_source.get_target_strategy_display }}
+                <div class="small text-secondary hash-value">
+                  {% if import_source.target_strategy == "fixed" %}Ziel{% else %}Fallback{% endif %}: {{ import_source.document_space.path }}
+                </div>
+              </td>
+              <td class="small">
+                {% if import_source.auto_start_ocr %}<span class="badge text-bg-light me-1">OCR</span>{% endif %}
+                <span class="badge text-bg-light me-1">eRechnung</span>
+                {% if import_source.start_workflows %}<span class="badge text-bg-light me-1">Workflows</span>{% endif %}
+                {% if import_source.source_type == "email" and import_source.settings.email.success_reply_enabled %}
+                  <span class="badge text-bg-light me-1">Antwort bei Erfolg</span>
+                {% endif %}
+                {% if import_source.source_type == "email" and import_source.settings.email.unprocessable_reply_enabled %}
+                  <span class="badge text-bg-light me-1">Antwort bei Fehler</span>
+                {% endif %}
+                {% for tag in import_source.default_tags %}
+                  <span class="badge text-bg-light me-1">#{{ tag }}</span>
+                {% endfor %}
+              </td>
+              <td>
+                {% if import_source.is_active %}
+                  <span class="badge text-bg-success">Aktiv</span>
+                {% else %}
+                  <span class="badge text-bg-secondary">Inaktiv</span>
+                {% endif %}
+              </td>
+              <td class="text-end">
+                <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:settings_import_source_edit' tenant.slug import_source.id %}">
+                  Bearbeiten
+                </a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6" class="text-secondary">Keine Importquellen definiert.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}

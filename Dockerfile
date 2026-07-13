@@ -4,6 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
+ARG INSTALL_DEV=false
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
@@ -20,6 +21,6 @@ COPY src ./src
 COPY manage.py ./
 
 RUN pip install --upgrade pip \
-    && pip install -e ".[dev]"
+    && if [ "$INSTALL_DEV" = "true" ]; then pip install -e ".[dev]"; else pip install -e "."; fi
 
 EXPOSE 8000

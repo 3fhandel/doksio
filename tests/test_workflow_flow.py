@@ -6,18 +6,18 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 
-from domasy.accounts.models import TenantMembership
-from domasy.accounts.services import EnsureDefaultTenantRoles
-from domasy.audit.models import AuditEvent
-from domasy.documents.services import CreateDocumentFromUpload, CreateDocumentSpace
-from domasy.tenancy.models import Tenant
-from domasy.workflows.models import (
+from doksio.accounts.models import Notification, TenantMembership, UserProfile
+from doksio.accounts.services import EnsureDefaultTenantRoles
+from doksio.audit.models import AuditEvent
+from doksio.documents.services import CreateDocumentFromUpload, CreateDocumentSpace
+from doksio.tenancy.models import Tenant
+from doksio.workflows.models import (
     WorkflowInstance,
     WorkflowStep,
     WorkflowTask,
     WorkflowTemplate,
 )
-from domasy.workflows.services import (
+from doksio.workflows.services import (
     CompleteWorkflowTask,
     CreateWorkflowStep,
     CreateWorkflowTemplate,
@@ -26,13 +26,13 @@ from domasy.workflows.services import (
 )
 
 
-def _create_document(tenant, space):
+def _create_document(tenant, space, title="Invoice 4711"):
     document, _document_file = CreateDocumentFromUpload(
         tenant=tenant,
-        title="Invoice 4711",
+        title=title,
         space=space,
-        file_obj=BytesIO(b"invoice content"),
-        original_filename="invoice.pdf",
+        file_obj=BytesIO(f"invoice content {space.path} {title}".encode()),
+        original_filename=f"{title}.pdf",
         content_type="application/pdf",
     ).execute()
     return document
@@ -369,6 +369,9 @@ def test_document_detail_can_start_and_complete_workflow(client):
     assert "Workflow" in content
     assert "1 laufend" in content
     assert "1 Aufgabe für dich" in content
+    assert "document-task-box-open" in content
+    assert "document-task-complete-button" in content
+    assert "Aufgabe erledigen" in content
 
     response = client.post(
         reverse(
@@ -522,7 +525,7 @@ def test_dashboard_shows_my_open_workflow_tasks(client):
         role=roles["member"],
     )
     visible_document = _create_document(tenant, space)
-    hidden_document = _create_document(tenant, space)
+    hidden_document = _create_document(tenant, space, title="Invoice hidden")
     visible_template = CreateWorkflowTemplate(
         tenant=tenant,
         name="Freigabe",
@@ -565,7 +568,301 @@ def test_dashboard_shows_my_open_workflow_tasks(client):
     assert [task.title for task in tasks] == ["Sachlich prüfen"]
     assert response.context["workflow_tasks_count"] == 1
     assert response.context["workflow_documents_count"] == 1
+    assert response.context["sidebar_open_workflow_tasks_count"] == 1
+    assert response.context["unread_notifications_count"] == 1
     assert "Meine Aufgaben" in content
+    assert "workflow-task-row" in content
+    assert "workflow-task-step" in content
+    assert "workflow-task-filter" in content
+    assert "Alle Workflows" in content
+    assert "app-sidebar-count-badge" in content
+    assert "app-account-notification-badge" in content
+    assert "Benachrichtigungen" in content
+    assert "1 offene Aufgaben" in content
     assert "1 Dokument zu bearbeiten" in content
+    assert "Workflow offen 0/1" in content
     assert "Sachlich prüfen" in content
     assert "Administrativ prüfen" not in content
+
+
+@pytest.mark.django_db
+def test_dashboard_filters_my_open_workflow_tasks_by_workflow(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    approval_template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Freigabe",
+        slug="freigabe",
+    ).execute()
+    review_template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Nachprüfung",
+        slug="nachpruefung",
+    ).execute()
+    CreateWorkflowStep(
+        template=approval_template,
+        name="Sachlich prüfen",
+        step_type="task",
+        assigned_role=roles["member"],
+    ).execute()
+    CreateWorkflowStep(
+        template=review_template,
+        name="Nachprüfung erledigen",
+        step_type="task",
+        assigned_role=roles["member"],
+    ).execute()
+    StartWorkflowForDocument(
+        template=approval_template,
+        document=_create_document(tenant, space, title="Rechnung Freigabe"),
+    ).execute()
+    StartWorkflowForDocument(
+        template=review_template,
+        document=_create_document(tenant, space, title="Rechnung Nachprüfung"),
+    ).execute()
+    client.force_login(user)
+
+    response = client.get(
+        reverse("documents:dashboard", kwargs={"tenant_slug": tenant.slug}),
+        {"workflow": review_template.id},
+    )
+
+    tasks = list(response.context["workflow_tasks"])
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert response.context["selected_workflow_id"] == review_template.id
+    assert [task.title for task in tasks] == ["Nachprüfung erledigen"]
+    assert "workflow-task-filter" in content
+    assert "Freigabe" in content
+    assert "Nachprüfung" in content
+    assert "Sachlich prüfen" not in content
+    assert "Nachprüfung erledigen" in content
+
+
+@pytest.mark.django_db
+def test_workflow_task_creation_creates_in_app_notification_for_visible_member():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    member = get_user_model().objects.create_user(username="alice")
+    admin = get_user_model().objects.create_user(username="admin")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=member,
+        role=roles["member"],
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=admin,
+        role=roles["admin"],
+    )
+    document = _create_document(tenant, space)
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Freigabe",
+        slug="freigabe-notification",
+    ).execute()
+    CreateWorkflowStep(
+        template=template,
+        name="Sachlich prüfen",
+        step_type="task",
+        assigned_role=roles["member"],
+    ).execute()
+
+    StartWorkflowForDocument(template=template, document=document).execute()
+
+    notification = Notification.objects.get(recipient=member)
+    assert notification.tenant == tenant
+    assert notification.document == document
+    assert notification.workflow_task.title == "Sachlich prüfen"
+    assert notification.notification_type == Notification.Type.WORKFLOW_TASK_CREATED
+    assert notification.title == "Neue Workflow-Aufgabe"
+    assert "Sachlich prüfen" in notification.body
+    assert str(document.id) in notification.link_url
+    assert not Notification.objects.filter(recipient=admin).exists()
+
+
+@pytest.mark.django_db
+def test_workflow_task_notification_respects_disabled_user_notifications():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    member = get_user_model().objects.create_user(username="alice")
+    UserProfile.objects.create(user=member, notifications_enabled=False)
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=member,
+        role=roles["member"],
+    )
+    document = _create_document(tenant, space)
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Freigabe",
+        slug="freigabe-notification-disabled",
+    ).execute()
+    CreateWorkflowStep(
+        template=template,
+        name="Sachlich prüfen",
+        step_type="task",
+        assigned_role=roles["member"],
+    ).execute()
+
+    StartWorkflowForDocument(template=template, document=document).execute()
+
+    assert not Notification.objects.filter(recipient=member).exists()
+
+
+@pytest.mark.django_db
+def test_task_list_shows_my_open_workflow_tasks_paginated(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    visible_template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Freigabe",
+        slug="freigabe",
+    ).execute()
+    hidden_template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Admin-Prüfung",
+        slug="admin-pruefung",
+    ).execute()
+    CreateWorkflowStep(
+        template=visible_template,
+        name="Sachlich prüfen",
+        step_type="task",
+        assigned_role=roles["member"],
+    ).execute()
+    CreateWorkflowStep(
+        template=hidden_template,
+        name="Administrativ prüfen",
+        step_type="task",
+        assigned_role=roles["admin"],
+    ).execute()
+    for index in range(30):
+        StartWorkflowForDocument(
+            template=visible_template,
+            document=_create_document(tenant, space, title=f"Rechnung {index}"),
+        ).execute()
+    StartWorkflowForDocument(
+        template=hidden_template,
+        document=_create_document(tenant, space, title="Admin-Rechnung"),
+    ).execute()
+    client.force_login(user)
+
+    response = client.get(
+        reverse("documents:tasks", kwargs={"tenant_slug": tenant.slug}),
+        {"page": "2"},
+    )
+
+    tasks = list(response.context["workflow_tasks"])
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert len(tasks) == 5
+    assert response.context["workflow_tasks_count"] == 30
+    assert response.context["workflow_documents_count"] == 30
+    assert "Meine Aufgaben" in content
+    assert "30 offene Aufgaben" in content
+    assert "workflow-task-row" in content
+    assert "workflow-task-step" in content
+    assert "Sachlich prüfen" in content
+    assert "Administrativ prüfen" not in content
+    assert "page=1" in content
+
+
+@pytest.mark.django_db
+def test_task_list_filters_my_open_workflow_tasks_by_workflow(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    approval_template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Freigabe",
+        slug="freigabe",
+    ).execute()
+    review_template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Nachprüfung",
+        slug="nachpruefung",
+    ).execute()
+    hidden_template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Admin-Prüfung",
+        slug="admin-pruefung-filter",
+    ).execute()
+    CreateWorkflowStep(
+        template=approval_template,
+        name="Sachlich prüfen",
+        step_type="task",
+        assigned_role=roles["member"],
+    ).execute()
+    CreateWorkflowStep(
+        template=review_template,
+        name="Nachprüfung erledigen",
+        step_type="task",
+        assigned_role=roles["member"],
+    ).execute()
+    CreateWorkflowStep(
+        template=hidden_template,
+        name="Administrativ prüfen",
+        step_type="task",
+        assigned_role=roles["admin"],
+    ).execute()
+    StartWorkflowForDocument(
+        template=approval_template,
+        document=_create_document(tenant, space, title="Rechnung Freigabe"),
+    ).execute()
+    StartWorkflowForDocument(
+        template=review_template,
+        document=_create_document(tenant, space, title="Rechnung Nachprüfung"),
+    ).execute()
+    StartWorkflowForDocument(
+        template=hidden_template,
+        document=_create_document(tenant, space, title="Rechnung Admin"),
+    ).execute()
+    client.force_login(user)
+
+    response = client.get(
+        reverse("documents:tasks", kwargs={"tenant_slug": tenant.slug}),
+        {"workflow": review_template.id},
+    )
+
+    tasks = list(response.context["workflow_tasks"])
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert response.context["selected_workflow_id"] == review_template.id
+    assert response.context["workflow_tasks_count"] == 1
+    assert [task.title for task in tasks] == ["Nachprüfung erledigen"]
+    assert "workflow-task-filter" in content
+    assert "Freigabe" in content
+    assert "Nachprüfung" in content
+    assert "Admin-Prüfung" not in content
+    assert "Sachlich prüfen" not in content
+    assert "Nachprüfung erledigen" in content

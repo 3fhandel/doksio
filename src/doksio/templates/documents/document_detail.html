@@ -1,0 +1,553 @@
+{% extends "base.html" %}
+{% load static doksio_extras %}
+
+{% block title %}{{ document.title }} | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container-fluid px-4">
+      {% if messages %}
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      <div class="document-detail-header mb-3">
+        <div>
+          <a href="{{ back_url }}" class="text-decoration-none" data-shortcut-action="document_back">&larr; Zurück</a>
+          <div class="d-flex align-items-center flex-wrap gap-2 mt-1 mb-1">
+            <h1 class="h3 mb-0">{{ document.title }}</h1>
+            <span class="badge text-bg-light">{{ document.status }}</span>
+          </div>
+          <div class="text-secondary">{{ document.space.path }} · {{ document.tenant.name }}</div>
+        </div>
+        <div class="d-flex align-items-center flex-wrap justify-content-end gap-2">
+          {% if document_nav_current and document_nav_total %}
+            <span class="text-secondary small">
+              Dokument {{ document_nav_current }} von {{ document_nav_total }}
+            </span>
+          {% endif %}
+          <div class="btn-group btn-group-sm" aria-label="Dokumentnavigation">
+            {% if previous_document_url %}
+              <a class="btn btn-outline-secondary" href="{{ previous_document_url }}" data-shortcut-action="document_previous">Vorheriges</a>
+            {% else %}
+              <span class="btn btn-outline-secondary disabled" aria-disabled="true">Vorheriges</span>
+            {% endif %}
+            {% if next_document_url %}
+              <a class="btn btn-outline-secondary" href="{{ next_document_url }}" data-shortcut-action="document_next">Nächstes</a>
+            {% else %}
+              <span class="btn btn-outline-secondary disabled" aria-disabled="true">Nächstes</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="document-workspace mb-3">
+        <section class="app-card document-preview"{% if preview_kind == "pdf" %} data-pdf-preview data-pdf-url="{% url 'documents:download' document.tenant.slug preview_file.id %}?inline=1" data-pdf-worker-url="{% static 'vendor/pdfjs/pdf.worker.min.js' %}"{% elif preview_kind == "image" %} data-image-preview{% endif %}>
+          <div class="d-flex align-items-center justify-content-between gap-3 p-2 px-3">
+            <div>
+              <h2 class="h5 mb-1">Vorschau</h2>
+              {% if preview_file %}
+                <div class="small text-secondary">{{ preview_file.original_filename }}</div>
+              {% else %}
+                <div class="small text-secondary">Keine Vorschau-Datei vorhanden</div>
+              {% endif %}
+            </div>
+            {% if preview_kind == "pdf" %}
+              <div class="btn-toolbar gap-2">
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-review-assist-toggle>Prüfhilfe</button>
+                <div class="btn-group btn-group-sm">
+                  <button class="btn btn-outline-secondary" type="button" data-pdf-prev>Zurück</button>
+                  <button class="btn btn-outline-secondary" type="button" data-pdf-next>Weiter</button>
+                </div>
+                <div class="btn-group btn-group-sm">
+                  <button class="btn btn-outline-secondary" type="button" data-pdf-zoom-out>-</button>
+                  <button class="btn btn-outline-secondary" type="button" data-pdf-zoom-in>+</button>
+                </div>
+                <span class="small text-secondary align-self-center">
+                  Seite <span data-pdf-page-current>1</span>/<span data-pdf-page-total>?</span>
+                </span>
+              </div>
+            {% elif preview_kind == "image" %}
+              <div class="btn-toolbar gap-2">
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-review-assist-toggle>Prüfhilfe</button>
+                <div class="btn-group btn-group-sm">
+                  <button class="btn btn-outline-secondary" type="button" data-image-fit>Fit</button>
+                  <button class="btn btn-outline-secondary" type="button" data-image-zoom-out>-</button>
+                  <button class="btn btn-outline-secondary" type="button" data-image-zoom-in>+</button>
+                </div>
+                <span class="small text-secondary align-self-center" data-image-zoom-label>Fit</span>
+              </div>
+            {% endif %}
+          </div>
+
+          {% if preview_kind == "pdf" %}
+            <div class="document-preview-stage">
+              <div>
+                <canvas class="document-preview-canvas" data-pdf-canvas></canvas>
+                <div class="small text-secondary text-center pb-3" data-pdf-status></div>
+              </div>
+            </div>
+          {% elif preview_kind == "image" %}
+            <div class="document-preview-stage document-preview-stage-image" data-image-stage>
+              <img class="document-preview-image" src="{% url 'documents:download' document.tenant.slug preview_file.id %}?inline=1" alt="{{ preview_file.original_filename }}" data-image-preview-img>
+            </div>
+          {% else %}
+            <div class="document-preview-empty">
+              <div>
+                <div class="fw-medium mb-1">Keine Live-Vorschau verfügbar</div>
+                <div>Aktuell rendert Doksio PDF-Dateien und gängige Bildformate direkt im Browser.</div>
+              </div>
+            </div>
+          {% endif %}
+
+          {% if preview_ocr_job and preview_ocr_job.extracted_text %}
+            <details class="document-fulltext">
+              <summary>
+                <span>Volltext</span>
+                <span class="text-secondary">{{ preview_ocr_job.extracted_text|length }} Zeichen</span>
+              </summary>
+              <div class="document-fulltext-body">
+                {{ preview_ocr_job.extracted_text|linebreaksbr }}
+              </div>
+            </details>
+          {% endif %}
+
+          {% if document.einvoice_data %}
+            <details class="document-fulltext">
+              <summary>
+                <span>eRechnung</span>
+                <span class="text-secondary">
+                  Daten erkannt
+                </span>
+              </summary>
+              <dl class="document-einvoice-data">
+                {% if document.einvoice_data.invoice_number %}
+                  <dt>Rechnungsnummer</dt>
+                  <dd>{{ document.einvoice_data.invoice_number }}</dd>
+                {% endif %}
+                {% if document.einvoice_data.invoice_date %}
+                  <dt>Rechnungsdatum</dt>
+                  <dd>{{ document.einvoice_data.invoice_date }}</dd>
+                {% endif %}
+                {% if document.einvoice_data.seller_name %}
+                  <dt>Verkäufer</dt>
+                  <dd>{{ document.einvoice_data.seller_name }}</dd>
+                {% endif %}
+                {% if document.einvoice_data.buyer_name %}
+                  <dt>Käufer</dt>
+                  <dd>{{ document.einvoice_data.buyer_name }}</dd>
+                {% endif %}
+                {% if document.einvoice_data.currency %}
+                  <dt>Währung</dt>
+                  <dd>{{ document.einvoice_data.currency }}</dd>
+                {% endif %}
+                {% if document.einvoice_data.line_total_amount %}
+                  <dt>Zeilensumme</dt>
+                  <dd>{{ document.einvoice_data.line_total_amount }}</dd>
+                {% endif %}
+                {% if document.einvoice_data.tax_basis_total_amount %}
+                  <dt>Steuerbasis</dt>
+                  <dd>{{ document.einvoice_data.tax_basis_total_amount }}</dd>
+                {% endif %}
+                {% if document.einvoice_data.tax_total_amount %}
+                  <dt>Steuerbetrag</dt>
+                  <dd>{{ document.einvoice_data.tax_total_amount }}</dd>
+                {% endif %}
+                {% if document.einvoice_data.tax_breakdown %}
+                  <dt>Umsätze nach Steuer</dt>
+                  <dd>
+                    <div class="document-einvoice-tax-table">
+                      <div class="document-einvoice-tax-head">Steuersatz</div>
+                      <div class="document-einvoice-tax-head">Netto</div>
+                      <div class="document-einvoice-tax-head">Steuer</div>
+                      {% for tax_row in document.einvoice_data.tax_breakdown %}
+                        <div>
+                          {% if tax_row.rate %}{{ tax_row.rate }} %{% else %}Ohne Satz{% endif %}
+                          {% if tax_row.category %}<span class="text-secondary">({{ tax_row.category }})</span>{% endif %}
+                        </div>
+                        <div>{{ tax_row.net_amount }}</div>
+                        <div>{{ tax_row.tax_amount|default:"-" }}</div>
+                      {% endfor %}
+                    </div>
+                  </dd>
+                {% endif %}
+                {% if document.einvoice_data.grand_total_amount %}
+                  <dt>Gesamtbetrag</dt>
+                  <dd>{{ document.einvoice_data.grand_total_amount }}</dd>
+                {% endif %}
+                {% if document.einvoice_data.due_payable_amount %}
+                  <dt>Zahlbetrag</dt>
+                  <dd>{{ document.einvoice_data.due_payable_amount }}</dd>
+                {% endif %}
+              </dl>
+            </details>
+          {% endif %}
+        </section>
+
+        <aside class="document-sidepanel">
+          {% if open_workflow_instances or comments_count %}
+            <section class="document-signal-list" aria-label="Dokumenthinweise">
+              {% if open_workflow_instances %}
+                <div class="document-signal document-signal-workflow document-signal-workflow-action">
+                  <div class="document-signal-main">
+                    <div>
+                      <div class="metadata-label">Workflow</div>
+                      <div class="fw-semibold">
+                        {{ open_workflow_instances|length }} laufend
+                        {% if open_workflow_tasks %}
+                          · {{ open_workflow_tasks|length }} Aufgabe{% if open_workflow_tasks|length != 1 %}n{% endif %} für dich
+                        {% endif %}
+                      </div>
+                    </div>
+                    <span class="badge document-signal-badge-workflow">{{ open_workflow_instances|length }}</span>
+                  </div>
+                  {% if open_workflow_tasks %}
+                    <div class="document-signal-tasks">
+                      {% for task in open_workflow_tasks %}
+                        <form method="post" class="document-task-box document-task-box-open {% if not forloop.last %}mb-2{% endif %}">
+                          {% csrf_token %}
+                          <input type="hidden" name="action" value="complete_workflow_task">
+                          <input type="hidden" name="task_id" value="{{ task.id }}">
+                          <div class="document-task-header">
+                            <div>
+                              <div class="document-task-title">{{ task.title }}</div>
+                              <div class="small text-secondary">
+                                {{ task.instance.template.name }}
+                                {% if task.assigned_role %} · {{ task.assigned_role.name }}{% endif %}
+                              </div>
+                            </div>
+                          </div>
+                          {% if task.step.instructions %}
+                            <p class="document-task-instructions">{{ task.step.instructions }}</p>
+                          {% endif %}
+                          {% if task.step.comment_policy != "disabled" %}
+                            <label class="form-label" for="workflow-task-comment-{{ task.id }}">Kommentar</label>
+                            <textarea class="form-control" id="workflow-task-comment-{{ task.id }}" name="comment" rows="2"></textarea>
+                            {% if task.step.comment_policy == "required" %}
+                              <div class="form-text">Kommentar erforderlich.</div>
+                            {% endif %}
+                          {% endif %}
+                          <button class="btn btn-primary document-task-complete-button" type="submit" data-shortcut-action="workflow_complete">
+                            {% include "includes/icons.html" with icon="check-square" %}
+                            <span>Aufgabe erledigen</span>
+                          </button>
+                        </form>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                </div>
+              {% endif %}
+              {% if comments_count %}
+                <div class="document-signal document-signal-comments">
+                  <div>
+                    <div class="metadata-label">Kommentare</div>
+                    <div class="fw-semibold">{{ comments_count }} vorhanden</div>
+                    {% if latest_comment %}
+                      <div class="small text-secondary">
+                        Zuletzt {{ latest_comment.created_by|display_user }}
+                        · {{ latest_comment.created_at|date:"d.m.Y H:i" }}
+                      </div>
+                    {% endif %}
+                  </div>
+                  <span class="badge document-signal-badge-comments">{{ comments_count }}</span>
+                </div>
+              {% endif %}
+            </section>
+          {% endif %}
+
+          <section class="app-card document-compact-card document-panel">
+            <div class="document-panel-header">
+              <h2 class="h6 mb-0">Dokumentdaten</h2>
+              <a class="btn btn-sm btn-outline-secondary" href="{% url 'documents:core_metadata_edit' document.tenant.slug document.id %}?back={{ back_url|urlencode }}{% if document_nav_param %}&amp;nav={{ document_nav_param|urlencode }}{% endif %}" data-shortcut-action="document_edit_core">
+                Kerndaten bearbeiten
+              </a>
+            </div>
+
+            <div class="document-panel-section">
+              <dl class="document-key-data mb-0">
+                <dt>Titel</dt>
+                <dd>{{ document.title }}</dd>
+                <dt>Belegdatum</dt>
+                <dd>{{ document.document_date|date:"d.m.Y"|default:"Nicht gesetzt" }}</dd>
+                <dt>Angelegt</dt>
+                <dd>{{ document.created_at|date:"d.m.Y H:i" }}</dd>
+                <dt>Aktualisiert</dt>
+                <dd>{{ document.updated_at|date:"d.m.Y H:i" }}</dd>
+              </dl>
+            </div>
+
+            <div class="document-panel-section">
+              <h3 class="document-section-title">Box-Metadaten</h3>
+              {% if metadata_form.fields %}
+                <form method="post">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="update_metadata">
+                  <div class="document-form-stack">
+                    {% for field in metadata_form %}
+                      <div {% if field|widget_attr:"data-metadata-choice-input" %}class="metadata-choice-new-field {% if field.errors %}is-visible{% endif %}" data-metadata-choice-field{% endif %}>
+                        {% if field.field.widget.input_type == "checkbox" %}
+                          <div class="form-check">
+                            {{ field }}
+                            <label class="form-check-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                          </div>
+                        {% else %}
+                          {% if field|widget_attr:"data-metadata-choice-input" %}
+                            <label class="form-label visually-hidden" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                          {% else %}
+                            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {% if field|widget_attr:"data-metadata-choice-select" %}
+                              <div class="input-group metadata-choice-control">
+                                {{ field }}
+                                <button class="btn btn-outline-secondary metadata-choice-add-button" type="button" data-metadata-choice-add="{{ field|widget_attr:'data-metadata-choice-target' }}" aria-label="Auswahlwert hinzufügen">
+                                  +
+                                </button>
+                              </div>
+                            {% else %}
+                              {{ field }}
+                            {% endif %}
+                          {% endif %}
+                        {% endif %}
+                        {% if field.help_text %}
+                          <div class="form-text">{{ field.help_text }}</div>
+                        {% endif %}
+                        {{ field.errors }}
+                      </div>
+                    {% endfor %}
+                  </div>
+                  <button class="btn btn-sm btn-outline-primary mt-3" type="submit">Metadaten speichern</button>
+                </form>
+              {% else %}
+                <p class="text-secondary mb-0">Für diese Dokumentenbox sind noch keine Metadatenfelder definiert.</p>
+              {% endif %}
+            </div>
+
+            <div class="document-panel-section">
+              <h3 class="document-section-title">Tags</h3>
+              <div class="mb-3">
+                {% for assignment in document.tag_assignments.all %}
+                  <span class="badge text-bg-light me-1 mb-1">{{ assignment.tag.name }}</span>
+                {% empty %}
+                  <span class="text-secondary">Keine Tags gesetzt.</span>
+                {% endfor %}
+              </div>
+              <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="update_tags">
+                <label class="form-label" for="{{ tag_form.tag_names.id_for_label }}">Tags</label>
+                {{ tag_form.tag_names }}
+                {{ tag_form.tag_names.errors }}
+                <div class="form-text">{{ tag_form.tag_names.help_text }}</div>
+                <button class="btn btn-sm btn-outline-primary mt-3" type="submit">Tags speichern</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="app-card document-compact-card document-panel">
+            <h2 class="h6 mb-0">Zusammenarbeit</h2>
+
+            {% if can_use_workflows and workflow_templates_available or not open_workflow_tasks or can_delete_document %}
+              <div class="document-panel-section">
+                <h3 class="document-section-title">Aktionen</h3>
+                {% if can_use_workflows and workflow_templates_available %}
+                  <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="start_workflow">
+                    <label class="form-label" for="{{ start_workflow_form.template.id_for_label }}">Workflow starten</label>
+                    {{ start_workflow_form.template }}
+                    {{ start_workflow_form.template.errors }}
+                    <button class="btn btn-sm btn-outline-primary mt-3" type="submit">Workflow starten</button>
+                  </form>
+                {% elif not open_workflow_tasks %}
+                  <p class="text-secondary mb-0">Keine direkten Aktionen verfügbar.</p>
+                {% endif %}
+                {% if can_delete_document %}
+                  <div class="border-top mt-3 pt-3">
+                    <a class="btn btn-sm btn-outline-danger" href="{% url 'documents:delete' document.tenant.slug document.id %}?back={{ back_url|urlencode }}{% if document_nav_param %}&amp;nav={{ document_nav_param|urlencode }}{% endif %}">
+                      Dokument löschen
+                    </a>
+                  </div>
+                {% endif %}
+              </div>
+            {% endif %}
+
+            <div class="document-panel-section">
+              <h3 class="document-section-title">Workflows</h3>
+              {% if workflow_instances %}
+                <div class="document-condensed-list">
+                  {% for instance in workflow_instances %}
+                    <div class="document-condensed-row">
+                      <div>
+                        <div class="fw-medium">{{ instance.template.name }}</div>
+                        <div class="small text-secondary">
+                          {% if instance.current_step %}{{ instance.current_step.name }}{% else %}{{ instance.get_status_display }}{% endif %}
+                        </div>
+                      </div>
+                      <span class="badge {% if instance.status == 'completed' %}text-bg-success{% elif instance.status == 'cancelled' %}text-bg-secondary{% else %}text-bg-primary{% endif %}">
+                        {{ instance.get_status_display }}
+                      </span>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <p class="text-secondary mb-0">Noch kein Workflow gestartet.</p>
+              {% endif %}
+            </div>
+
+            <div class="document-panel-section">
+              <h3 class="document-section-title">Kommentare</h3>
+              <form method="post" class="mb-3" data-mention-form>
+                {% csrf_token %}
+                <input type="hidden" name="action" value="add_comment">
+                <label class="form-label" for="{{ comment_form.body.id_for_label }}">Kommentar</label>
+                <div class="document-comment-mention-field">
+                  {{ comment_form.body }}
+                  <div class="document-mention-suggestions" data-mention-suggestions hidden></div>
+                </div>
+                {{ comment_form.body.errors }}
+                <button class="btn btn-sm btn-primary mt-2" type="submit">Hinzufügen</button>
+              </form>
+
+              <div class="document-condensed-list">
+                {% for comment in comments %}
+                  <div class="document-condensed-row document-condensed-row-block">
+                    <div class="small text-secondary">
+                      {{ comment.created_by|display_user }}
+                      · {{ comment.created_at|date:"d.m.Y H:i" }}
+                    </div>
+                    <div class="document-comment-body">{{ comment|comment_body_with_mentions }}</div>
+                  </div>
+                {% empty %}
+                  <p class="text-secondary mb-0">Noch keine Kommentare vorhanden.</p>
+                {% endfor %}
+              </div>
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <section class="app-card document-compact-card document-support">
+        <div class="document-panel-header">
+          <h2 class="h5 mb-0">Technische Details</h2>
+        </div>
+
+        <div class="document-support-grid">
+          <section>
+            <h3 class="document-section-title">Dateien</h3>
+            {% for file in document.files.all %}
+              <div class="document-file-row {% if not forloop.last %}mb-3{% endif %}">
+                <div class="document-file-row-header">
+                  <div>
+                    <div class="fw-medium">
+                      {% include "includes/icons.html" with icon="file" %}
+                      <span class="ms-1">{{ file.original_filename }}</span>
+                    </div>
+                    <div class="small text-secondary">
+                      {{ file.get_file_kind_display }} v{{ file.version }} · {{ file.content_type }} · {{ file.byte_size|filesizeformat }}
+                    </div>
+                  </div>
+                  <a class="btn btn-sm btn-outline-secondary" href="{% url 'documents:download' document.tenant.slug file.id %}">
+                    {% include "includes/icons.html" with icon="download" %}
+                    <span class="ms-1">Download</span>
+                  </a>
+                </div>
+                <dl class="row mt-3 mb-0">
+                  <dt class="col-sm-3 metadata-label">SHA-256</dt>
+                  <dd class="col-sm-9 hash-value">{{ file.sha256 }}</dd>
+                  <dt class="col-sm-3 metadata-label">Storage Key</dt>
+                  <dd class="col-sm-9 hash-value">{{ file.storage_key }}</dd>
+                </dl>
+                <div class="border-top mt-3 pt-3">
+                  {% with latest_ocr=file.latest_ocr_job %}
+                    <div class="d-flex align-items-start justify-content-between gap-3">
+                      <div>
+                        <div class="metadata-label mb-1">OCR</div>
+                        {% if latest_ocr %}
+                          <div class="small">
+                            {{ latest_ocr.get_status_display }}
+                            {% if latest_ocr.engine %} · {{ latest_ocr.engine }}{% endif %}
+                          </div>
+                        {% else %}
+                          <div class="small text-secondary">Noch nicht gestartet.</div>
+                        {% endif %}
+                      </div>
+                      {% if can_start_ocr %}
+                        <form method="post">
+                          {% csrf_token %}
+                          <input type="hidden" name="action" value="start_ocr">
+                          <input type="hidden" name="file_id" value="{{ file.id }}">
+                          <button class="btn btn-sm btn-outline-primary" type="submit">OCR starten</button>
+                        </form>
+                      {% endif %}
+                    </div>
+                    {% if latest_ocr.error_message %}
+                      <div class="small text-danger mt-2">{{ latest_ocr.error_message }}</div>
+                    {% endif %}
+                  {% endwith %}
+                </div>
+              </div>
+            {% empty %}
+              <p class="text-secondary mb-0">Keine Dateien vorhanden.</p>
+            {% endfor %}
+          </section>
+
+          <section>
+            <h3 class="document-section-title">Dokumenten-Log</h3>
+            {% if document_log_entries %}
+              <div class="document-timeline document-timeline-compact">
+                {% for entry in document_log_entries %}
+                  {% with event=entry.event %}
+                    <div class="document-timeline-row">
+                      <time class="document-timeline-time" datetime="{{ event.created_at|date:'c' }}">
+                        {{ event.created_at|date:"d.m." }}<br>
+                        {{ event.created_at|date:"H:i" }}
+                      </time>
+                      <div class="document-timeline-main">
+                        <div class="document-timeline-title">{{ entry.label }}</div>
+                        <div class="document-timeline-detail">
+                          {% if event.event_type == "workflow_task.completed" %}
+                            {{ event.data.workflow_template_name|default:"Workflow" }}
+                            {% if event.data.step_name %} · {{ event.data.step_name }}{% endif %}
+                          {% elif event.event_type == "workflow_instance.started" %}
+                            {{ event.data.template_name|default:"Workflow" }}
+                          {% elif event.event_type == "document_file.stored" %}
+                            Version {{ event.data.version|default:"-" }}
+                            {% if event.data.file_kind %} · {{ event.data.file_kind }}{% endif %}
+                          {% elif event.event_type == "document.created" %}
+                            {{ event.data.space_path|default:"" }}
+                          {% elif event.event_type == "document_tags.updated" %}
+                            {% if event.data.tags %}{{ event.data.tags|join:", " }}{% endif %}
+                          {% elif event.event_type == "document.exported" %}
+                            {{ event.data.exported_filename|default:"DATEV-Belegbild-Export" }}
+                          {% endif %}
+                        </div>
+                      </div>
+                      <div class="document-timeline-actor">{{ event.actor|display_user }}</div>
+                    </div>
+                  {% endwith %}
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="text-secondary mb-0">Noch keine Log-Einträge.</p>
+            {% endif %}
+          </section>
+        </div>
+      </section>
+    </div>
+  </main>
+{% endblock %}
+
+{% block extra_body %}
+  {{ mention_suggestions|json_script:"document-comment-mention-users" }}
+  <script src="{% static 'js/document-mentions.js' %}?v=1"></script>
+  <script src="{% static 'js/document-metadata.js' %}?v=1"></script>
+  {% if preview_kind == "pdf" %}
+    <script src="{% static 'vendor/pdfjs/pdf.min.js' %}?v=3.11.174"></script>
+    <script src="{% static 'js/document-preview.js' %}?v=10"></script>
+  {% elif preview_kind == "image" %}
+    <script src="{% static 'js/document-preview.js' %}?v=10"></script>
+  {% endif %}
+{% endblock %}

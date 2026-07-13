@@ -1,6 +1,6 @@
-# DoMaSy Architecture Notes
+# Doksio Architecture Notes
 
-This document records the current architecture direction for DoMaSy.
+This document records the current architecture direction for Doksio.
 
 ## Stack
 
@@ -19,7 +19,7 @@ This document records the current architecture direction for DoMaSy.
 
 ## High-Level Shape
 
-DoMaSy should start as a modular Django monolith. The codebase should keep clear
+Doksio should start as a modular Django monolith. The codebase should keep clear
 domain boundaries, but avoid premature microservices.
 
 Suggested Django apps:
@@ -38,7 +38,7 @@ Suggested Django apps:
 
 ## Code Organization Principles
 
-DoMaSy optimizes for clean, modular architecture over short-term speed.
+Doksio optimizes for clean, modular architecture over short-term speed.
 
 Business logic should live in explicit application services or use-case classes,
 not in views, templates, forms, Celery tasks or Django signals.
@@ -66,7 +66,7 @@ architecture concerns and must not be added as afterthoughts.
 
 ## Tenant Access Control
 
-DoMaSy separates system administration from tenant administration.
+Doksio separates system administration from tenant administration.
 
 - System administrators are Django superusers and operate under `/s/...`.
 - Tenant users operate under `/t/<tenant-slug>/...`.

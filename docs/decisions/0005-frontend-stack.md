@@ -10,7 +10,7 @@ The primary users are non-accounting clerks and occasional approvers. The UI
 should be modern, consistent and efficient, but the application does not require
 a heavy single-page frontend at the start.
 
-DoMaSy needs components such as document lists, search dropdowns, filters, tabs,
+Doksio needs components such as document lists, search dropdowns, filters, tabs,
 badges, modals, comments, forms, icons and PDF preview controls.
 
 The project should not require Node.js for the frontend asset pipeline.

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% load doksio_extras %}
+
+{% block title %}Meine Aufgaben | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container-fluid px-4">
+      <div class="d-flex align-items-start justify-content-between gap-3 mb-4">
+        <div>
+          <h1 class="h3 mb-1">Meine Aufgaben</h1>
+          <p class="text-secondary mb-0">
+            {{ workflow_tasks_count }} offene Aufgabe{% if workflow_tasks_count != 1 %}n{% endif %}
+            in {{ workflow_documents_count }} Dokument{% if workflow_documents_count != 1 %}en{% endif %}
+          </p>
+        </div>
+        {% include "includes/workflow_task_filter.html" with workflow_filter_options=workflow_filter_options selected_workflow_id=selected_workflow_id filter_id="tasks" %}
+      </div>
+
+      {% if workflow_tasks %}
+        <section class="app-card">
+          <div class="workflow-task-list">
+            {% for task in workflow_tasks %}
+              {% include "includes/workflow_task_row.html" with task=task tenant=tenant workflow_task_document_nav=workflow_task_document_nav %}
+            {% endfor %}
+          </div>
+          {% include "includes/pagination.html" with page_obj=workflow_tasks_page_obj page_param="page" label="Aufgabenseiten" %}
+        </section>
+      {% else %}
+        <section class="app-card search-empty-state">
+          <h2 class="h5">Keine offenen Aufgaben</h2>
+          <p class="text-secondary mb-0">Aktuell sind dir keine Workflow-Aufgaben zugeordnet.</p>
+        </section>
+      {% endif %}
+    </div>
+  </main>
+{% endblock %}

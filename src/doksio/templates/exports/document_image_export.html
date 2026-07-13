@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% load doksio_extras %}
+
+{% block title %}Exporte | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container-fluid px-4">
+      <div class="page-header mb-4">
+        <div>
+          <h1 class="h3 mb-1">Exporte</h1>
+          <p class="text-secondary mb-0">
+            Belegbilder für DATEV Belegtransfer als ZIP-Paket erzeugen.
+          </p>
+        </div>
+      </div>
+
+      <div class="row g-4">
+        <div class="col-xl-5">
+          <section class="app-card p-4">
+            <div class="d-flex align-items-start gap-3 mb-3">
+              <div class="app-indicator app-indicator-success">
+                {% include "includes/icons.html" with icon="package" %}
+              </div>
+              <div>
+                <h2 class="h5 mb-1">DATEV Belegbilder</h2>
+                <p class="text-secondary small mb-0">
+                  Enthält Originaldateien, Manifest und Exportlog. Die ZIP-Datei wird anschließend für den Belegtransfer entpackt.
+                </p>
+              </div>
+            </div>
+
+            <form method="post" class="d-grid gap-3">
+              {% csrf_token %}
+              {{ form.non_field_errors }}
+
+              <div>
+                <label class="form-label" for="{{ form.document_space.id_for_label }}">{{ form.document_space.label }}</label>
+                {{ form.document_space }}
+                {{ form.document_space.errors }}
+              </div>
+
+              <div class="form-check">
+                {{ form.include_children }}
+                <label class="form-check-label" for="{{ form.include_children.id_for_label }}">{{ form.include_children.label }}</label>
+                {{ form.include_children.errors }}
+              </div>
+
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label" for="{{ form.document_date_from.id_for_label }}">{{ form.document_date_from.label }}</label>
+                  {{ form.document_date_from }}
+                  {{ form.document_date_from.errors }}
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label" for="{{ form.document_date_to.id_for_label }}">{{ form.document_date_to.label }}</label>
+                  {{ form.document_date_to }}
+                  {{ form.document_date_to.errors }}
+                </div>
+              </div>
+
+              <button class="btn btn-primary justify-content-center" type="submit">
+                {% include "includes/icons.html" with icon="download" %}
+                Exportpaket herunterladen
+              </button>
+            </form>
+          </section>
+        </div>
+
+        <div class="col-xl-7">
+          <section class="app-card p-4">
+            <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+              <div>
+                <h2 class="h5 mb-1">Letzte Exportläufe</h2>
+                <p class="text-secondary small mb-0">Nachvollziehbarkeit für erzeugte Belegbild-Pakete.</p>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th>Zeitpunkt</th>
+                    <th>Status</th>
+                    <th class="text-end">Exportiert</th>
+                    <th class="text-end">Warnungen</th>
+                    <th>Datei</th>
+                    <th class="text-end">Aktion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for run in export_runs %}
+                    <tr>
+                      <td>{{ run.created_at|date:"d.m.Y H:i" }}</td>
+                      <td>
+                        <span class="badge text-bg-{% if run.status == "completed" %}success{% elif run.status == "completed_with_warnings" %}warning{% else %}secondary{% endif %}">
+                          {{ run.get_status_display }}
+                        </span>
+                      </td>
+                      <td class="text-end">{{ run.exported_count }}</td>
+                      <td class="text-end">{{ run.warning_count }}</td>
+                      <td class="small">
+                        {% if run.filename %}
+                          <div>{{ run.filename }}</div>
+                          <div class="text-secondary">
+                            {{ run.byte_size|filesizeformat }}
+                            {% if run.sha256 %} · <span class="hash-value">{{ run.sha256|slice:":12" }}</span>{% endif %}
+                          </div>
+                        {% else %}
+                          <span class="text-secondary">-</span>
+                        {% endif %}
+                      </td>
+                      <td class="text-end">
+                        {% if run.storage_key %}
+                          <a class="btn btn-sm btn-outline-primary" href="{% url 'exports:run_download' tenant.slug run.id %}">
+                            {% include "includes/icons.html" with icon="download" %}
+                            Herunterladen
+                          </a>
+                        {% else %}
+                          <span class="text-secondary small">Nicht verfügbar</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% empty %}
+                    <tr>
+                      <td colspan="6" class="text-secondary">Noch keine Exportläufe vorhanden.</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </main>
+{% endblock %}

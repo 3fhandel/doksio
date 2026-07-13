@@ -1,0 +1,176 @@
+{% load static doksio_extras %}
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Doksio{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+    <script>
+      const sidebarPreference = window.localStorage.getItem("doksio.sidebarCollapsed");
+      if (
+        sidebarPreference === "true" ||
+        (sidebarPreference === null && window.matchMedia("(max-width: 991.98px)").matches)
+      ) {
+        document.documentElement.classList.add("app-sidebar-collapsed");
+      }
+    </script>
+    {% block extra_head %}{% endblock %}
+  </head>
+  <body>
+    <div class="app-shell">
+      <nav class="navbar navbar-expand-lg border-bottom bg-white app-topbar">
+        <div class="container-fluid">
+          <div class="d-flex align-items-center gap-2">
+            <a class="navbar-brand fw-semibold" href="{% if tenant and user.is_authenticated %}{% url 'documents:dashboard' tenant.slug %}{% else %}{% url 'index' %}{% endif %}">
+              Doksio
+            </a>
+          </div>
+          <div class="app-topbar-actions">
+            {% if user.is_authenticated %}
+              <div class="dropdown">
+                <button class="btn app-account-button" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  <span class="app-account-avatar">{{ user|display_user|slice:":1"|upper }}</span>
+                  <span class="app-account-name">{{ user|display_user }}</span>
+                  {% if unread_notifications_count %}
+                    <span class="app-account-notification-badge" aria-label="{{ unread_notifications_count }} ungelesene Benachrichtigungen">
+                      {{ unread_notifications_count }}
+                    </span>
+                  {% endif %}
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end app-account-menu">
+                  <li class="dropdown-header">
+                    <div class="app-account-menu-label">Angemeldet als</div>
+                    <div class="app-account-menu-name">{{ user|display_user }}</div>
+                  </li>
+                  {% if tenant %}
+                    <li>
+                      <a class="dropdown-item" href="{% url 'accounts:profile_notifications' tenant.slug %}">
+                        {% include "includes/icons.html" with icon="bell" %}
+                        <span>Benachrichtigungen</span>
+                        {% if unread_notifications_count %}
+                          <span class="app-account-menu-badge">{{ unread_notifications_count }}</span>
+                        {% endif %}
+                      </a>
+                    </li>
+                    <li>
+                      <a class="dropdown-item" href="{% url 'accounts:profile' tenant.slug %}">
+                        {% include "includes/icons.html" with icon="user" %}
+                        <span>Profil</span>
+                      </a>
+                    </li>
+                  {% endif %}
+                  {% if user.is_superuser %}
+                    <li>
+                      <a class="dropdown-item" href="{% url 'admin:index' %}">
+                        {% include "includes/icons.html" with icon="shield" %}
+                        <span>System</span>
+                      </a>
+                    </li>
+                  {% endif %}
+                  <li><hr class="dropdown-divider"></li>
+                  <li>
+                    <a class="dropdown-item text-danger" href="{% url 'accounts:logout' %}">
+                      {% include "includes/icons.html" with icon="log-out" %}
+                      <span>Logout</span>
+                    </a>
+                  </li>
+                </ul>
+              </div>
+            {% else %}
+              <a class="btn btn-sm btn-outline-primary" href="{% url 'accounts:system_login' %}">System Login</a>
+            {% endif %}
+          </div>
+        </div>
+      </nav>
+      <div class="app-layout">
+        {% if tenant and user.is_authenticated %}
+          <aside class="app-sidebar">
+            <div class="app-sidebar-tenant">
+              <button class="btn btn-sm btn-outline-secondary app-sidebar-toggle" type="button" data-sidebar-toggle aria-label="Menü ein- oder ausblenden">
+                {% include "includes/icons.html" with icon="menu" %}
+              </button>
+              <div class="app-sidebar-tenant-text">
+                <div class="app-sidebar-label">Mandant</div>
+                <div class="app-sidebar-title">{{ tenant.name }}</div>
+              </div>
+            </div>
+            <nav class="app-sidebar-nav" aria-label="Tenant Navigation">
+              {% with app_name=request.resolver_match.app_name url_name=request.resolver_match.url_name %}
+                <a class="app-sidebar-link {% if url_name == 'dashboard' %}active{% endif %}" href="{% url 'documents:dashboard' tenant.slug %}" data-shortcut-action="dashboard">
+                  {% include "includes/icons.html" with icon="home" %}
+                  <span>Dashboard</span>
+                </a>
+                <a class="app-sidebar-link {% if url_name == 'tasks' %}active{% endif %}" href="{% url 'documents:tasks' tenant.slug %}" data-shortcut-action="tasks">
+                  {% include "includes/icons.html" with icon="check-square" %}
+                  <span>Meine Aufgaben</span>
+                  {% if sidebar_open_workflow_tasks_count %}
+                    <span class="app-sidebar-count-badge" aria-label="{{ sidebar_open_workflow_tasks_count }} offene Aufgaben">
+                      {{ sidebar_open_workflow_tasks_count }}
+                    </span>
+                  {% endif %}
+                </a>
+                <a class="app-sidebar-link {% if url_name == 'list' or url_name == 'detail' or url_name == 'core_metadata_edit' %}active{% endif %}" href="{% url 'documents:list' tenant.slug %}" data-shortcut-action="documents">
+                  {% include "includes/icons.html" with icon="file" %}
+                  <span>Dokumente</span>
+                </a>
+                <a class="app-sidebar-link {% if app_name == 'search' %}active{% endif %}" href="{% url 'search:documents' tenant.slug %}" data-shortcut-action="search">
+                  {% include "includes/icons.html" with icon="search" %}
+                  <span>Suche</span>
+                </a>
+                {% if can_view_reports %}
+                  <a class="app-sidebar-link {% if app_name == 'reports' %}active{% endif %}" href="{% url 'reports:overview' tenant.slug %}">
+                    {% include "includes/icons.html" with icon="bar-chart" %}
+                    <span>Auswertungen</span>
+                  </a>
+                {% endif %}
+                {% if can_export_documents %}
+                  <a class="app-sidebar-link {% if app_name == 'exports' %}active{% endif %}" href="{% url 'exports:document_images' tenant.slug %}">
+                    {% include "includes/icons.html" with icon="package" %}
+                    <span>Exporte</span>
+                  </a>
+                {% endif %}
+                {% if can_view_audit %}
+                  <a class="app-sidebar-link {% if url_name == 'audit_log' %}active{% endif %}" href="{% url 'documents:audit_log' tenant.slug %}">
+                    {% include "includes/icons.html" with icon="activity" %}
+                    <span>Logs/Audit</span>
+                  </a>
+                {% endif %}
+                <a class="app-sidebar-link app-sidebar-link-primary {% if url_name == 'upload' %}active{% endif %}" href="{% url 'documents:upload' tenant.slug %}" data-shortcut-action="upload">
+                  {% include "includes/icons.html" with icon="upload" %}
+                  <span>Hochladen</span>
+                </a>
+                {% if can_manage_settings or active_settings_section %}
+                  <a class="app-sidebar-link {% if active_settings_section or app_name == 'workflows' %}active{% endif %}" href="{% url 'documents:settings_overview' tenant.slug %}">
+                    {% include "includes/icons.html" with icon="settings" %}
+                    <span>Einstellungen</span>
+                  </a>
+                {% endif %}
+              {% endwith %}
+            </nav>
+          </aside>
+        {% endif %}
+        <div class="app-main">
+          {% block body %}{% endblock %}
+        </div>
+      </div>
+    </div>
+    <script>
+      document.querySelectorAll("[data-sidebar-toggle]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const collapsed = document.documentElement.classList.toggle("app-sidebar-collapsed");
+          window.localStorage.setItem("doksio.sidebarCollapsed", collapsed ? "true" : "false");
+        });
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.7/dist/htmx.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.0/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+    {% if user.is_authenticated %}
+      {{ keyboard_shortcuts|json_script:"doksio-keyboard-shortcuts" }}
+      <script src="{% static 'js/keyboard-shortcuts.js' %}?v=1"></script>
+    {% endif %}
+    {% block extra_body %}{% endblock %}
+  </body>
+</html>

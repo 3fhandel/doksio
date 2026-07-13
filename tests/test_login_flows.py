@@ -4,9 +4,9 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 
-from domasy.accounts.models import TenantMembership
-from domasy.accounts.services import EnsureDefaultTenantRoles
-from domasy.tenancy.models import Tenant
+from doksio.accounts.models import TenantMembership
+from doksio.accounts.services import EnsureDefaultTenantRoles
+from doksio.tenancy.models import Tenant
 
 
 def test_system_paths_are_under_s_namespace():

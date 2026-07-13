@@ -1,0 +1,69 @@
+{% load doksio_extras %}
+
+<article class="document-row search-result-row{% if document.status == "deleted" %} document-row-deleted{% endif %}">
+  {% with thumbnail=document|document_thumbnail_file %}
+    <div class="document-row-thumbnail">
+      {% if thumbnail and document.status != "deleted" %}
+        <img src="{% url 'documents:download' document.tenant.slug thumbnail.id %}?inline=1" alt="Vorschau {{ document.title }}">
+      {% else %}
+        <div class="document-row-thumbnail-fallback">
+          {% include "includes/icons.html" with icon="file" %}
+          <span>{{ document|document_file_type }}</span>
+        </div>
+      {% endif %}
+    </div>
+  {% endwith %}
+  <div class="document-row-main">
+    <div class="document-row-title-line">
+      {% if document.status == "deleted" %}
+        <span class="document-row-title">{{ document.title }}</span>
+        <span class="badge text-bg-danger">Gelöscht</span>
+      {% else %}
+        <a class="document-row-title" href="{% url 'documents:detail' tenant.slug document.id %}?back={{ request.get_full_path|urlencode }}{% if document_nav %}&amp;nav={{ document_nav|urlencode }}{% endif %}">
+          {{ document.title }}
+        </a>
+      {% endif %}
+    </div>
+    <div class="document-row-meta">
+      <span class="document-row-box">{{ document.space.path }}</span>
+      <span aria-label="Dateityp {{ document|document_file_type }}">{{ document|document_file_type }}</span>
+      <span>Belegdatum {{ document.document_date|date:"d.m.Y"|default:"-" }}</span>
+      <span>{{ document.created_at|date:"d.m.Y H:i" }}</span>
+      {% if document.status == "deleted" %}
+        <span>Gelöscht {{ document.deleted_at|date:"d.m.Y H:i"|default:"-" }}</span>
+        {% if document.deleted_reason %}<span>Grund {{ document.deleted_reason }}</span>{% endif %}
+      {% endif %}
+    </div>
+    {% if document.search_match %}
+      <div class="document-row-match search-result-match">
+        <span class="document-row-match-source search-result-match-source">Fundstelle: {{ document.search_match.source }}</span>
+        <span class="document-row-match-text search-result-match-text">{{ document.search_match.excerpt }}</span>
+      </div>
+    {% endif %}
+    {% if show_tags %}
+      <div class="document-row-tags search-result-tags">
+        {% for assignment in document.tag_assignments.all %}
+          <span class="badge text-bg-light">{{ assignment.tag.name }}</span>
+        {% empty %}
+          <span class="text-secondary small">Keine Tags</span>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+  <div class="document-row-indicators">
+    {% if document.einvoice_data %}
+      <span class="document-row-indicator document-row-einvoice-indicator" title="eRechnungs-Daten vorhanden" aria-label="eRechnungs-Daten vorhanden">
+        {% include "includes/icons.html" with icon="receipt" %}
+      </span>
+    {% else %}
+      <span class="document-row-indicator document-row-indicator-empty" aria-hidden="true"></span>
+    {% endif %}
+    {% if document.workflow_total_count %}
+      <div class="document-row-indicator document-row-workflow search-result-workflow {% if document.workflow_open_count %}search-result-workflow-open{% else %}search-result-workflow-done{% endif %}" title="{% if document.workflow_open_count %}Workflow offen{% else %}Workflow erledigt{% endif %} {{ document.workflow_completed_count }}/{{ document.workflow_total_count }}" aria-label="{% if document.workflow_open_count %}Workflow offen{% else %}Workflow erledigt{% endif %} {{ document.workflow_completed_count }}/{{ document.workflow_total_count }}">
+        {% include "includes/icons.html" with icon="workflow" %}
+      </div>
+    {% else %}
+      <span class="document-row-indicator document-row-indicator-empty" aria-hidden="true"></span>
+    {% endif %}
+  </div>
+</article>

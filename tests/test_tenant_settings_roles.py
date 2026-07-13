@@ -4,11 +4,11 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 
-from domasy.accounts.models import TenantMembership, TenantPermission, TenantRole
-from domasy.accounts.permissions import TenantPermissions
-from domasy.accounts.services import EnsureDefaultTenantRoles
-from domasy.documents.services import CreateDocumentSpace
-from domasy.tenancy.models import Tenant
+from doksio.accounts.models import TenantMembership, TenantPermission, TenantRole
+from doksio.accounts.permissions import TenantPermissions
+from doksio.accounts.services import EnsureDefaultTenantRoles
+from doksio.documents.services import CreateDocumentSpace
+from doksio.tenancy.models import Tenant
 
 
 @pytest.mark.django_db

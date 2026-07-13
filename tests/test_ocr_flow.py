@@ -1,25 +1,29 @@
 from __future__ import annotations
 
+import subprocess
 from datetime import date
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from django.urls import reverse
 
-from domasy.accounts.models import TenantMembership
-from domasy.accounts.services import EnsureDefaultTenantRoles
-from domasy.audit.models import AuditEvent
-from domasy.documents.models import Document
-from domasy.documents.services import CreateDocumentFromUpload, CreateDocumentSpace
-from domasy.ocr.models import OcrJob
-from domasy.ocr.services import (
+from doksio.accounts.models import TenantMembership
+from doksio.accounts.services import EnsureDefaultTenantRoles
+from doksio.audit.models import AuditEvent
+from doksio.documents.models import Document
+from doksio.documents.services import CreateDocumentFromUpload, CreateDocumentSpace
+from doksio.ocr.models import OcrJob
+from doksio.ocr.services import (
     CreateOcrJob,
+    LocalOcrProvider,
     OcrExtraction,
     RunOcrJob,
+    extract_document_title,
 )
-from domasy.tenancy.models import Tenant
+from doksio.tenancy.models import Tenant
 
 
 class StaticOcrProvider:
@@ -29,6 +33,106 @@ class StaticOcrProvider:
             engine="test-provider",
             language="deu",
         )
+
+
+def test_local_ocr_provider_auto_orients_images_before_tesseract(
+    monkeypatch,
+    tmp_path,
+):
+    input_path = tmp_path / "scan.jpg"
+    input_path.write_bytes(b"image")
+    commands = []
+
+    def fake_which(command):
+        return f"/usr/bin/{command}" if command in {"magick", "tesseract"} else None
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        if command[:3] == ["/usr/bin/magick", "identify", "-format"]:
+            return subprocess.CompletedProcess(command, 0, "2000 3000", "")
+        if command[0].endswith("magick"):
+            Path(command[-1]).write_bytes(b"prepared")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if str(tmp_path / "scan.ocr.form-ocr.png") in command:
+            return subprocess.CompletedProcess(command, 0, "Mehr Formulartext", "")
+        if str(tmp_path / "scan.ocr.form-ocr.detail-top-left.png") in command:
+            return subprocess.CompletedProcess(command, 0, "Detailtext", "")
+        return subprocess.CompletedProcess(command, 0, "Guter OCR-Text", "")
+
+    monkeypatch.setattr("doksio.ocr.services.shutil.which", fake_which)
+    monkeypatch.setattr("doksio.ocr.services.subprocess.run", fake_run)
+
+    extraction = LocalOcrProvider()._extract_image(
+        input_path=input_path,
+        language="deu+eng",
+    )
+
+    assert "Guter OCR-Text" in extraction.text
+    assert "Mehr Formulartext" in extraction.text
+    assert "Detailtext" in extraction.text
+    assert commands[0] == [
+        "/usr/bin/magick",
+        str(input_path),
+        "-auto-orient",
+        str(tmp_path / "scan.ocr.png"),
+    ]
+    assert commands[1][:3] == [
+        "/usr/bin/tesseract",
+        str(tmp_path / "scan.ocr.png"),
+        "stdout",
+    ]
+    assert commands[2] == [
+        "/usr/bin/magick",
+        str(tmp_path / "scan.ocr.png"),
+        "-colorspace",
+        "Gray",
+        "-normalize",
+        "-sharpen",
+        "0x1",
+        "-density",
+        "300",
+        str(tmp_path / "scan.ocr.form-ocr.png"),
+    ]
+    assert commands[3][-2:] == ["--psm", "6"]
+    assert commands[4] == [
+        "/usr/bin/magick",
+        "identify",
+        "-format",
+        "%w %h",
+        str(tmp_path / "scan.ocr.form-ocr.png"),
+    ]
+    assert commands[5] == [
+        "/usr/bin/magick",
+        str(tmp_path / "scan.ocr.form-ocr.png"),
+        "-crop",
+        "1200x990+0+240",
+        "+repage",
+        "-resize",
+        "250%",
+        "-threshold",
+        "70%",
+        str(tmp_path / "scan.ocr.form-ocr.detail-top-left.png"),
+    ]
+    assert commands[6][-2:] == ["--psm", "6"]
+
+
+def test_extract_document_title_joins_hyphenated_line_breaks():
+    assert (
+        extract_document_title("Arbeitsunfähigkeits-\nbescheinigung\n\nWeitere Daten")
+        == "Arbeitsunfähigkeitsbescheinigung"
+    )
+
+
+def test_extract_document_title_ignores_form_field_labels():
+    assert (
+        extract_document_title(
+            "Name, Vorname des Versicherten\n"
+            "Gutschner geb. am\n"
+            "Arbeitsunfähigkeits-\n"
+            "bescheinigung"
+        )
+        == "Arbeitsunfähigkeitsbescheinigung"
+    )
 
 
 @pytest.mark.django_db
@@ -149,6 +253,38 @@ def test_run_ocr_job_does_not_overwrite_manual_title():
     document.refresh_from_db()
     assert document.title == "Manueller Titel"
     assert document.title_source == Document.TitleSource.MANUAL
+
+
+@pytest.mark.django_db
+def test_run_ocr_job_updates_existing_ocr_title():
+    class BetterTitledOcrProvider:
+        def extract(self, document_file):
+            return OcrExtraction(
+                text="Betreff: Besserer OCR Titel",
+                engine="test-provider",
+                language="deu",
+            )
+
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Verträge").execute()
+    document, document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="",
+        space=space,
+        file_obj=BytesIO(b"contract content"),
+        original_filename="scan-001.pdf",
+        content_type="application/pdf",
+    ).execute()
+    document.title = "Schlechter OCR Titel"
+    document.title_source = Document.TitleSource.OCR
+    document.save(update_fields=["title", "title_source"])
+    job = CreateOcrJob(document_file=document_file).execute()
+
+    RunOcrJob(job=job, provider=BetterTitledOcrProvider()).execute()
+
+    document.refresh_from_db()
+    assert document.title == "Besserer OCR Titel"
+    assert document.title_source == Document.TitleSource.OCR
 
 
 @pytest.mark.django_db

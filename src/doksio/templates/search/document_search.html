@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% load doksio_extras %}
+
+{% block title %}Suche | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container-fluid px-4">
+      <div class="search-header mb-3">
+        <div>
+          <h1 class="h3 mb-1">Suche</h1>
+          <p class="text-secondary mb-0">{{ tenant.name }}</p>
+        </div>
+      </div>
+
+      <section class="app-card search-panel mb-3">
+        <form method="get">
+          <div class="search-primary-row">
+            <div class="search-query-field">
+              <label class="form-label" for="{{ form.q.id_for_label }}">{{ form.q.label }}</label>
+              {{ form.q }}
+            </div>
+            <div class="search-actions">
+              <button class="btn btn-primary" type="submit">
+                {% include "includes/icons.html" with icon="search" %}
+                <span class="ms-1">Suchen</span>
+              </button>
+              <a class="btn btn-outline-secondary" href="{% url 'search:documents' tenant.slug %}">Zurücksetzen</a>
+            </div>
+          </div>
+
+          <details class="search-filter-drawer" {% if form.tags.value or form.document_date_from.value or form.document_date_to.value or form.box.value or form.workflow_status.value or form.document_status.value != "active" %}open{% endif %}>
+            <summary>
+              <span class="details-summary-title">Filter</span>
+              <span class="details-summary-meta">Ablage, Zeitraum, Status und Sortierung</span>
+            </summary>
+            <div class="search-filter-grid">
+              <fieldset class="search-filter-group search-filter-group-wide">
+                <legend>Ablage</legend>
+                <div class="search-filter-group-grid">
+                  <div>
+                    <label class="form-label" for="{{ form.box.id_for_label }}">{{ form.box.label }}</label>
+                    {{ form.box }}
+                    <div class="form-check mt-2">
+                      {{ form.include_child_boxes }}
+                      <label class="form-check-label" for="{{ form.include_child_boxes.id_for_label }}">{{ form.include_child_boxes.label }}</label>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="form-label" for="{{ form.tags.id_for_label }}">{{ form.tags.label }}</label>
+                    {{ form.tags }}
+                  </div>
+                </div>
+              </fieldset>
+
+              <fieldset class="search-filter-group">
+                <legend>Zeitraum und Status</legend>
+                <div class="search-filter-group-grid">
+                  <div>
+                    <label class="form-label" for="{{ form.document_date_from.id_for_label }}">{{ form.document_date_from.label }}</label>
+                    {{ form.document_date_from }}
+                  </div>
+                  <div>
+                    <label class="form-label" for="{{ form.document_date_to.id_for_label }}">{{ form.document_date_to.label }}</label>
+                    {{ form.document_date_to }}
+                  </div>
+                  <div>
+                    <label class="form-label" for="{{ form.workflow_status.id_for_label }}">{{ form.workflow_status.label }}</label>
+                    {{ form.workflow_status }}
+                  </div>
+                  <div>
+                    <label class="form-label" for="{{ form.document_status.id_for_label }}">{{ form.document_status.label }}</label>
+                    {{ form.document_status }}
+                  </div>
+                </div>
+              </fieldset>
+
+              <fieldset class="search-filter-group">
+                <legend>Darstellung</legend>
+                <label class="form-label" for="{{ form.sort.id_for_label }}">{{ form.sort.label }}</label>
+                {{ form.sort }}
+              </fieldset>
+
+              {% if form.metadata_filter_fields %}
+                <fieldset class="search-filter-group search-filter-group-wide">
+                  <legend>Metadaten</legend>
+                  <div class="search-filter-group-grid">
+                    {% for metadata_field in form.metadata_filter_fields %}
+                      {% with base_name="metadata_"|add:metadata_field.slug %}
+                        {% if metadata_field.field_type == "date" %}
+                          <div>
+                            {% with field_name=base_name|add:"_from" %}
+                              {% with field=form|get_item:field_name %}
+                                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                                {{ field }}
+                              {% endwith %}
+                            {% endwith %}
+                          </div>
+                          <div>
+                            {% with field_name=base_name|add:"_to" %}
+                              {% with field=form|get_item:field_name %}
+                                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                                {{ field }}
+                              {% endwith %}
+                            {% endwith %}
+                          </div>
+                        {% elif metadata_field.field_type == "number" %}
+                          <div>
+                            {% with field_name=base_name|add:"_min" %}
+                              {% with field=form|get_item:field_name %}
+                                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                                {{ field }}
+                              {% endwith %}
+                            {% endwith %}
+                          </div>
+                          <div>
+                            {% with field_name=base_name|add:"_max" %}
+                              {% with field=form|get_item:field_name %}
+                                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                                {{ field }}
+                              {% endwith %}
+                            {% endwith %}
+                          </div>
+                        {% else %}
+                          <div>
+                            {% with field=form|get_item:base_name %}
+                              <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                              {{ field }}
+                            {% endwith %}
+                          </div>
+                        {% endif %}
+                      {% endwith %}
+                    {% endfor %}
+                  </div>
+                </fieldset>
+              {% endif %}
+            </div>
+          </details>
+        </form>
+      </section>
+
+      <section>
+        <div class="search-results-header mb-2">
+          <div>
+            <h2 class="h5 mb-1">Ergebnisse</h2>
+            <div class="text-secondary small">
+              {% if has_search %}
+                {{ documents_count }} Treffer
+              {% else %}
+                Starte eine Suche oder nutze Filter.
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        {% if documents %}
+          <div class="document-row-list search-result-list">
+            {% for document in documents %}
+              {% include "includes/document_row.html" with document=document tenant=tenant document_nav=document_nav show_tags=True %}
+            {% endfor %}
+          </div>
+          <div class="app-card mt-3">
+            {% include "includes/pagination.html" with page_obj=documents_page_obj page_param="page" label="Suchergebnisseiten" %}
+          </div>
+        {% elif has_search %}
+          <div class="app-card search-empty-state">
+            <h2 class="h5">Keine Treffer</h2>
+            <p class="text-secondary mb-0">Passe Suchbegriff oder Filter an.</p>
+          </div>
+        {% else %}
+          <div class="app-card search-empty-state">
+            <h2 class="h5">Suche starten</h2>
+            <p class="text-secondary mb-0">Suchbegriff eingeben oder Filter setzen, um Dokumente einzugrenzen.</p>
+          </div>
+        {% endif %}
+      </section>
+    </div>
+  </main>
+{% endblock %}

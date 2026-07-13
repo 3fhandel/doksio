@@ -1,0 +1,376 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h2 class="h4 mb-1">{{ form_title }}</h2>
+      <p class="text-secondary mb-0">Tenantweite Importquelle mit flexibler Zielauswahl.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{% url 'documents:settings_import_sources' tenant.slug %}">
+      Zurück
+    </a>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+    {% if form.errors %}
+      <div class="alert alert-danger form-error-summary" role="alert">
+        <div class="fw-bold mb-2">Bitte prüfe die markierten Felder.</div>
+        {% if form.non_field_errors %}
+          {{ form.non_field_errors }}
+        {% endif %}
+        <ul class="mb-0 ps-3">
+          {% for field in form %}
+            {% if field.errors %}
+              <li>{{ field.label }}</li>
+            {% endif %}
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    <section class="app-card p-4 mb-3">
+      <h3 class="h6 mb-3">Basis</h3>
+      <div class="row g-3">
+      <div class="col-md-7">
+        <label class="form-label" for="{{ form.name.id_for_label }}">Name</label>
+        {{ form.name }}
+        {{ form.name.errors }}
+      </div>
+      <div class="col-md-5">
+        <label class="form-label" for="{{ form.source_type.id_for_label }}">Quelltyp</label>
+        {{ form.source_type }}
+        {{ form.source_type.errors }}
+      </div>
+      <div class="col-12">
+        <div class="form-check">
+          {{ form.is_active }}
+          <label class="form-check-label" for="{{ form.is_active.id_for_label }}">Aktiv</label>
+        </div>
+      </div>
+      </div>
+    </section>
+
+    <section class="app-card p-4 mb-3">
+      <h3 class="h6 mb-3">Ziel</h3>
+      <div class="row g-3">
+      <div class="col-md-5">
+        <label class="form-label" for="{{ form.target_strategy.id_for_label }}">Zielauswahl</label>
+        {{ form.target_strategy }}
+        {{ form.target_strategy.errors }}
+      </div>
+      <div class="col-md-7">
+        <label class="form-label" for="{{ form.document_space.id_for_label }}">Ziel-Dokumentenbox</label>
+        {{ form.document_space }}
+        <div class="form-text">{{ form.document_space.help_text }}</div>
+        {{ form.document_space.errors }}
+      </div>
+      <div class="col-12" data-target-strategy-section="rules">
+        <label class="form-label" for="{{ form.routing_rules_text.id_for_label }}">Routing-Regeln</label>
+        {{ form.routing_rules_text }}
+        <div class="form-text">{{ form.routing_rules_text.help_text }}</div>
+        {{ form.routing_rules_text.errors }}
+      </div>
+      <div class="col-12" data-target-strategy-section="intelligent">
+        <div class="alert alert-info mb-0">
+          Die intelligente Zielauswahl ist als Strategie gespeichert. Bis die automatische Klassifizierung implementiert ist, wird die Fallback-Dokumentenbox verwendet.
+        </div>
+      </div>
+      </div>
+    </section>
+
+    <section class="app-card p-4 mb-3" data-import-settings-section="http_api folder email">
+      <h3 class="h6 mb-3">Dateifilter</h3>
+      <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label" for="{{ form.max_file_size_mb.id_for_label }}">Maximale Dateigröße</label>
+            {{ form.max_file_size_mb }}
+            <div class="form-text">{{ form.max_file_size_mb.help_text }}</div>
+            {{ form.max_file_size_mb.errors }}
+          </div>
+          <div class="col-md-8">
+            <label class="form-label" for="{{ form.allowed_content_types_text.id_for_label }}">Erlaubte MIME-Typen</label>
+            {{ form.allowed_content_types_text }}
+            <div class="form-text">{{ form.allowed_content_types_text.help_text }}</div>
+            {{ form.allowed_content_types_text.errors }}
+          </div>
+        </div>
+    </section>
+
+    <section class="app-card p-4 mb-3" data-import-settings-section="http_api">
+          <h3 class="h6 mb-3">HTTP/API Referenz</h3>
+          <div class="row g-3 small">
+            <div class="col-md-4">
+              <div class="metadata-label">Methoden</div>
+              <code>POST</code> oder <code>PUT</code>
+            </div>
+            <div class="col-md-4">
+              <div class="metadata-label">Token-Header</div>
+              <code>X-Doksio-Import-Token</code>
+            </div>
+            <div class="col-md-4">
+              <div class="metadata-label">Dateiname-Header optional</div>
+              <code>X-Doksio-Filename</code>
+            </div>
+          </div>
+    </section>
+
+    <section class="app-card p-4 mb-3" data-import-settings-section="folder">
+          <h3 class="h6 mb-3">Ordner</h3>
+          <div class="row g-3">
+            <div class="col-md-8">
+              <label class="form-label" for="{{ form.folder_path.id_for_label }}">Quellordner</label>
+              {{ form.folder_path }}
+              {{ form.folder_path.errors }}
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="{{ form.folder_file_pattern.id_for_label }}">Dateimuster</label>
+              {{ form.folder_file_pattern }}
+              <div class="form-text">{{ form.folder_file_pattern.help_text }}</div>
+              {{ form.folder_file_pattern.errors }}
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="{{ form.folder_poll_interval_seconds.id_for_label }}">Prüfintervall</label>
+              {{ form.folder_poll_interval_seconds }}
+              {{ form.folder_poll_interval_seconds.errors }}
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="{{ form.folder_after_import.id_for_label }}">Nach Import</label>
+              {{ form.folder_after_import }}
+              {{ form.folder_after_import.errors }}
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+              <div class="form-check mb-2">
+                {{ form.folder_recursive }}
+                <label class="form-check-label" for="{{ form.folder_recursive.id_for_label }}">Unterordner einbeziehen</label>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="{{ form.folder_archive_path.id_for_label }}">Archivordner</label>
+              {{ form.folder_archive_path }}
+              {{ form.folder_archive_path.errors }}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="{{ form.folder_error_path.id_for_label }}">Fehlerordner</label>
+              {{ form.folder_error_path }}
+              {{ form.folder_error_path.errors }}
+            </div>
+          </div>
+    </section>
+
+    <section class="app-card p-4 mb-3" data-import-settings-section="email">
+          <h3 class="h6 mb-3">E-Mail Eingang</h3>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label" for="{{ form.email_host.id_for_label }}">IMAP-Host</label>
+              {{ form.email_host }}
+              {{ form.email_host.errors }}
+            </div>
+            <div class="col-md-3">
+              <label class="form-label" for="{{ form.email_port.id_for_label }}">Port</label>
+              {{ form.email_port }}
+              {{ form.email_port.errors }}
+            </div>
+            <div class="col-md-3">
+              <label class="form-label" for="{{ form.email_security.id_for_label }}">Verschlüsselung</label>
+              {{ form.email_security }}
+              {{ form.email_security.errors }}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="{{ form.email_username.id_for_label }}">Benutzername</label>
+              {{ form.email_username }}
+              {{ form.email_username.errors }}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="{{ form.email_password.id_for_label }}">Passwort</label>
+              {{ form.email_password }}
+              {{ form.email_password.errors }}
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="{{ form.email_mailbox.id_for_label }}">Mailbox</label>
+              {{ form.email_mailbox }}
+              {{ form.email_mailbox.errors }}
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="{{ form.email_search_criteria.id_for_label }}">Suchkriterium</label>
+              {{ form.email_search_criteria }}
+              <div class="form-text">{{ form.email_search_criteria.help_text }}</div>
+              {{ form.email_search_criteria.errors }}
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="{{ form.email_attachment_pattern.id_for_label }}">Anhangsmuster</label>
+              {{ form.email_attachment_pattern }}
+              {{ form.email_attachment_pattern.errors }}
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="{{ form.email_poll_interval_seconds.id_for_label }}">Prüfintervall</label>
+              {{ form.email_poll_interval_seconds }}
+              {{ form.email_poll_interval_seconds.errors }}
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="{{ form.email_move_processed_to.id_for_label }}">Zielordner nach Import</label>
+              {{ form.email_move_processed_to }}
+              <div class="form-text">{{ form.email_move_processed_to.help_text }}</div>
+              {{ form.email_move_processed_to.errors }}
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+              <div class="form-check mb-2">
+                {{ form.email_mark_seen }}
+                <label class="form-check-label" for="{{ form.email_mark_seen.id_for_label }}">Als gelesen markieren</label>
+              </div>
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+              <div class="form-check mb-2">
+                {{ form.email_delete_after_import }}
+                <label class="form-check-label" for="{{ form.email_delete_after_import.id_for_label }}">Nach Import löschen</label>
+              </div>
+            </div>
+          </div>
+
+          <hr class="my-4">
+          <h3 class="h6 mb-3">Erfolgreicher Import</h3>
+          <div class="row g-3">
+            <div class="col-12">
+              <div class="form-check">
+                {{ form.email_success_reply_enabled }}
+                <label class="form-check-label" for="{{ form.email_success_reply_enabled.id_for_label }}">Antwort senden</label>
+              </div>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label" for="{{ form.email_success_reply_subject.id_for_label }}">Betreff</label>
+              {{ form.email_success_reply_subject }}
+              {{ form.email_success_reply_subject.errors }}
+            </div>
+            <div class="col-md-7">
+              <label class="form-label" for="{{ form.email_success_reply_body.id_for_label }}">Antworttext</label>
+              {{ form.email_success_reply_body }}
+              {{ form.email_success_reply_body.errors }}
+            </div>
+          </div>
+
+          <hr class="my-4">
+          <h3 class="h6 mb-3">Nicht importierbare Mails</h3>
+          <div class="row g-3">
+            <div class="col-md-5">
+              <label class="form-label" for="{{ form.email_unprocessable_action.id_for_label }}">Aktion</label>
+              {{ form.email_unprocessable_action }}
+              {{ form.email_unprocessable_action.errors }}
+            </div>
+            <div class="col-md-7">
+              <label class="form-label" for="{{ form.email_unprocessable_move_to.id_for_label }}">Zielordner</label>
+              {{ form.email_unprocessable_move_to }}
+              {{ form.email_unprocessable_move_to.errors }}
+            </div>
+            <div class="col-12">
+              <div class="form-check">
+                {{ form.email_unprocessable_reply_enabled }}
+                <label class="form-check-label" for="{{ form.email_unprocessable_reply_enabled.id_for_label }}">Antwort senden</label>
+              </div>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label" for="{{ form.email_unprocessable_reply_subject.id_for_label }}">Betreff</label>
+              {{ form.email_unprocessable_reply_subject }}
+              {{ form.email_unprocessable_reply_subject.errors }}
+            </div>
+            <div class="col-md-7">
+              <label class="form-label" for="{{ form.email_unprocessable_reply_body.id_for_label }}">Antworttext</label>
+              {{ form.email_unprocessable_reply_body }}
+              {{ form.email_unprocessable_reply_body.errors }}
+            </div>
+          </div>
+    </section>
+
+    <section class="app-card p-4 mb-3">
+      <h3 class="h6 mb-3">Verarbeitung</h3>
+        <div class="row g-2">
+          <div class="col-md-4">
+            <div class="form-check">
+              {{ form.auto_start_ocr }}
+              <label class="form-check-label" for="{{ form.auto_start_ocr.id_for_label }}">OCR automatisch starten</label>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="form-check">
+              {{ form.start_workflows }}
+              <label class="form-check-label" for="{{ form.start_workflows.id_for_label }}">Workflows automatisch starten</label>
+            </div>
+          </div>
+        </div>
+
+      <div class="mt-3">
+        <label class="form-label" for="{{ form.default_tags_text.id_for_label }}">Tags</label>
+        {{ form.default_tags_text }}
+        <div class="form-text">{{ form.default_tags_text.help_text }}</div>
+        {{ form.default_tags_text.errors }}
+      </div>
+    </section>
+
+    <button class="btn btn-primary" type="submit">{{ submit_label }}</button>
+  </form>
+
+  {% if import_source and import_source.source_type == "http_api" %}
+    <section class="app-card p-4 mt-4">
+      <h3 class="h5 mb-3">HTTP/API</h3>
+      <dl class="row mb-0">
+        <dt class="col-md-3 metadata-label">URL</dt>
+        <dd class="col-md-9">
+          <code>{{ http_import_url }}</code>
+        </dd>
+        <dt class="col-md-3 metadata-label">Header</dt>
+        <dd class="col-md-9">
+          <code>X-Doksio-Import-Token: {{ import_source.token }}</code><br>
+          <code>X-Doksio-Filename: rechnung.pdf</code> <span class="text-secondary small">optional</span>
+        </dd>
+        <dt class="col-md-3 metadata-label">Beispiel</dt>
+        <dd class="col-md-9">
+          <pre class="mb-0 small"><code>curl --request PUT \
+  --header "X-Doksio-Import-Token: {{ import_source.token }}" \
+  --header "Content-Type: application/pdf" \
+  --data-binary "@rechnung.pdf" \
+  "{{ http_import_url }}"</code></pre>
+        </dd>
+      </dl>
+    </section>
+  {% endif %}
+
+  {% if import_source and import_source.source_type == "folder" %}
+    <section class="app-card p-4 mt-4">
+      <h3 class="h5 mb-3">Ordner-Agent</h3>
+      <p class="text-secondary small mb-3">
+        Der Ordner-Agent überwacht den konfigurierten Ordner, schreibt ein lokales Log und überträgt gefundene Dateien per HTTP/API.
+      </p>
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-primary" href="{% url 'documents:settings_import_source_script' tenant.slug import_source.id %}">
+          macOS/Linux Script
+        </a>
+        <a class="btn btn-outline-primary" href="{% url 'documents:settings_import_source_script' tenant.slug import_source.id %}?platform=windows">
+          Windows PowerShell Script
+        </a>
+      </div>
+    </section>
+  {% endif %}
+
+  <script>
+    (() => {
+      const sourceTypeField = document.getElementById("{{ form.source_type.id_for_label }}");
+      const targetStrategyField = document.getElementById("{{ form.target_strategy.id_for_label }}");
+      const sections = document.querySelectorAll("[data-import-settings-section]");
+      const targetSections = document.querySelectorAll("[data-target-strategy-section]");
+      function syncImportSettingsSections() {
+        sections.forEach((section) => {
+          const sectionNames = section.dataset.importSettingsSection.split(" ");
+          section.hidden = !sectionNames.includes(sourceTypeField.value);
+        });
+      }
+      function syncTargetStrategySections() {
+        targetSections.forEach((section) => {
+          section.hidden = section.dataset.targetStrategySection !== targetStrategyField.value;
+        });
+      }
+      sourceTypeField.addEventListener("change", syncImportSettingsSections);
+      targetStrategyField.addEventListener("change", syncTargetStrategySections);
+      syncImportSettingsSections();
+      syncTargetStrategySections();
+    })();
+  </script>
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="mb-3">
+    <h2 class="h4 mb-1">SMTP</h2>
+    <p class="text-secondary mb-0">Tenantweiter Versand für automatische Antworten aus Mail-Importen.</p>
+  </div>
+
+  <form class="app-card p-4" method="post">
+    {% csrf_token %}
+    {% if form.errors %}
+      <div class="alert alert-danger form-error-summary" role="alert">
+        <div class="fw-bold mb-2">Bitte prüfe die markierten Felder.</div>
+        {% if form.non_field_errors %}
+          {{ form.non_field_errors }}
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <div class="row g-3">
+      <div class="col-md-7">
+        <label class="form-label" for="{{ form.host.id_for_label }}">SMTP-Host</label>
+        {{ form.host }}
+        {{ form.host.errors }}
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="{{ form.port.id_for_label }}">Port</label>
+        {{ form.port }}
+        {{ form.port.errors }}
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="{{ form.security.id_for_label }}">Verschlüsselung</label>
+        {{ form.security }}
+        {{ form.security.errors }}
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label" for="{{ form.username.id_for_label }}">Benutzername</label>
+        {{ form.username }}
+        {{ form.username.errors }}
+      </div>
+      <div class="col-md-6">
+        <label class="form-label" for="{{ form.password.id_for_label }}">Passwort</label>
+        {{ form.password }}
+        {{ form.password.errors }}
+      </div>
+
+      <div class="col-md-7">
+        <label class="form-label" for="{{ form.from_email.id_for_label }}">Absenderadresse</label>
+        {{ form.from_email }}
+        {{ form.from_email.errors }}
+      </div>
+      <div class="col-md-5">
+        <label class="form-label" for="{{ form.from_name.id_for_label }}">Absendername</label>
+        {{ form.from_name }}
+        {{ form.from_name.errors }}
+      </div>
+
+      <div class="col-12">
+        <div class="form-check">
+          {{ form.is_active }}
+          <label class="form-check-label" for="{{ form.is_active.id_for_label }}">SMTP-Versand aktivieren</label>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn btn-primary mt-4" type="submit">SMTP speichern</button>
+  </form>
+{% endblock %}

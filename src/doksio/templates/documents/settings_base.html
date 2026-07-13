@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Einstellungen | {{ tenant.name }} | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container">
+      <div class="mb-4">
+        <h1 class="h3 mb-1">Tenant Einstellungen</h1>
+        <p class="text-secondary mb-0">{{ tenant.name }}</p>
+      </div>
+
+      <div class="row g-4">
+        <aside class="col-lg-3">
+          <div class="list-group">
+            <a class="list-group-item list-group-item-action {% if active_settings_section == 'overview' %}active{% endif %}" href="{% url 'documents:settings_overview' tenant.slug %}">
+              Allgemein
+            </a>
+            <a class="list-group-item list-group-item-action {% if active_settings_section == 'members' %}active{% endif %}" href="{% url 'documents:settings_members' tenant.slug %}">
+              Benutzer
+            </a>
+            <a class="list-group-item list-group-item-action {% if active_settings_section == 'roles' %}active{% endif %}" href="{% url 'documents:settings_roles' tenant.slug %}">
+              Rollen
+            </a>
+            <a class="list-group-item list-group-item-action {% if active_settings_section == 'document_boxes' %}active{% endif %}" href="{% url 'documents:settings_document_boxes' tenant.slug %}">
+              Dokumentenboxen
+            </a>
+            <a class="list-group-item list-group-item-action {% if active_settings_section == 'import' %}active{% endif %}" href="{% url 'documents:settings_import_sources' tenant.slug %}">
+              Import
+            </a>
+            <a class="list-group-item list-group-item-action {% if active_settings_section == 'smtp' %}active{% endif %}" href="{% url 'documents:settings_smtp' tenant.slug %}">
+              SMTP
+            </a>
+            <a class="list-group-item list-group-item-action {% if active_settings_section == 'workflows' %}active{% endif %}" href="{% url 'workflows:settings_templates' tenant.slug %}">
+              Workflows
+            </a>
+            <a class="list-group-item list-group-item-action disabled" href="#">Exporte</a>
+            <a class="list-group-item list-group-item-action disabled" href="#">Sicherheit</a>
+            <a class="list-group-item list-group-item-action disabled" href="#">Audit</a>
+          </div>
+        </aside>
+        <section class="col-lg-9">
+          {% block settings_content %}{% endblock %}
+        </section>
+      </div>
+    </div>
+  </main>
+{% endblock %}

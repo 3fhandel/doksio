@@ -6,13 +6,13 @@ Accepted
 
 ## Context
 
-DoMaSy may be used by multiple companies or organizational units. Even if the
+Doksio may be used by multiple companies or organizational units. Even if the
 first deployment is on-premise for one company, later SaaS-capable operation
 should remain possible.
 
 ## Decision
 
-DoMaSy will be tenant-aware from the beginning.
+Doksio will be tenant-aware from the beginning.
 
 Core business entities should be scoped to a tenant or organization, including
 documents, users, groups, roles, import sources, workflow definitions and export

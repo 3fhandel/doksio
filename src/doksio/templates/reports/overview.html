@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% load doksio_extras %}
+
+{% block title %}Auswertungen | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page reports-page">
+    <div class="container-fluid px-4">
+      <div class="reports-header mb-4">
+        <div>
+          <h1 class="h3 mb-1">Auswertungen</h1>
+          <p class="text-secondary mb-0">
+            Dokumenteneingänge, Workflow-Auslastung und Abarbeitung für {{ tenant.name }}.
+          </p>
+        </div>
+        <form method="get" class="reports-period">
+          <label class="form-label mb-0" for="reports-days">Zeitraum</label>
+          <select class="form-select form-select-sm" id="reports-days" name="days" onchange="this.form.submit()">
+            {% for option in day_options %}
+              <option value="{{ option }}"{% if option == days %} selected{% endif %}>{{ option }} Tage</option>
+            {% endfor %}
+          </select>
+        </form>
+      </div>
+
+      <section class="reports-kpi-grid mb-4" aria-label="Kennzahlen">
+        <div class="reports-kpi reports-kpi-accent">
+          <div class="metadata-label">Neue Dokumente</div>
+          <div class="reports-kpi-value">{{ report.summary.new_documents }}</div>
+          <div class="reports-kpi-note">
+            {% if report.summary.document_delta > 0 %}+{% endif %}{{ report.summary.document_delta }} zum Vorzeitraum
+          </div>
+        </div>
+        <div class="reports-kpi">
+          <div class="metadata-label">Bestand aktiv</div>
+          <div class="reports-kpi-value">{{ report.summary.total_documents }}</div>
+          <div class="reports-kpi-note">{{ report.period_label }}</div>
+        </div>
+        <div class="reports-kpi reports-kpi-warm">
+          <div class="metadata-label">Offene Aufgaben</div>
+          <div class="reports-kpi-value">{{ report.summary.open_tasks }}</div>
+          <div class="reports-kpi-note">{{ report.summary.running_workflows }} laufende Workflows</div>
+        </div>
+        <div class="reports-kpi reports-kpi-green">
+          <div class="metadata-label">Erledigte Aufgaben</div>
+          <div class="reports-kpi-value">{{ report.summary.completed_tasks }}</div>
+          <div class="reports-kpi-note">Ø {{ report.summary.average_completion_time }} Bearbeitungszeit</div>
+        </div>
+      </section>
+
+      <div class="reports-grid mb-4">
+        <section class="app-card reports-panel reports-panel-wide">
+          <div class="reports-panel-header">
+            <div>
+              <h2 class="h5 mb-1">Dokumenteneingänge</h2>
+              <p class="text-secondary mb-0">Täglicher Eingang im gewählten Zeitraum.</p>
+            </div>
+          </div>
+          <div class="reports-timeline-chart" aria-label="Dokumenteneingänge pro Tag">
+            {% for item in report.document_intake %}
+              <div class="reports-day-bar" title="{{ item.day|date:'d.m.Y' }}: {{ item.count }}">
+                <div class="reports-day-bar-fill" style="height: {{ item.pct }}%"></div>
+              </div>
+            {% endfor %}
+          </div>
+          <div class="reports-axis-note">
+            <span>{{ report.document_intake.0.day|date:"d.m." }}</span>
+            <span>{{ report.document_intake|last|get_item:"day"|date:"d.m." }}</span>
+          </div>
+        </section>
+
+        <section class="app-card reports-panel">
+          <div class="reports-panel-header">
+            <div>
+              <h2 class="h5 mb-1">Verteilung auf Boxen</h2>
+              <p class="text-secondary mb-0">Top-Dokumentenboxen nach Eingang.</p>
+            </div>
+          </div>
+          <div class="reports-bar-list">
+            {% for row in report.box_distribution %}
+              <div class="reports-bar-row">
+                <div class="reports-bar-label">
+                  <span class="fw-semibold">{{ row.name }}</span>
+                  <span class="text-secondary">{{ row.count }} · {{ row.share }} %</span>
+                </div>
+                <div class="reports-horizontal-bar">
+                  <div style="width: {{ row.pct }}%"></div>
+                </div>
+                <div class="small text-secondary">{{ row.path }}</div>
+              </div>
+            {% empty %}
+              <p class="text-secondary mb-0">Keine Dokumenteneingänge im Zeitraum.</p>
+            {% endfor %}
+          </div>
+        </section>
+      </div>
+
+      <div class="reports-grid mb-4">
+        <section class="app-card reports-panel">
+          <div class="reports-panel-header">
+            <div>
+              <h2 class="h5 mb-1">Workflow-Status</h2>
+              <p class="text-secondary mb-0">Alle Workflow-Instanzen des Mandanten.</p>
+            </div>
+          </div>
+          <div class="reports-status-list">
+            {% for row in report.workflow_status %}
+              <div class="reports-status-row reports-status-{{ row.status }}">
+                <div>
+                  <div class="fw-semibold">{{ row.label }}</div>
+                  <div class="small text-secondary">{{ row.count }} Workflow{% if row.count != 1 %}s{% endif %}</div>
+                </div>
+                <div class="reports-status-meter">
+                  <div style="width: {{ row.pct }}%"></div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="app-card reports-panel reports-panel-wide">
+          <div class="reports-panel-header">
+            <div>
+              <h2 class="h5 mb-1">Offene Aufgaben im Zeitverlauf</h2>
+              <p class="text-secondary mb-0">Backlog-Entwicklung je Tagesende.</p>
+            </div>
+          </div>
+          <div class="reports-timeline-chart reports-timeline-chart-warm" aria-label="Offene Aufgaben pro Tag">
+            {% for item in report.open_task_trend %}
+              <div class="reports-day-bar" title="{{ item.day|date:'d.m.Y' }}: {{ item.count }}">
+                <div class="reports-day-bar-fill" style="height: {{ item.pct }}%"></div>
+              </div>
+            {% endfor %}
+          </div>
+          <div class="reports-axis-note">
+            <span>{{ report.open_task_trend.0.day|date:"d.m." }}</span>
+            <span>{{ report.open_task_trend|last|get_item:"day"|date:"d.m." }}</span>
+          </div>
+        </section>
+      </div>
+
+      <div class="reports-grid">
+        <section class="app-card reports-panel reports-panel-wide">
+          <div class="reports-panel-header">
+            <div>
+              <h2 class="h5 mb-1">Workflow-Durchsatz</h2>
+              <p class="text-secondary mb-0">Neue und erledigte Aufgaben pro Tag.</p>
+            </div>
+          </div>
+          <div class="reports-throughput">
+            {% for item in report.workflow_throughput %}
+              <div class="reports-throughput-day" title="{{ item.day|date:'d.m.Y' }}: {{ item.created }} neu, {{ item.completed }} erledigt">
+                <div class="reports-throughput-stack">
+                  <span class="reports-throughput-created" style="height: {{ item.created_pct }}%"></span>
+                  <span class="reports-throughput-completed" style="height: {{ item.completed_pct }}%"></span>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+          <div class="reports-legend">
+            <span><i class="reports-dot reports-dot-blue"></i>Neue Aufgaben</span>
+            <span><i class="reports-dot reports-dot-green"></i>Erledigt</span>
+          </div>
+        </section>
+
+        <section class="app-card reports-panel">
+          <div class="reports-panel-header">
+            <div>
+              <h2 class="h5 mb-1">Abarbeitung nach Benutzer</h2>
+              <p class="text-secondary mb-0">Erledigte Workflow-Aufgaben und Ø-Zeit.</p>
+            </div>
+          </div>
+          <div class="reports-user-list">
+            {% for row in report.user_performance %}
+              <div class="reports-user-row">
+                <div class="reports-user-row-head">
+                  <span class="fw-semibold">{{ row.label }}</span>
+                  <span>{{ row.count }}</span>
+                </div>
+                <div class="reports-horizontal-bar reports-horizontal-bar-green">
+                  <div style="width: {{ row.pct }}%"></div>
+                </div>
+                <div class="small text-secondary">Ø {{ row.average_completion_time }}</div>
+              </div>
+            {% empty %}
+              <p class="text-secondary mb-0">Noch keine erledigten Aufgaben im Zeitraum.</p>
+            {% endfor %}
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+{% endblock %}
