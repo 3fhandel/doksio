@@ -29,7 +29,7 @@ x-doksio-environment: &doksio-environment
 
 services:
   web:
-    image: ${DOKSIO_IMAGE:-doksio:latest}
+    image: doksio:latest
     build:
       context: ..
       dockerfile: Dockerfile
@@ -67,7 +67,7 @@ services:
       start_period: 60s
 
   worker:
-    image: ${DOKSIO_IMAGE:-doksio:latest}
+    image: doksio:latest
     build:
       context: ..
       dockerfile: Dockerfile
@@ -125,11 +125,19 @@ services:
   minio-init:
     image: minio/mc:latest
     restart: "no"
-    entrypoint: >
-      sh -c "mc alias set doksio http://minio:9000
-             ${S3_ACCESS_KEY_ID:-doksio}
-             ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY} &&
-             mc mb --ignore-existing doksio/${S3_STORAGE_BUCKET_NAME:-doksio-documents}"
+    environment:
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-doksio}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY}
+      S3_STORAGE_BUCKET_NAME: ${S3_STORAGE_BUCKET_NAME:-doksio-documents}
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "until mc alias set doksio http://minio:9000
+        \"$${S3_ACCESS_KEY_ID}\"
+        \"$${S3_SECRET_ACCESS_KEY}\"; do
+        echo 'Warte auf MinIO...';
+        sleep 2;
+      done;
+      mc mb --ignore-existing \"doksio/$${S3_STORAGE_BUCKET_NAME}\""
     depends_on:
       minio:
         condition: service_started

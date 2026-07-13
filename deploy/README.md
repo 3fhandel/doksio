@@ -17,10 +17,8 @@ Doksio deployment.
 2. Use `deploy/portainer-stack.yml` as the compose path.
 3. Copy values from `deploy/portainer.env.example` into Portainer environment
    variables and replace every secret.
-4. Leave `DOKSIO_IMAGE` unset unless you intentionally deploy a prebuilt image
-   from a registry.
-5. Put a reverse proxy in front of `web` and point it at port `8000`.
-6. Set `DOKSIO_PUBLIC_BASE_URL`, `DJANGO_ALLOWED_HOSTS` and
+4. Put a reverse proxy in front of `web` and point it at port `8000`.
+5. Set `DOKSIO_PUBLIC_BASE_URL`, `DJANGO_ALLOWED_HOSTS` and
    `DJANGO_CSRF_TRUSTED_ORIGINS` to the real public URL.
 
 ## Notes
