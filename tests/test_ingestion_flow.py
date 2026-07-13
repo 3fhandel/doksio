@@ -134,6 +134,39 @@ def test_http_import_endpoint_imports_with_valid_token(client):
 
 
 @pytest.mark.django_db
+def test_folder_import_source_can_upload_through_api_endpoint(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Scan Ordner",
+        source_type=ImportSource.SourceType.FOLDER,
+        token="secret-token",
+        auto_start_ocr=False,
+        extract_einvoice=False,
+        start_workflows=False,
+    )
+
+    response = client.put(
+        reverse(
+            "ingestion:http_import",
+            kwargs={"tenant_slug": tenant.slug, "source_id": source.id},
+        ),
+        data=MINIMAL_PDF_BYTES,
+        content_type="application/pdf",
+        headers={
+            "X-Doksio-Import-Token": "secret-token",
+            "X-Doksio-Filename": "rechnung.pdf",
+        },
+    )
+
+    assert response.status_code == 201
+    assert Document.objects.get().title == "rechnung"
+    assert ImportJob.objects.get().source == source
+
+
+@pytest.mark.django_db
 def test_http_import_endpoint_generates_filename_when_header_is_missing(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()

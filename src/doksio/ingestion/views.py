@@ -178,7 +178,10 @@ def http_import(request: HttpRequest, tenant_slug: str, source_id: int) -> JsonR
         ImportSource.objects.select_related("document_space"),
         id=source_id,
         tenant=tenant,
-        source_type=ImportSource.SourceType.HTTP_API,
+        source_type__in=[
+            ImportSource.SourceType.HTTP_API,
+            ImportSource.SourceType.FOLDER,
+        ],
         is_active=True,
     )
     if not source.token or _token_from_request(request) != source.token:
