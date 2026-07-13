@@ -157,6 +157,12 @@ CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60
+CELERY_BEAT_SCHEDULE = {
+    "process-due-email-import-sources": {
+        "task": "doksio.ingestion.tasks.process_due_email_import_sources",
+        "schedule": 60.0,
+    },
+}
 
 OCR_LANGUAGE = os.getenv("OCR_LANGUAGE", "deu+eng")
 OCR_COMMAND_TIMEOUT_SECONDS = int(os.getenv("OCR_COMMAND_TIMEOUT_SECONDS", "300"))

@@ -7,6 +7,7 @@ Doksio deployment.
 
 - `web`: Django via Gunicorn, runs migrations and `collectstatic` on startup
 - `worker`: Celery worker for OCR/import jobs
+- `beat`: Celery Beat scheduler for periodic import polling
 - `db`: PostgreSQL
 - `redis`: Celery broker
 - `minio`: S3-compatible object storage for immutable document files

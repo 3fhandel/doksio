@@ -37,6 +37,7 @@ def test_portainer_stack_contains_production_services():
     assert "gunicorn" in content
     assert "doksio.project.wsgi:application" in content
     assert "celery -A doksio.project worker" in content
+    assert "celery -A doksio.project beat" in content
     assert "postgres:17-alpine" in content
     assert "redis:7-alpine" in content
     assert "minio/minio" in content

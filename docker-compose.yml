@@ -68,6 +68,25 @@ services:
       minio:
         condition: service_started
 
+  beat:
+    build:
+      context: .
+      args:
+        INSTALL_DEV: "true"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        exec celery -A doksio.project beat --loglevel=INFO
+    environment: *app-environment
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
   db:
     image: postgres:17-alpine
     environment:

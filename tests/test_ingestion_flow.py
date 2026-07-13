@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from email.message import EmailMessage
 from io import BytesIO
 
 import pytest
@@ -13,11 +14,79 @@ from doksio.audit.models import AuditEvent
 from doksio.documents.models import Document, DocumentFile, DocumentTagAssignment
 from doksio.documents.services import CreateDocumentSpace, DuplicateDocumentError
 from doksio.ingestion.models import ImportJob, ImportSource, TenantSmtpSettings
-from doksio.ingestion.services import ImportDocument
+from doksio.ingestion.services import ImportDocument, ProcessEmailImportSource
 from doksio.ocr.models import OcrJob
 from doksio.tenancy.models import Tenant
 
 MINIMAL_PDF_BYTES = b"%PDF-1.4\n% Doksio test PDF\n%%EOF\n"
+
+
+class FakeImapConnection:
+    def __init__(self, messages: dict[bytes, bytes]) -> None:
+        self.messages = messages
+        self.actions = []
+        self.created_mailboxes = []
+        self.closed = False
+        self.logged_out = False
+
+    def select(self, mailbox):
+        self.actions.append(("select", mailbox))
+        return "OK", [b""]
+
+    def search(self, _charset, *criteria):
+        self.actions.append(("search", criteria))
+        return "OK", [b" ".join(self.messages.keys())]
+
+    def fetch(self, message_id, _query):
+        self.actions.append(("fetch", message_id))
+        return "OK", [(b"RFC822", self.messages[message_id])]
+
+    def store(self, message_id, command, flags):
+        self.actions.append(("store", message_id, command, flags))
+        return "OK", [b""]
+
+    def copy(self, message_id, mailbox):
+        self.actions.append(("copy", message_id, mailbox))
+        return "OK", [b""]
+
+    def create(self, mailbox):
+        self.created_mailboxes.append(mailbox)
+        return "OK", [b""]
+
+    def expunge(self):
+        self.actions.append(("expunge",))
+        return "OK", [b""]
+
+    def close(self):
+        self.closed = True
+        return "OK", [b""]
+
+    def logout(self):
+        self.logged_out = True
+        return "OK", [b""]
+
+
+def _raw_email(
+    *,
+    subject: str = "Rechnung",
+    message_id: str = "<mail-1@example.test>",
+    sender: str = "sender@example.test",
+    attachment_name: str | None = "rechnung.pdf",
+    attachment_content: bytes = MINIMAL_PDF_BYTES,
+) -> bytes:
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = sender
+    message["Message-ID"] = message_id
+    message.set_content("Bitte importieren.")
+    if attachment_name is not None:
+        message.add_attachment(
+            attachment_content,
+            maintype="application",
+            subtype="pdf",
+            filename=attachment_name,
+        )
+    return message.as_bytes()
 
 
 @pytest.mark.django_db
@@ -756,6 +825,154 @@ def test_import_document_passes_source_ocr_title_policy_to_ocr_job(monkeypatch):
 
     ocr_job = OcrJob.objects.get(document_file__document=document)
     assert ocr_job.metadata["title_policy"] == source.settings["title"]
+
+
+@pytest.mark.django_db
+def test_process_email_import_source_imports_matching_attachment():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Rechnungsmail",
+        source_type=ImportSource.SourceType.EMAIL,
+        settings={
+            "email": {
+                "mailbox": "INBOX",
+                "search_criteria": "UNSEEN",
+                "attachment_pattern": "*.pdf",
+                "mark_seen": True,
+                "delete_after_import": False,
+                "move_processed_to": "",
+            }
+        },
+        auto_start_ocr=False,
+        extract_einvoice=False,
+        start_workflows=False,
+    )
+    imap = FakeImapConnection({b"1": _raw_email()})
+
+    result = ProcessEmailImportSource(
+        source=source,
+        imap_factory=lambda _settings: imap,
+    ).execute()
+
+    document = Document.objects.get()
+    assert result.checked_messages == 1
+    assert result.imported_documents == 1
+    assert result.failed_attachments == 0
+    assert document.title == "rechnung"
+    assert (
+        DocumentFile.objects.get(document=document).original_filename
+        == "rechnung.pdf"
+    )
+    assert ("store", b"1", "+FLAGS", "\\Seen") in imap.actions
+    assert source.settings["email"]["last_result"]["imported_documents"] == 1
+
+
+@pytest.mark.django_db
+def test_process_email_import_source_treats_duplicate_as_processed():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Rechnungsmail",
+        source_type=ImportSource.SourceType.EMAIL,
+        settings={
+            "email": {
+                "mailbox": "INBOX",
+                "search_criteria": "UNSEEN",
+                "attachment_pattern": "*.pdf",
+                "move_processed_to": "Archiv/Doksio",
+            }
+        },
+        auto_start_ocr=False,
+        extract_einvoice=False,
+        start_workflows=False,
+    )
+    ImportDocument(
+        tenant=tenant,
+        source=source,
+        document_space=space,
+        file_obj=BytesIO(MINIMAL_PDF_BYTES),
+        original_filename="rechnung.pdf",
+        content_type="application/pdf",
+    ).execute()
+    imap = FakeImapConnection(
+        {b"1": _raw_email(attachment_name="rechnung-kopie.pdf")}
+    )
+
+    result = ProcessEmailImportSource(
+        source=source,
+        imap_factory=lambda _settings: imap,
+    ).execute()
+
+    assert result.checked_messages == 1
+    assert result.imported_documents == 0
+    assert result.duplicate_documents == 1
+    assert result.failed_attachments == 0
+    assert Document.objects.count() == 1
+    assert ("copy", b"1", "Archiv/Doksio") in imap.actions
+    assert ("store", b"1", "+FLAGS", "\\Deleted") in imap.actions
+    assert ("expunge",) in imap.actions
+
+
+@pytest.mark.django_db
+def test_process_email_import_source_handles_unprocessable_message(monkeypatch):
+    sent_messages = []
+    monkeypatch.setattr(
+        "doksio.ingestion.services.EmailMultiAlternatives.send",
+        lambda self: sent_messages.append(self) or 1,
+    )
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    TenantSmtpSettings.objects.create(
+        tenant=tenant,
+        host="smtp.example.test",
+        port=587,
+        security=TenantSmtpSettings.Security.STARTTLS,
+        username="doksio@example.test",
+        password="secret",
+        from_email="doksio@example.test",
+        from_name="Doksio",
+        is_active=True,
+    )
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Rechnungsmail",
+        source_type=ImportSource.SourceType.EMAIL,
+        settings={
+            "email": {
+                "mailbox": "INBOX",
+                "search_criteria": "UNSEEN",
+                "attachment_pattern": "*.pdf",
+                "unprocessable_action": "delete",
+                "unprocessable_reply_enabled": True,
+                "unprocessable_reply_subject": "Import nicht möglich",
+                "unprocessable_reply_body": "Bitte senden Sie einen PDF-Anhang.",
+            }
+        },
+        auto_start_ocr=False,
+        extract_einvoice=False,
+        start_workflows=False,
+    )
+    imap = FakeImapConnection(
+        {b"1": _raw_email(attachment_name=None, sender="absender@example.test")}
+    )
+
+    result = ProcessEmailImportSource(
+        source=source,
+        imap_factory=lambda _settings: imap,
+    ).execute()
+
+    assert result.checked_messages == 1
+    assert result.unprocessable_messages == 1
+    assert not Document.objects.exists()
+    assert ("store", b"1", "+FLAGS", "\\Deleted") in imap.actions
+    assert sent_messages[0].to == ["absender@example.test"]
+    assert sent_messages[0].subject == "Import nicht möglich"
 
 
 @pytest.mark.django_db

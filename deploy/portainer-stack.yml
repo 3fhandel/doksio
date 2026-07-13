@@ -94,6 +94,26 @@ services:
       minio:
         condition: service_healthy
 
+  beat:
+    image: doksio:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        INSTALL_DEV: "false"
+    restart: unless-stopped
+    command:
+      - /bin/sh
+      - -c
+      - |
+        exec celery -A doksio.project beat --loglevel=INFO
+    environment: *doksio-environment
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
   db:
     image: postgres:17-alpine
     restart: unless-stopped
