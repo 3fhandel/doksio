@@ -19,6 +19,7 @@ IMAGE_CONTENT_TYPES = {
 }
 
 THUMBNAIL_SIZE = (220, 300)
+PREVIEW_SIZE = (2200, 2200)
 
 
 def supports_thumbnail_content_type(content_type: str) -> bool:
@@ -57,6 +58,41 @@ def create_thumbnail_for_document_file(
     ).execute()
 
 
+def create_preview_for_document_file(
+    document_file: DocumentFile,
+    *,
+    actor=None,
+) -> DocumentFile | None:
+    if document_file.file_kind != DocumentFile.Kind.ORIGINAL:
+        return None
+
+    normalized = document_file.content_type.split(";", 1)[0].strip().lower()
+    if normalized not in IMAGE_CONTENT_TYPES:
+        return None
+
+    if document_file.derivatives.filter(file_kind=DocumentFile.Kind.PREVIEW).exists():
+        return None
+
+    try:
+        image_bytes = _render_image_preview(document_file)
+    except Exception:
+        return None
+
+    if image_bytes is None:
+        return None
+
+    return StoreImmutableFile(
+        tenant=document_file.tenant,
+        document=document_file.document,
+        file_obj=BytesIO(image_bytes),
+        original_filename=_preview_filename(document_file.original_filename),
+        content_type="image/jpeg",
+        file_kind=DocumentFile.Kind.PREVIEW,
+        derivative_of=document_file,
+        created_by=actor,
+    ).execute()
+
+
 def _render_thumbnail_bytes(document_file: DocumentFile) -> bytes | None:
     normalized = document_file.content_type.split(";", 1)[0].strip().lower()
     if normalized in IMAGE_CONTENT_TYPES:
@@ -67,6 +103,19 @@ def _render_thumbnail_bytes(document_file: DocumentFile) -> bytes | None:
 
 
 def _render_image_thumbnail(document_file: DocumentFile) -> bytes | None:
+    return _render_image_jpeg(document_file, size=THUMBNAIL_SIZE, quality=82)
+
+
+def _render_image_preview(document_file: DocumentFile) -> bytes | None:
+    return _render_image_jpeg(document_file, size=PREVIEW_SIZE, quality=90)
+
+
+def _render_image_jpeg(
+    document_file: DocumentFile,
+    *,
+    size: tuple[int, int],
+    quality: int,
+) -> bytes | None:
     try:
         from PIL import Image, ImageOps
     except ImportError:
@@ -77,7 +126,7 @@ def _render_image_thumbnail(document_file: DocumentFile) -> bytes | None:
         Image.open(stored_file) as image,
     ):
         image = ImageOps.exif_transpose(image)
-        image.thumbnail(THUMBNAIL_SIZE)
+        image.thumbnail(size)
         if image.mode not in ("RGB", "L"):
             background = Image.new("RGB", image.size, "white")
             if image.mode == "RGBA":
@@ -88,7 +137,7 @@ def _render_image_thumbnail(document_file: DocumentFile) -> bytes | None:
         elif image.mode == "L":
             image = image.convert("RGB")
         output = BytesIO()
-        image.save(output, format="JPEG", quality=82, optimize=True)
+        image.save(output, format="JPEG", quality=quality, optimize=True)
         return output.getvalue()
 
 
@@ -125,3 +174,8 @@ def _render_pdf_thumbnail(document_file: DocumentFile) -> bytes | None:
 def _thumbnail_filename(original_filename: str) -> str:
     stem = original_filename.rsplit("/", 1)[-1].rsplit(".", 1)[0].strip()
     return f"{stem or 'thumbnail'}-thumbnail.jpg"
+
+
+def _preview_filename(original_filename: str) -> str:
+    stem = original_filename.rsplit("/", 1)[-1].rsplit(".", 1)[0].strip()
+    return f"{stem or 'preview'}-preview.jpg"

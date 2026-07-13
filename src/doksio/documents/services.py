@@ -28,7 +28,10 @@ from doksio.documents.models import (
     DocumentTag,
     DocumentTagAssignment,
 )
-from doksio.documents.thumbnails import create_thumbnail_for_document_file
+from doksio.documents.thumbnails import (
+    create_preview_for_document_file,
+    create_thumbnail_for_document_file,
+)
 from doksio.storage.services import StoreImmutableFile
 from doksio.tenancy.models import Tenant
 
@@ -642,6 +645,10 @@ class CreateDocumentFromUpload:
         ).execute()
 
         create_thumbnail_for_document_file(
+            document_file,
+            actor=self.created_by,
+        )
+        create_preview_for_document_file(
             document_file,
             actor=self.created_by,
         )

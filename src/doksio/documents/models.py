@@ -334,6 +334,7 @@ class DocumentFile(models.Model):
     class Kind(models.TextChoices):
         ORIGINAL = "original", "Original"
         DERIVATIVE = "derivative", "Derivative"
+        PREVIEW = "preview", "Vorschau"
         THUMBNAIL = "thumbnail", "Thumbnail"
 
     IMMUTABLE_FIELDS = (

@@ -863,6 +863,9 @@ def test_tenant_admin_can_download_folder_import_script(client):
     assert "SOURCE_DIR=/imports/scans" in content
     assert 'LOG_FILE="${DOKSIO_IMPORT_LOG:-$SOURCE_DIR/doksio-folder-import.log}"' in content
     assert "log INFO \"Doksio Ordner-Agent gestartet: $SOURCE_DIR\"" in content
+    assert 'should_skip_file "$file" && continue' in content
+    assert 'path_in_dir "$file" "$ARCHIVE_DIR"' in content
+    assert 'path_in_dir "$file" "$ERROR_DIR"' in content
     assert "API_URL=https://doksio.example.test" in content
     assert "http://testserver" not in content
     assert "curl --fail" in content
@@ -921,6 +924,9 @@ def test_tenant_admin_can_download_windows_folder_import_script(client):
     assert "$SourceDir = 'C:\\Imports\\Scans'" in content
     assert "$Recursive = $true" in content
     assert "$LogFile = if ($env:DOKSIO_IMPORT_LOG)" in content
+    assert "function Test-DoksioSkippedFile" in content
+    assert "Test-DoksioPathInDirectory -Path $File.FullName -Directory $ArchiveDir" in content
+    assert "if (Test-DoksioSkippedFile -File $File) { continue }" in content
     assert "Write-DoksioLog \"INFO\" \"Doksio Ordner-Agent gestartet: $SourceDir\"" in content
     assert "Invoke-WebRequest" in content
     assert '"X-Doksio-Import-Token" = $ImportToken' in content

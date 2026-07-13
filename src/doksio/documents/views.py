@@ -109,7 +109,7 @@ DOCUMENT_LOG_EVENT_LABELS = {
 }
 
 PDF_PREVIEW_CONTENT_TYPES = {"application/pdf"}
-IMAGE_PREVIEW_CONTENT_TYPES = {
+BROWSER_IMAGE_PREVIEW_CONTENT_TYPES = {
     "image/avif",
     "image/bmp",
     "image/gif",
@@ -206,6 +206,30 @@ safe_move() {{
   log INFO "Datei verschoben: $source -> $target"
 }}
 
+path_in_dir() {{
+  local file="$1"
+  local dir="$2"
+
+  [[ -z "$dir" ]] && return 1
+  [[ "$file" == "$dir"/* ]] && return 0
+  return 1
+}}
+
+should_skip_file() {{
+  local file="$1"
+
+  if [[ "$file" == "$LOG_FILE" ]]; then
+    return 0
+  fi
+  if path_in_dir "$file" "$ARCHIVE_DIR"; then
+    return 0
+  fi
+  if path_in_dir "$file" "$ERROR_DIR"; then
+    return 0
+  fi
+  return 1
+}}
+
 process_file() {{
   local file="$1"
   local filename
@@ -247,10 +271,12 @@ log INFO "Doksio Ordner-Agent gestartet: $SOURCE_DIR"
 while true; do
   if [[ "$RECURSIVE" == "1" ]]; then
     while IFS= read -r -d '' file; do
+      should_skip_file "$file" && continue
       process_file "$file"
     done < <(find "$SOURCE_DIR" -type f -name "$FILE_PATTERN" -print0)
   else
     while IFS= read -r -d '' file; do
+      should_skip_file "$file" && continue
       process_file "$file"
     done < <(
       find "$SOURCE_DIR" -type f -name "$FILE_PATTERN" \\
@@ -314,6 +340,34 @@ function Move-DoksioFile {{
     Write-DoksioLog "INFO" "Datei verschoben: $Source -> $Target"
 }}
 
+function Test-DoksioPathInDirectory {{
+    param([string] $Path, [string] $Directory)
+    if (-not $Directory) {{ return $false }}
+
+    $FullPath = [System.IO.Path]::GetFullPath($Path)
+    $TrimChars = @([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $FullDirectory = [System.IO.Path]::GetFullPath($Directory).TrimEnd($TrimChars)
+    return $FullPath.StartsWith(
+        $FullDirectory + [System.IO.Path]::DirectorySeparatorChar,
+        [System.StringComparison]::OrdinalIgnoreCase
+    )
+}}
+
+function Test-DoksioSkippedFile {{
+    param([System.IO.FileInfo] $File)
+
+    if ([System.IO.Path]::GetFullPath($File.FullName) -eq [System.IO.Path]::GetFullPath($LogFile)) {{
+        return $true
+    }}
+    if (Test-DoksioPathInDirectory -Path $File.FullName -Directory $ArchiveDir) {{
+        return $true
+    }}
+    if (Test-DoksioPathInDirectory -Path $File.FullName -Directory $ErrorDir) {{
+        return $true
+    }}
+    return $false
+}}
+
 function Invoke-DoksioImport {{
     param([System.IO.FileInfo] $File)
 
@@ -353,6 +407,7 @@ Write-DoksioLog "INFO" "Doksio Ordner-Agent gestartet: $SourceDir"
 while ($true) {{
     $Files = Get-ChildItem -LiteralPath $SourceDir -File -Filter $FilePattern -Recurse:$Recursive
     foreach ($File in $Files) {{
+        if (Test-DoksioSkippedFile -File $File) {{ continue }}
         Invoke-DoksioImport -File $File
     }}
     Start-Sleep -Seconds ([int] $PollIntervalSeconds)
@@ -489,20 +544,37 @@ AUDIT_EVENT_LABELS = DOCUMENT_LOG_EVENT_LABELS | {
 
 def _document_preview(document: Document) -> tuple[DocumentFile | None, str]:
     pdf_file = (
-        document.files.filter(content_type__in=PDF_PREVIEW_CONTENT_TYPES)
-        .order_by("file_kind", "-version", "-created_at")
+        document.files.filter(
+            file_kind=DocumentFile.Kind.ORIGINAL,
+            content_type__in=PDF_PREVIEW_CONTENT_TYPES,
+        )
+        .order_by("-version", "-created_at")
         .first()
     )
     if pdf_file is not None:
         return pdf_file, "pdf"
 
     image_file = (
-        document.files.filter(content_type__in=IMAGE_PREVIEW_CONTENT_TYPES)
-        .order_by("file_kind", "-version", "-created_at")
+        document.files.filter(
+            file_kind=DocumentFile.Kind.ORIGINAL,
+            content_type__in=BROWSER_IMAGE_PREVIEW_CONTENT_TYPES,
+        )
+        .order_by("-version", "-created_at")
         .first()
     )
     if image_file is not None:
         return image_file, "image"
+
+    image_preview_file = (
+        document.files.filter(
+            file_kind=DocumentFile.Kind.PREVIEW,
+            content_type__startswith="image/",
+        )
+        .order_by("-version", "-created_at")
+        .first()
+    )
+    if image_preview_file is not None:
+        return image_preview_file, "image"
     return None, ""
 
 

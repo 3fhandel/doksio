@@ -242,6 +242,40 @@ def test_create_document_from_upload_creates_thumbnail_derivative(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_create_document_from_upload_creates_image_preview_derivative(monkeypatch):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+
+    monkeypatch.setattr(
+        "doksio.documents.thumbnails._render_thumbnail_bytes",
+        lambda _document_file: b"thumbnail-bytes",
+    )
+    monkeypatch.setattr(
+        "doksio.documents.thumbnails._render_image_preview",
+        lambda _document_file: b"preview-bytes",
+    )
+
+    document, document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Scan",
+        space=space,
+        file_obj=BytesIO(b"tiff content"),
+        original_filename="scan.tiff",
+        content_type="image/tiff",
+        auto_start_ocr=False,
+    ).execute()
+
+    preview = DocumentFile.objects.get(
+        document=document,
+        file_kind=DocumentFile.Kind.PREVIEW,
+    )
+    assert preview.derivative_of == document_file
+    assert preview.content_type == "image/jpeg"
+    assert preview.original_filename == "scan-preview.jpg"
+    assert preview.byte_size == len(b"preview-bytes")
+
+
+@pytest.mark.django_db
 def test_create_document_from_upload_attaches_zugferd_invoice_data():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
@@ -2202,6 +2236,65 @@ def test_document_list_uses_thumbnail_in_document_row(client, monkeypatch):
         in content
     )
     assert "Vorschau Bildbeleg" in content
+
+
+@pytest.mark.django_db
+def test_document_detail_uses_preview_derivative_for_tiff(client, monkeypatch):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    monkeypatch.setattr(
+        "doksio.documents.thumbnails._render_thumbnail_bytes",
+        lambda _document_file: b"thumbnail-bytes",
+    )
+    monkeypatch.setattr(
+        "doksio.documents.thumbnails._render_image_preview",
+        lambda _document_file: b"preview-bytes",
+    )
+    document, original_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="TIFF Scan",
+        space=space,
+        file_obj=BytesIO(b"tiff content"),
+        original_filename="scan.tiff",
+        content_type="image/tiff",
+        auto_start_ocr=False,
+    ).execute()
+    preview = DocumentFile.objects.get(
+        document=document,
+        file_kind=DocumentFile.Kind.PREVIEW,
+    )
+    client.force_login(user)
+
+    response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        )
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "data-image-preview" in content
+    preview_url = reverse(
+        "documents:download",
+        kwargs={"tenant_slug": tenant.slug, "file_id": preview.id},
+    )
+    original_url = reverse(
+        "documents:download",
+        kwargs={"tenant_slug": tenant.slug, "file_id": original_file.id},
+    )
+    assert f'src="{preview_url}?inline=1"' in content
+    assert f'src="{original_url}?inline=1"' not in content
 
 
 @pytest.mark.django_db
