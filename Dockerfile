@@ -14,7 +14,7 @@ RUN if [ -n "$DOKSIO_BUILD_VERSION" ]; then \
     elif [ -d .git ]; then \
         git log -1 --format=%cd --date=format:%Y%m%d-%H%M > .doksio-build-version; \
     else \
-        : > .doksio-build-version; \
+        date -u +%Y%m%d-%H%M > .doksio-build-version; \
     fi
 
 FROM python:3.14-slim
