@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
-from django.core.mail import EmailMultiAlternatives
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.db import transaction
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -22,8 +22,28 @@ from doksio.accounts.models import (
 from doksio.accounts.permissions import DEFAULT_ROLE_PERMISSIONS, PERMISSION_DEFINITIONS
 from doksio.audit.services import RecordAuditEvent
 from doksio.documents.models import DocumentSpace
+from doksio.ingestion.models import TenantSmtpSettings
 from doksio.project.url_helpers import build_public_url
 from doksio.tenancy.models import Tenant
+
+
+def _tenant_smtp_from_email(smtp_settings: TenantSmtpSettings) -> str:
+    from_email = smtp_settings.from_email or smtp_settings.username
+    if smtp_settings.from_name and from_email:
+        return f"{smtp_settings.from_name} <{from_email}>"
+    return from_email
+
+
+def _tenant_smtp_connection(smtp_settings: TenantSmtpSettings):
+    return get_connection(
+        backend="django.core.mail.backends.smtp.EmailBackend",
+        host=smtp_settings.host,
+        port=smtp_settings.port,
+        username=smtp_settings.username or None,
+        password=smtp_settings.password or None,
+        use_tls=smtp_settings.security == TenantSmtpSettings.Security.STARTTLS,
+        use_ssl=smtp_settings.security == TenantSmtpSettings.Security.SSL,
+    )
 
 
 @dataclass(frozen=True)
@@ -236,6 +256,14 @@ class SendTenantPasswordResetEmail:
         user = self.membership.user
         if not user.email:
             raise ValueError("Für diesen Benutzer ist keine E-Mail-Adresse hinterlegt.")
+        smtp_settings = TenantSmtpSettings.objects.filter(
+            tenant=self.tenant,
+            is_active=True,
+        ).first()
+        if smtp_settings is None:
+            raise ValueError(
+                "Für diesen Mandanten ist kein aktiver SMTP-Versand konfiguriert."
+            )
 
         uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
         token = default_token_generator.make_token(user)
@@ -265,7 +293,9 @@ class SendTenantPasswordResetEmail:
         message = EmailMultiAlternatives(
             subject=subject,
             body=body,
+            from_email=_tenant_smtp_from_email(smtp_settings),
             to=[user.email],
+            connection=_tenant_smtp_connection(smtp_settings),
         )
         message.send()
         RecordAuditEvent(

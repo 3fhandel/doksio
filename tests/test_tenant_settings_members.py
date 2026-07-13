@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.core import mail
 from django.test import override_settings
 from django.urls import reverse
 
@@ -14,7 +13,22 @@ from doksio.accounts.services import (
     UpdateTenantMembership,
 )
 from doksio.audit.models import AuditEvent
+from doksio.ingestion.models import TenantSmtpSettings
 from doksio.tenancy.models import Tenant
+
+
+def _create_active_smtp_settings(tenant):
+    return TenantSmtpSettings.objects.create(
+        tenant=tenant,
+        host="smtp.example.test",
+        port=587,
+        security=TenantSmtpSettings.Security.STARTTLS,
+        username="doksio@example.test",
+        password="smtp-secret",
+        from_email="doksio@example.test",
+        from_name="Doksio",
+        is_active=True,
+    )
 
 
 @pytest.mark.django_db
@@ -206,13 +220,16 @@ def test_tenant_admin_can_update_member_from_settings(client):
 
 
 @pytest.mark.django_db
-@override_settings(
-    DOKSIO_PUBLIC_BASE_URL="https://doksio.example.test",
-    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-)
-def test_tenant_admin_can_send_password_reset_mail(client):
+@override_settings(DOKSIO_PUBLIC_BASE_URL="https://doksio.example.test")
+def test_tenant_admin_can_send_password_reset_mail(client, monkeypatch):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    _create_active_smtp_settings(tenant)
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    sent_messages = []
+    monkeypatch.setattr(
+        "doksio.accounts.services.EmailMultiAlternatives.send",
+        lambda message: sent_messages.append(message) or 1,
+    )
     admin_user = get_user_model().objects.create_user(
         username="admin",
         password="secret",
@@ -244,9 +261,13 @@ def test_tenant_admin_can_send_password_reset_mail(client):
     )
 
     assert response.status_code == 302
-    assert len(mail.outbox) == 1
-    assert mail.outbox[0].to == ["alice@example.test"]
-    assert "https://doksio.example.test/t/acme/password-reset/" in mail.outbox[0].body
+    assert len(sent_messages) == 1
+    assert sent_messages[0].to == ["alice@example.test"]
+    assert sent_messages[0].from_email == "Doksio <doksio@example.test>"
+    assert (
+        "https://doksio.example.test/t/acme/password-reset/"
+        in sent_messages[0].body
+    )
     assert AuditEvent.objects.filter(
         event_type="tenant_membership.password_reset_email_sent",
         object_id=str(target_membership.id),
@@ -254,13 +275,16 @@ def test_tenant_admin_can_send_password_reset_mail(client):
 
 
 @pytest.mark.django_db
-@override_settings(
-    DOKSIO_PUBLIC_BASE_URL="https://doksio.example.test",
-    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-)
-def test_tenant_password_reset_link_sets_new_password(client):
+@override_settings(DOKSIO_PUBLIC_BASE_URL="https://doksio.example.test")
+def test_tenant_password_reset_link_sets_new_password(client, monkeypatch):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    _create_active_smtp_settings(tenant)
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    sent_messages = []
+    monkeypatch.setattr(
+        "doksio.accounts.services.EmailMultiAlternatives.send",
+        lambda message: sent_messages.append(message) or 1,
+    )
     admin_user = get_user_model().objects.create_user(
         username="admin",
         password="secret",
@@ -293,7 +317,7 @@ def test_tenant_password_reset_link_sets_new_password(client):
     )
     reset_url = next(
         line
-        for line in mail.outbox[0].body.splitlines()
+        for line in sent_messages[0].body.splitlines()
         if line.startswith("https://doksio.example.test/t/acme/password-reset/")
     )
     reset_path = reset_url.replace("https://doksio.example.test", "")
@@ -317,10 +341,15 @@ def test_tenant_password_reset_link_sets_new_password(client):
 
 
 @pytest.mark.django_db
-@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
-def test_tenant_admin_cannot_send_password_reset_without_email(client):
+def test_tenant_admin_cannot_send_password_reset_without_email(client, monkeypatch):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    _create_active_smtp_settings(tenant)
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    sent_messages = []
+    monkeypatch.setattr(
+        "doksio.accounts.services.EmailMultiAlternatives.send",
+        lambda message: sent_messages.append(message) or 1,
+    )
     admin_user = get_user_model().objects.create_user(
         username="admin",
         password="secret",
@@ -349,7 +378,47 @@ def test_tenant_admin_cannot_send_password_reset_without_email(client):
     )
 
     assert response.status_code == 302
-    assert mail.outbox == []
+    assert sent_messages == []
+
+
+@pytest.mark.django_db
+def test_tenant_admin_cannot_send_password_reset_without_active_smtp(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    admin_user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    target_user = get_user_model().objects.create_user(
+        username="alice",
+        email="alice@example.test",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=admin_user,
+        role=roles["admin"],
+    )
+    target_membership = TenantMembership.objects.create(
+        tenant=tenant,
+        user=target_user,
+        role=roles["member"],
+    )
+    client.force_login(admin_user)
+
+    response = client.post(
+        reverse(
+            "documents:settings_member_send_password_reset",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "membership_id": target_membership.id,
+            },
+        )
+    )
+
+    assert response.status_code == 302
+    assert not AuditEvent.objects.filter(
+        event_type="tenant_membership.password_reset_email_sent"
+    ).exists()
 
 
 @pytest.mark.django_db
