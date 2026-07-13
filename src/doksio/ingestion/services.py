@@ -229,9 +229,17 @@ class EmailImportAttachment:
     content: bytes
 
 
+@dataclass(frozen=True)
+class EmailAttachmentScan:
+    matched: list[EmailImportAttachment]
+    ignored_filenames: list[str] = field(default_factory=list)
+
+
 @dataclass
 class EmailImportResult:
     checked_messages: int = 0
+    matched_attachments: int = 0
+    ignored_attachments: int = 0
     imported_documents: int = 0
     duplicate_documents: int = 0
     failed_attachments: int = 0
@@ -280,8 +288,10 @@ def _attachment_content_type(filename: str, content_type: str) -> str:
 def _matching_email_attachments(
     message: ParsedEmailMessage,
     pattern: str,
-) -> list[EmailImportAttachment]:
+) -> EmailAttachmentScan:
     attachments = []
+    ignored_filenames = []
+    normalized_pattern = pattern or "*"
     for index, part in enumerate(message.walk(), start=1):
         if part.is_multipart():
             continue
@@ -294,7 +304,8 @@ def _matching_email_attachments(
             content_type=part.get_content_type(),
             index=index,
         )
-        if not fnmatch(filename, pattern or "*"):
+        if not fnmatch(filename.casefold(), normalized_pattern.casefold()):
+            ignored_filenames.append(filename)
             continue
         payload = part.get_payload(decode=True)
         if payload is None:
@@ -310,7 +321,10 @@ def _matching_email_attachments(
                 content=payload,
             )
         )
-    return attachments
+    return EmailAttachmentScan(
+        matched=attachments,
+        ignored_filenames=ignored_filenames,
+    )
 
 
 def _smtp_from_email(smtp_settings: TenantSmtpSettings) -> str:
@@ -455,12 +469,22 @@ class ProcessEmailImportSource:
             return
 
         message = BytesParser(policy=policy.default).parsebytes(raw_message)
-        attachments = _matching_email_attachments(
+        attachment_scan = _matching_email_attachments(
             message,
             email_settings.get("attachment_pattern", "*"),
         )
+        attachments = attachment_scan.matched
+        result.ignored_attachments += len(attachment_scan.ignored_filenames)
         if not attachments:
             result.unprocessable_messages += 1
+            if attachment_scan.ignored_filenames:
+                result.errors.append(
+                    "Mail "
+                    f"{message_id!r}: Keine Anhänge passend zum Muster "
+                    f"{email_settings.get('attachment_pattern', '*')}; "
+                    "ignoriert: "
+                    f"{', '.join(attachment_scan.ignored_filenames)}"
+                )
             self._handle_unprocessable_message(
                 connection=connection,
                 message_id=message_id,
@@ -470,12 +494,31 @@ class ProcessEmailImportSource:
             return
 
         before_failures = result.failed_attachments
+        before_processed = (
+            result.imported_documents
+            + result.duplicate_documents
+            + result.failed_attachments
+        )
+        result.matched_attachments += len(attachments)
         for attachment in attachments:
             self._import_attachment(
                 attachment=attachment,
                 message=message,
                 result=result,
             )
+
+        after_processed = (
+            result.imported_documents
+            + result.duplicate_documents
+            + result.failed_attachments
+        )
+        if after_processed == before_processed:
+            result.failed_attachments += len(attachments)
+            result.errors.append(
+                f"Mail {message_id!r}: "
+                "Passende Anhänge gefunden, aber kein Anhang wurde verarbeitet."
+            )
+            return
 
         if result.failed_attachments == before_failures:
             self._finalize_processed_message(
@@ -601,10 +644,13 @@ class ProcessEmailImportSource:
         email_settings["last_checked_at"] = timezone.now().isoformat()
         email_settings["last_result"] = {
             "checked_messages": result.checked_messages,
+            "matched_attachments": result.matched_attachments,
+            "ignored_attachments": result.ignored_attachments,
             "imported_documents": result.imported_documents,
             "duplicate_documents": result.duplicate_documents,
             "failed_attachments": result.failed_attachments,
             "unprocessable_messages": result.unprocessable_messages,
+            "errors": result.errors[-10:],
         }
         settings["email"] = email_settings
         self.source.settings = settings
@@ -644,6 +690,8 @@ class ProcessDueEmailImportSources:
                 total.errors.append(f"{source.name}: {exc}")
                 continue
             total.checked_messages += result.checked_messages
+            total.matched_attachments += result.matched_attachments
+            total.ignored_attachments += result.ignored_attachments
             total.imported_documents += result.imported_documents
             total.duplicate_documents += result.duplicate_documents
             total.failed_attachments += result.failed_attachments

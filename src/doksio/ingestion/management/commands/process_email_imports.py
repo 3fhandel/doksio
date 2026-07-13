@@ -37,6 +37,8 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 "Mail-Import abgeschlossen: "
                 f"{result.checked_messages} Mails geprüft, "
+                f"{result.matched_attachments} passende Anhänge, "
+                f"{result.ignored_attachments} ignorierte Anhänge, "
                 f"{result.imported_documents} Dokumente importiert, "
                 f"{result.duplicate_documents} Dubletten, "
                 f"{result.failed_attachments} Fehler, "

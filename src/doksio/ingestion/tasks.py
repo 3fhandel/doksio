@@ -17,6 +17,8 @@ def process_email_import_source(source_id: int) -> dict:
     result = ProcessEmailImportSource(source=source).execute()
     return {
         "checked_messages": result.checked_messages,
+        "matched_attachments": result.matched_attachments,
+        "ignored_attachments": result.ignored_attachments,
         "imported_documents": result.imported_documents,
         "duplicate_documents": result.duplicate_documents,
         "failed_attachments": result.failed_attachments,
@@ -30,6 +32,8 @@ def process_due_email_import_sources() -> dict:
     result = ProcessDueEmailImportSources().execute()
     return {
         "checked_messages": result.checked_messages,
+        "matched_attachments": result.matched_attachments,
+        "ignored_attachments": result.ignored_attachments,
         "imported_documents": result.imported_documents,
         "duplicate_documents": result.duplicate_documents,
         "failed_attachments": result.failed_attachments,

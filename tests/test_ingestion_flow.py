@@ -871,6 +871,75 @@ def test_process_email_import_source_imports_matching_attachment():
 
 
 @pytest.mark.django_db
+def test_process_email_import_source_matches_attachment_pattern_case_insensitive():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Rechnungsmail",
+        source_type=ImportSource.SourceType.EMAIL,
+        settings={
+            "email": {
+                "mailbox": "INBOX",
+                "search_criteria": "UNSEEN",
+                "attachment_pattern": "*.pdf",
+                "mark_seen": True,
+            }
+        },
+        auto_start_ocr=False,
+        extract_einvoice=False,
+        start_workflows=False,
+    )
+    imap = FakeImapConnection({b"1": _raw_email(attachment_name="RECHNUNG.PDF")})
+
+    result = ProcessEmailImportSource(
+        source=source,
+        imap_factory=lambda _settings: imap,
+    ).execute()
+
+    assert result.checked_messages == 1
+    assert result.matched_attachments == 1
+    assert result.imported_documents == 1
+    assert DocumentFile.objects.get().original_filename == "RECHNUNG.PDF"
+
+
+@pytest.mark.django_db
+def test_process_email_import_source_reports_ignored_attachments():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Rechnungsmail",
+        source_type=ImportSource.SourceType.EMAIL,
+        settings={
+            "email": {
+                "mailbox": "INBOX",
+                "search_criteria": "UNSEEN",
+                "attachment_pattern": "*.pdf",
+                "unprocessable_action": "keep",
+            }
+        },
+        auto_start_ocr=False,
+        extract_einvoice=False,
+        start_workflows=False,
+    )
+    imap = FakeImapConnection({b"1": _raw_email(attachment_name="rechnung.txt")})
+
+    result = ProcessEmailImportSource(
+        source=source,
+        imap_factory=lambda _settings: imap,
+    ).execute()
+
+    assert result.checked_messages == 1
+    assert result.ignored_attachments == 1
+    assert result.unprocessable_messages == 1
+    assert "rechnung.txt" in result.errors[0]
+    assert source.settings["email"]["last_result"]["ignored_attachments"] == 1
+
+
+@pytest.mark.django_db
 def test_process_email_import_source_treats_duplicate_as_processed():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
