@@ -36,13 +36,13 @@ services:
       args:
         INSTALL_DEV: "false"
     restart: unless-stopped
-    command: >
-      sh -c "python -m django migrate &&
-             python -m django collectstatic --noinput &&
-             gunicorn doksio.project.wsgi:application
-             --bind 0.0.0.0:8000
-             --workers ${GUNICORN_WORKERS:-3}
-             --timeout ${GUNICORN_TIMEOUT:-120}"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        python -m django migrate
+        python -m django collectstatic --noinput
+        exec gunicorn --bind=0.0.0.0:8000 --workers=$${GUNICORN_WORKERS:-3} --timeout=$${GUNICORN_TIMEOUT:-120} doksio.project.wsgi:application
     environment: *doksio-environment
     ports:
       - "${DOKSIO_HTTP_PORT:-8000}:8000"
