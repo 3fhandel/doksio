@@ -31,6 +31,7 @@ from doksio.documents.forms import (
     DocumentCommentForm,
     DocumentCoreMetadataForm,
     DocumentDeleteForm,
+    DocumentSpaceDeleteForm,
     DocumentMetadataFieldForm,
     DocumentMetadataForm,
     DocumentSpaceForm,
@@ -66,6 +67,7 @@ from doksio.documents.services import (
     CreateDocumentMetadataField,
     CreateDocumentSpace,
     DeleteDocument,
+    DeleteDocumentSpace,
     DuplicateDocumentError,
     SetDocumentTags,
     UpdateDocumentCoreMetadata,
@@ -95,6 +97,7 @@ DOCUMENT_LOG_EVENT_LABELS = {
     "document_core_metadata.updated": "Kerndaten aktualisiert",
     "document_metadata.updated": "Metadaten aktualisiert",
     "document_comment.created": "Kommentar hinzugefügt",
+    "document_space.deleted": "Dokumentenbox gelöscht",
     "document_tags.updated": "Tags aktualisiert",
     "document.deleted": "Dokument gelöscht",
     "document.exported": "Dokument exportiert",
@@ -1323,7 +1326,11 @@ def tenant_settings_document_boxes(
     if tenant is None or not can_manage_document_spaces(request.user, tenant):
         raise PermissionDenied
 
-    spaces = DocumentSpace.objects.filter(tenant=tenant).order_by("path")
+    spaces = (
+        DocumentSpace.objects.filter(tenant=tenant, deleted_at__isnull=True)
+        .annotate(document_count=Count("documents", distinct=True))
+        .order_by("path")
+    )
     return render(
         request,
         "documents/settings_document_boxes.html",
@@ -1452,6 +1459,87 @@ def tenant_settings_document_box_edit(
             ],
             "form_title": "Dokumentenbox bearbeiten",
             "submit_label": "Box speichern",
+            "active_settings_section": "document_boxes",
+        },
+    )
+
+
+def tenant_settings_document_box_delete(
+    request: HttpRequest,
+    tenant_slug: str,
+    box_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    document_space = get_object_or_404(
+        DocumentSpace,
+        id=box_id,
+        tenant=tenant,
+        deleted_at__isnull=True,
+    )
+    subtree_filter = Q(path=document_space.path) | Q(
+        path__startswith=f"{document_space.path.rstrip('/')}/"
+    )
+    subtree_spaces = list(
+        DocumentSpace.objects.filter(
+            tenant=tenant,
+            deleted_at__isnull=True,
+        )
+        .filter(subtree_filter)
+        .order_by("path")
+    )
+    subtree_ids = [space.id for space in subtree_spaces]
+    document_count = Document.objects.filter(
+        tenant=tenant,
+        space_id__in=subtree_ids,
+    ).count()
+    active_document_count = Document.objects.filter(
+        tenant=tenant,
+        space_id__in=subtree_ids,
+        status=Document.Status.ACTIVE,
+    ).count()
+
+    if request.method == "POST":
+        form = DocumentSpaceDeleteForm(
+            request.POST,
+            tenant=tenant,
+            document_space=document_space,
+        )
+        if form.is_valid():
+            DeleteDocumentSpace(
+                document_space=document_space,
+                strategy=form.cleaned_data["strategy"],
+                target_space=form.cleaned_data["target_space"],
+                delete_reason=form.cleaned_data["delete_reason"],
+                actor=request.user,
+            ).execute()
+            messages.success(request, "Dokumentenbox wurde gelöscht.")
+            return redirect(
+                "documents:settings_document_boxes",
+                tenant_slug=tenant.slug,
+            )
+    else:
+        form = DocumentSpaceDeleteForm(
+            tenant=tenant,
+            document_space=document_space,
+            initial={"strategy": DocumentSpaceDeleteForm.Strategy.MOVE},
+        )
+
+    return render(
+        request,
+        "documents/settings_document_box_delete.html",
+        {
+            "tenant": tenant,
+            "document_space": document_space,
+            "subtree_spaces": subtree_spaces,
+            "document_count": document_count,
+            "active_document_count": active_document_count,
+            "form": form,
             "active_settings_section": "document_boxes",
         },
     )

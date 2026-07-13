@@ -11,6 +11,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.storage import default_storage
 from django.db import transaction
+from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.text import slugify
@@ -875,6 +876,150 @@ class DeleteDocument:
             },
         ).execute()
         return self.document
+
+
+@dataclass(frozen=True)
+class DeleteDocumentSpace:
+    class Strategy:
+        MOVE = "move"
+        DELETE_DOCUMENTS = "delete_documents"
+
+    document_space: DocumentSpace
+    strategy: str
+    target_space: DocumentSpace | None = None
+    delete_reason: str = ""
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> list[DocumentSpace]:
+        subtree_filter = Q(path=self.document_space.path) | Q(
+            path__startswith=f"{self.document_space.path.rstrip('/')}/"
+        )
+        subtree_spaces = list(
+            DocumentSpace.objects.select_for_update()
+            .filter(
+                tenant=self.document_space.tenant,
+                deleted_at__isnull=True,
+            )
+            .filter(subtree_filter)
+            .order_by("-path")
+        )
+        subtree_ids = [space.id for space in subtree_spaces]
+        if not subtree_ids:
+            return []
+
+        documents = list(
+            Document.objects.select_for_update()
+            .filter(tenant=self.document_space.tenant, space_id__in=subtree_ids)
+            .select_related("space")
+            .order_by("id")
+        )
+
+        if self.strategy == self.Strategy.MOVE:
+            if self.target_space is None:
+                raise ValueError("Target document space is required.")
+            if self.target_space.tenant_id != self.document_space.tenant_id:
+                raise ValueError("Target document space belongs to a different tenant.")
+            if self.target_space.id in subtree_ids:
+                raise ValueError("Target document space cannot be deleted.")
+            self._move_documents(documents)
+        elif self.strategy == self.Strategy.DELETE_DOCUMENTS:
+            if not self.delete_reason.strip():
+                raise ValueError("Delete reason is required.")
+            self._delete_documents(documents)
+        else:
+            raise ValueError("Unknown document space delete strategy.")
+
+        deleted_at = timezone.now()
+        for space in subtree_spaces:
+            space.is_active = False
+            space.deleted_at = deleted_at
+            space.deleted_by = self.actor
+            space.deleted_strategy = self.strategy
+            space.save(
+                update_fields=[
+                    "is_active",
+                    "deleted_at",
+                    "deleted_by",
+                    "deleted_strategy",
+                    "updated_at",
+                ]
+            )
+
+        RecordAuditEvent(
+            tenant=self.document_space.tenant,
+            actor=self.actor,
+            event_type="document_space.deleted",
+            object_type="documents.DocumentSpace",
+            object_id=str(self.document_space.id),
+            data={
+                "document_space_id": self.document_space.id,
+                "document_space_path": self.document_space.path,
+                "deleted_space_ids": subtree_ids,
+                "strategy": self.strategy,
+                "target_space_id": self.target_space.id if self.target_space else None,
+                "target_space_path": (
+                    self.target_space.path if self.target_space else ""
+                ),
+                "document_count": len(documents),
+            },
+        ).execute()
+        return subtree_spaces
+
+    def _move_documents(self, documents: list[Document]) -> None:
+        assert self.target_space is not None
+        for document in documents:
+            if document.status == Document.Status.DELETED:
+                previous_space = document.space
+                document.space = self.target_space
+                document.save(update_fields=["space", "updated_at"])
+                RecordAuditEvent(
+                    tenant=document.tenant,
+                    actor=self.actor,
+                    event_type="document_core_metadata.updated",
+                    object_type="documents.Document",
+                    object_id=str(document.id),
+                    data={
+                        "document_id": document.id,
+                        "title": document.title,
+                        "previous_title": document.title,
+                        "title_source": document.title_source,
+                        "previous_title_source": document.title_source,
+                        "space_id": document.space_id,
+                        "space_path": document.space.path,
+                        "previous_space_id": previous_space.id,
+                        "previous_space_path": previous_space.path,
+                        "space_changed": True,
+                        "document_date": (
+                            document.document_date.isoformat()
+                            if document.document_date
+                            else None
+                        ),
+                        "previous_document_date": (
+                            document.document_date.isoformat()
+                            if document.document_date
+                            else None
+                        ),
+                    },
+                ).execute()
+                _schedule_search_index_rebuild(document)
+                continue
+
+            UpdateDocumentCoreMetadata(
+                document=document,
+                title=document.title,
+                document_date=document.document_date,
+                space=self.target_space,
+                actor=self.actor,
+            ).execute()
+
+    def _delete_documents(self, documents: list[Document]) -> None:
+        for document in documents:
+            DeleteDocument(
+                document=document,
+                reason=self.delete_reason,
+                actor=self.actor,
+            ).execute()
 
 
 @dataclass(frozen=True)

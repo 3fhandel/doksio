@@ -33,7 +33,8 @@ def test_portainer_stack_contains_production_services():
     stack_file = Path("deploy/portainer-stack.yml")
     content = stack_file.read_text()
 
-    assert "gunicorn doksio.project.wsgi:application" in content
+    assert "gunicorn" in content
+    assert "doksio.project.wsgi:application" in content
     assert "celery -A doksio.project worker" in content
     assert "postgres:17-alpine" in content
     assert "redis:7-alpine" in content

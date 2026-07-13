@@ -27,6 +27,7 @@
             <th>Pfad</th>
             <th>Name</th>
             <th>Parent</th>
+            <th>Dokumente</th>
             <th>Status</th>
             <th class="text-end">Aktion</th>
           </tr>
@@ -37,6 +38,7 @@
               <td class="hash-value">{{ box.path }}</td>
               <td>{{ box.name }}</td>
               <td>{% if box.parent %}{{ box.parent.path }}{% else %}Root{% endif %}</td>
+              <td>{{ box.document_count }}</td>
               <td>
                 {% if box.is_active %}
                   <span class="badge text-bg-success">Aktiv</span>
@@ -45,14 +47,19 @@
                 {% endif %}
               </td>
               <td class="text-end">
-                <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:settings_document_box_edit' tenant.slug box.id %}">
-                  Bearbeiten
-                </a>
+                <div class="btn-group btn-group-sm">
+                  <a class="btn btn-outline-primary" href="{% url 'documents:settings_document_box_edit' tenant.slug box.id %}">
+                    Bearbeiten
+                  </a>
+                  <a class="btn btn-outline-danger" href="{% url 'documents:settings_document_box_delete' tenant.slug box.id %}">
+                    Löschen
+                  </a>
+                </div>
               </td>
             </tr>
           {% empty %}
             <tr>
-              <td colspan="5" class="text-secondary">Keine Dokumentenboxen vorhanden.</td>
+              <td colspan="6" class="text-secondary">Keine Dokumentenboxen vorhanden.</td>
             </tr>
           {% endfor %}
         </tbody>

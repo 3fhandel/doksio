@@ -88,6 +88,11 @@ urlpatterns = [
         name="settings_document_box_edit",
     ),
     path(
+        "t/<slug:tenant_slug>/settings/document-boxes/<int:box_id>/delete/",
+        views.tenant_settings_document_box_delete,
+        name="settings_document_box_delete",
+    ),
+    path(
         "t/<slug:tenant_slug>/settings/document-boxes/<int:box_id>/metadata-fields/new/",
         views.tenant_settings_metadata_field_create,
         name="settings_metadata_field_create",

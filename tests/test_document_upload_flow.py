@@ -2323,6 +2323,144 @@ def test_tenant_admin_can_update_document_box_from_settings(client):
 
 
 @pytest.mark.django_db
+def test_tenant_admin_can_delete_document_box_and_move_documents(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    source = CreateDocumentSpace(
+        tenant=tenant,
+        name="Rechnungen",
+        slug="rechnungen",
+    ).execute()
+    child = CreateDocumentSpace(
+        tenant=tenant,
+        parent=source,
+        name="Archiv",
+        slug="archiv",
+    ).execute()
+    target = CreateDocumentSpace(
+        tenant=tenant,
+        name="Zielbox",
+        slug="zielbox",
+    ).execute()
+    similar_prefix = CreateDocumentSpace(
+        tenant=tenant,
+        name="Rechnungen Alt",
+        slug="rechnungen-alt",
+    ).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    client.force_login(user)
+    document, _document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Invoice 4711",
+        space=child,
+        file_obj=BytesIO(b"invoice content"),
+        original_filename="invoice.pdf",
+        content_type="application/pdf",
+        created_by=user,
+        auto_start_ocr=False,
+    ).execute()
+
+    response = client.post(
+        reverse(
+            "documents:settings_document_box_delete",
+            kwargs={"tenant_slug": tenant.slug, "box_id": source.id},
+        ),
+        {
+            "strategy": "move",
+            "target_space": str(target.id),
+            "delete_reason": "",
+        },
+    )
+
+    source.refresh_from_db()
+    child.refresh_from_db()
+    target.refresh_from_db()
+    similar_prefix.refresh_from_db()
+    document.refresh_from_db()
+    assert response.status_code == 302
+    assert source.deleted_at is not None
+    assert child.deleted_at is not None
+    assert source.is_active is False
+    assert child.is_active is False
+    assert document.space == target
+    assert document.status == Document.Status.ACTIVE
+    assert target.deleted_at is None
+    assert similar_prefix.deleted_at is None
+    assert AuditEvent.objects.filter(event_type="document_space.deleted").exists()
+
+    list_response = client.get(
+        reverse(
+            "documents:settings_document_boxes",
+            kwargs={"tenant_slug": tenant.slug},
+        )
+    )
+    content = list_response.content.decode()
+    assert "/rechnungen</td>" not in content
+    assert "/zielbox" in content
+
+
+@pytest.mark.django_db
+def test_tenant_admin_can_delete_document_box_and_delete_documents(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    source = CreateDocumentSpace(
+        tenant=tenant,
+        name="Rechnungen",
+        slug="rechnungen",
+    ).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    client.force_login(user)
+    document, _document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Invoice 4711",
+        space=source,
+        file_obj=BytesIO(b"invoice content"),
+        original_filename="invoice.pdf",
+        content_type="application/pdf",
+        created_by=user,
+        auto_start_ocr=False,
+    ).execute()
+
+    response = client.post(
+        reverse(
+            "documents:settings_document_box_delete",
+            kwargs={"tenant_slug": tenant.slug, "box_id": source.id},
+        ),
+        {
+            "strategy": "delete_documents",
+            "target_space": "",
+            "delete_reason": "Falsche Dokumentenbox",
+        },
+    )
+
+    source.refresh_from_db()
+    document.refresh_from_db()
+    assert response.status_code == 302
+    assert source.deleted_at is not None
+    assert source.is_active is False
+    assert document.status == Document.Status.DELETED
+    assert document.deleted_reason == "Falsche Dokumentenbox"
+    assert AuditEvent.objects.filter(event_type="document.deleted").exists()
+    assert AuditEvent.objects.filter(event_type="document_space.deleted").exists()
+
+
+@pytest.mark.django_db
 def test_tenant_member_cannot_access_document_box_settings(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()

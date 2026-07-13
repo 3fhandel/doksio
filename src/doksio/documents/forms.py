@@ -142,6 +142,7 @@ class DocumentSpaceForm(forms.Form):
         self.fields["parent"].queryset = DocumentSpace.objects.filter(
             tenant=tenant,
             is_active=True,
+            deleted_at__isnull=True,
         ).order_by("path")
 
     name = forms.CharField(
@@ -225,6 +226,65 @@ class DocumentSpaceUpdateForm(DocumentSpaceForm):
         if duplicate_exists:
             raise forms.ValidationError("Diese Dokumentenbox existiert bereits.")
         cleaned_data["slug"] = slug
+        return cleaned_data
+
+
+class DocumentSpaceDeleteForm(forms.Form):
+    class Strategy:
+        MOVE = "move"
+        DELETE_DOCUMENTS = "delete_documents"
+
+    strategy = forms.ChoiceField(
+        label="Umgang mit Dokumenten",
+        choices=[
+            (Strategy.MOVE, "Dokumente in eine andere Box verschieben"),
+            (Strategy.DELETE_DOCUMENTS, "Dokumente mitlöschen"),
+        ],
+        widget=forms.RadioSelect(attrs={"class": "form-check-input"}),
+    )
+    target_space = forms.ModelChoiceField(
+        label="Zielbox",
+        queryset=DocumentSpace.objects.none(),
+        required=False,
+        empty_label="Bitte wählen",
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    delete_reason = forms.ChoiceField(
+        label="Löschgrund für Dokumente",
+        choices=DOCUMENT_DELETE_REASON_CHOICES,
+        required=False,
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+
+    def __init__(
+        self,
+        *args,
+        tenant: Tenant,
+        document_space: DocumentSpace,
+        **kwargs,
+    ) -> None:
+        self.document_space = document_space
+        super().__init__(*args, **kwargs)
+        self.fields["target_space"].queryset = (
+            DocumentSpace.objects.filter(
+                tenant=tenant,
+                is_active=True,
+                deleted_at__isnull=True,
+            )
+            .exclude(id=document_space.id)
+            .exclude(path__startswith=f"{document_space.path.rstrip('/')}/")
+            .order_by("path")
+        )
+
+    def clean(self) -> dict:
+        cleaned_data = super().clean()
+        strategy = cleaned_data.get("strategy")
+        target_space = cleaned_data.get("target_space")
+        delete_reason = cleaned_data.get("delete_reason")
+        if strategy == self.Strategy.MOVE and target_space is None:
+            self.add_error("target_space", "Bitte eine Zielbox wählen.")
+        if strategy == self.Strategy.DELETE_DOCUMENTS and not delete_reason:
+            self.add_error("delete_reason", "Bitte einen Löschgrund wählen.")
         return cleaned_data
 
 

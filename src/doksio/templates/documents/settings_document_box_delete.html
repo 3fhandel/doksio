@@ -1,0 +1,79 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h2 class="h4 mb-1">Dokumentenbox löschen</h2>
+      <p class="text-secondary mb-0">{{ document_space.path }}</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{% url 'documents:settings_document_boxes' tenant.slug %}">
+      Zurück
+    </a>
+  </div>
+
+  <div class="alert alert-warning" role="alert">
+    Diese Aktion entfernt die Dokumentenbox aus der aktiven Konfiguration. Betroffen sind
+    {{ subtree_spaces|length }} Box{% if subtree_spaces|length != 1 %}en{% endif %}
+    und {{ document_count }} Dokument{% if document_count != 1 %}e{% endif %}.
+  </div>
+
+  <div class="app-card p-4">
+    <form method="post">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+      {% endif %}
+
+      <div class="mb-4">
+        <div class="metadata-label mb-2">Betroffener Box-Zweig</div>
+        <div class="document-condensed-list">
+          {% for space in subtree_spaces %}
+            <div class="document-condensed-row">
+              <span class="hash-value">{{ space.path }}</span>
+              <span class="text-secondary small">{{ space.name }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <label class="form-label d-block">{{ form.strategy.label }}</label>
+        {% for choice in form.strategy %}
+          <div class="form-check mb-2">
+            {{ choice.tag }}
+            <label class="form-check-label" for="{{ choice.id_for_label }}">
+              {{ choice.choice_label }}
+            </label>
+          </div>
+        {% endfor %}
+        {{ form.strategy.errors }}
+      </div>
+
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.target_space.id_for_label }}">Zielbox beim Verschieben</label>
+          {{ form.target_space }}
+          <div class="form-text">
+            Die Zielbox darf nicht im zu löschenden Box-Zweig liegen.
+          </div>
+          {{ form.target_space.errors }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.delete_reason.id_for_label }}">Löschgrund beim Mitlöschen</label>
+          {{ form.delete_reason }}
+          <div class="form-text">
+            {{ active_document_count }} aktive Dokument{% if active_document_count != 1 %}e{% endif %} würden gelöscht.
+          </div>
+          {{ form.delete_reason.errors }}
+        </div>
+      </div>
+
+      <div class="d-flex justify-content-end gap-2 mt-4">
+        <a class="btn btn-outline-secondary" href="{% url 'documents:settings_document_boxes' tenant.slug %}">
+          Abbrechen
+        </a>
+        <button class="btn btn-danger" type="submit">Dokumentenbox löschen</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

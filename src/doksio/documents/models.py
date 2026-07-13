@@ -38,6 +38,15 @@ class DocumentSpace(models.Model):
     )
     review_assist_enabled = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    deleted_at = models.DateTimeField(blank=True, null=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="deleted_document_spaces",
+    )
+    deleted_strategy = models.CharField(max_length=30, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

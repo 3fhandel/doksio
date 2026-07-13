@@ -3,9 +3,16 @@
 {% block settings_content %}
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h2 class="h4 mb-0">{{ form_title }}</h2>
-    <a class="btn btn-outline-secondary" href="{% url 'documents:settings_document_boxes' tenant.slug %}">
-      Zurück
-    </a>
+    <div class="d-flex gap-2">
+      {% if document_space %}
+        <a class="btn btn-outline-danger" href="{% url 'documents:settings_document_box_delete' tenant.slug document_space.id %}">
+          Löschen
+        </a>
+      {% endif %}
+      <a class="btn btn-outline-secondary" href="{% url 'documents:settings_document_boxes' tenant.slug %}">
+        Zurück
+      </a>
+    </div>
   </div>
 
   <div class="app-card p-4">
