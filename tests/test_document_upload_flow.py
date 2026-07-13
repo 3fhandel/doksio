@@ -29,7 +29,7 @@ from doksio.documents.services import (
     UpdateDocumentMetadata,
 )
 from doksio.einvoices.zugferd import extract_einvoice_from_pdf
-from doksio.ingestion.models import ImportSource
+from doksio.ingestion.models import ImportSource, TenantSmtpSettings
 from doksio.ocr.models import OcrJob
 from doksio.tenancy.models import Tenant
 from doksio.tenancy.services import BootstrapDemoTenant
@@ -690,6 +690,90 @@ def test_document_detail_renders_pdf_preview(client):
         )
         in content
     )
+    assert "Teilen" in content
+    assert "Link kopieren" in content
+    assert "Mail mit Link" in content
+    assert response.context["document_share_url"].endswith(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        )
+    )
+    assert "back=" not in response.context["document_share_url"]
+    assert "mailto:?subject=" in content
+
+
+@pytest.mark.django_db
+def test_document_detail_can_send_original_file_as_email_attachment(
+    client,
+    monkeypatch,
+):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    TenantSmtpSettings.objects.create(
+        tenant=tenant,
+        host="smtp.example.test",
+        port=587,
+        security=TenantSmtpSettings.Security.STARTTLS,
+        username="doksio@example.test",
+        password="secret",
+        from_email="doksio@example.test",
+        from_name="Doksio",
+        is_active=True,
+    )
+    document, _document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Invoice 4711",
+        space=space,
+        file_obj=BytesIO(b"invoice content"),
+        original_filename="invoice.pdf",
+        content_type="application/pdf",
+    ).execute()
+    sent_messages = []
+
+    def fake_send(email_message):
+        sent_messages.append(email_message)
+        return 1
+
+    monkeypatch.setattr("doksio.documents.views.EmailMessage.send", fake_send)
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        ),
+        {
+            "action": "share_attachment_email",
+            "recipient": "kunde@example.test",
+            "message": "Bitte prüfen.",
+        },
+    )
+
+    assert response.status_code == 302
+    assert len(sent_messages) == 1
+    email_message = sent_messages[0]
+    assert email_message.to == ["kunde@example.test"]
+    assert email_message.subject == "Doksio Dokument: Invoice 4711"
+    assert "Bitte prüfen." in email_message.body
+    assert "Dokument in Doksio:" in email_message.body
+    assert email_message.attachments[0][0] == "invoice.pdf"
+    assert email_message.attachments[0][1] == b"invoice content"
+    assert email_message.attachments[0][2] == "application/pdf"
+    assert AuditEvent.objects.filter(
+        event_type="document.shared",
+        object_id=str(document.id),
+    ).exists()
 
 
 @pytest.mark.django_db

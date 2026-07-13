@@ -50,6 +50,13 @@ body {
   color: #47615d !important;
 }
 
+.app-build-version {
+  color: #6b817d;
+  font-size: 0.72rem;
+  line-height: 1;
+  opacity: 0.78;
+}
+
 .app-topbar .btn-outline-secondary {
   --bs-btn-bg: rgb(255 255 255 / 58%);
   --bs-btn-border-color: #b4d4ce;

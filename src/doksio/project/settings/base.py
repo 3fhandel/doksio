@@ -42,6 +42,7 @@ DOKSIO_PUBLIC_BASE_URL = os.getenv(
     "DOKSIO_PUBLIC_BASE_URL",
     "http://localhost:8000",
 )
+DOKSIO_BUILD_VERSION = os.getenv("DOKSIO_BUILD_VERSION", "")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -89,6 +90,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "doksio.project.context_processors.doksio_version",
                 "doksio.accounts.context_processors.user_profile",
             ],
         },

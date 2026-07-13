@@ -20,6 +20,9 @@ Doksio deployment.
 4. Put a reverse proxy in front of `web` and point it at port `8000`.
 5. Set `DOKSIO_PUBLIC_BASE_URL`, `DJANGO_ALLOWED_HOSTS` and
    `DJANGO_CSRF_TRUSTED_ORIGINS` to the real public URL.
+6. Deploy or update the stack. The Docker build writes the last Git commit
+   timestamp into the image automatically, so the top bar shows the deployed
+   build without an extra Portainer variable.
 
 ## Notes
 

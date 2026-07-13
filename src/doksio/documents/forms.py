@@ -135,6 +135,18 @@ class DocumentDeleteForm(forms.Form):
     )
 
 
+class DocumentShareAttachmentForm(forms.Form):
+    recipient = forms.EmailField(
+        label="Empfänger",
+        widget=forms.EmailInput(attrs={"class": "form-control"}),
+    )
+    message = forms.CharField(
+        label="Nachricht",
+        required=False,
+        widget=forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+    )
+
+
 class DocumentSpaceForm(forms.Form):
     def __init__(self, *args, tenant: Tenant, **kwargs) -> None:
         self.tenant = tenant

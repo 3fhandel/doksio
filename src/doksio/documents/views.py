@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import shlex
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.files.storage import default_storage
+from django.core.mail import EmailMessage, get_connection
 from django.db.models import Count, Q
 from django.http import FileResponse, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -27,10 +28,12 @@ from doksio.accounts.services import (
     UpdateTenantRole,
 )
 from doksio.audit.models import AuditEvent
+from doksio.audit.services import RecordAuditEvent
 from doksio.documents.forms import (
     DocumentCommentForm,
     DocumentCoreMetadataForm,
     DocumentDeleteForm,
+    DocumentShareAttachmentForm,
     DocumentSpaceDeleteForm,
     DocumentMetadataFieldForm,
     DocumentMetadataForm,
@@ -100,6 +103,7 @@ DOCUMENT_LOG_EVENT_LABELS = {
     "document_space.deleted": "Dokumentenbox gelöscht",
     "document_tags.updated": "Tags aktualisiert",
     "document.deleted": "Dokument gelöscht",
+    "document.shared": "Dokument geteilt",
     "document.exported": "Dokument exportiert",
     "export_run.created": "Exportlauf erzeugt",
     "export_run.downloaded": "Export heruntergeladen",
@@ -578,6 +582,80 @@ def _document_preview(document: Document) -> tuple[DocumentFile | None, str]:
     return None, ""
 
 
+def _document_original_file(document: Document) -> DocumentFile | None:
+    return (
+        document.files.filter(file_kind=DocumentFile.Kind.ORIGINAL)
+        .order_by("-version", "-created_at", "-id")
+        .first()
+    )
+
+
+def _smtp_from_email(smtp_settings: TenantSmtpSettings) -> str:
+    from_email = smtp_settings.from_email or smtp_settings.username
+    if smtp_settings.from_name and from_email:
+        return f"{smtp_settings.from_name} <{from_email}>"
+    return from_email
+
+
+def _smtp_connection(smtp_settings: TenantSmtpSettings):
+    return get_connection(
+        host=smtp_settings.host,
+        port=smtp_settings.port,
+        username=smtp_settings.username or None,
+        password=smtp_settings.password or None,
+        use_tls=smtp_settings.security == TenantSmtpSettings.Security.STARTTLS,
+        use_ssl=smtp_settings.security == TenantSmtpSettings.Security.SSL,
+    )
+
+
+def _send_document_attachment_email(
+    *,
+    document: Document,
+    document_file: DocumentFile,
+    smtp_settings: TenantSmtpSettings,
+    recipient: str,
+    message: str,
+    document_url: str,
+    actor,
+) -> None:
+    body_parts = []
+    if message.strip():
+        body_parts.append(message.strip())
+    body_parts.append(f"Dokument in Doksio: {document_url}")
+    body = "\n\n".join(body_parts)
+
+    with default_storage.open(document_file.storage_key, "rb") as stored_file:
+        attachment_content = stored_file.read()
+
+    email = EmailMessage(
+        subject=f"Doksio Dokument: {document.title}",
+        body=body,
+        from_email=_smtp_from_email(smtp_settings),
+        to=[recipient],
+        connection=_smtp_connection(smtp_settings),
+    )
+    email.attach(
+        document_file.original_filename,
+        attachment_content,
+        document_file.content_type,
+    )
+    email.send()
+
+    RecordAuditEvent(
+        tenant=document.tenant,
+        actor=actor,
+        event_type="document.shared",
+        object_type="documents.Document",
+        object_id=str(document.id),
+        data={
+            "document_id": document.id,
+            "document_file_id": document_file.id,
+            "mode": "email_attachment",
+            "recipient": recipient,
+        },
+    ).execute()
+
+
 def dashboard_redirect(request: HttpRequest) -> HttpResponse:
     if not request.user.is_authenticated:
         return _system_login_redirect(request)
@@ -1017,6 +1095,7 @@ def document_detail(
         metadata_fields=metadata_fields,
         metadata=document.metadata,
     )
+    share_attachment_form = DocumentShareAttachmentForm()
     tag_form = DocumentTagForm(
         tenant=tenant,
         initial={
@@ -1027,6 +1106,20 @@ def document_detail(
     )
     start_workflow_form = StartWorkflowForm(tenant=tenant)
     complete_workflow_task_form = CompleteWorkflowTaskForm()
+    share_attachment_modal_open = False
+    document_share_url = request.build_absolute_uri(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        )
+    )
+    share_mail_subject = f"Doksio Dokument: {document.title}"
+    share_mail_body = f"Link zum Dokument:\n{document_share_url}"
+    share_mailto_url = (
+        "mailto:"
+        f"?subject={quote(share_mail_subject)}"
+        f"&body={quote(share_mail_body)}"
+    )
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -1122,6 +1215,40 @@ def document_detail(
                 ).execute()
                 messages.success(request, "Workflow-Aufgabe wurde erledigt.")
                 return redirect(request.get_full_path())
+        elif action == "share_attachment_email":
+            share_attachment_form = DocumentShareAttachmentForm(request.POST)
+            if share_attachment_form.is_valid():
+                document_file = _document_original_file(document)
+                if document_file is None:
+                    messages.error(request, "Dieses Dokument hat keine Originaldatei.")
+                    return redirect(request.get_full_path())
+                if not can_download_document_file(request.user, document_file):
+                    raise PermissionDenied
+
+                smtp_settings = TenantSmtpSettings.objects.filter(
+                    tenant=tenant,
+                    is_active=True,
+                ).first()
+                if smtp_settings is None:
+                    messages.error(
+                        request,
+                        "Für diesen Mandanten sind keine aktiven "
+                        "SMTP-Einstellungen hinterlegt.",
+                    )
+                    return redirect(request.get_full_path())
+
+                _send_document_attachment_email(
+                    document=document,
+                    document_file=document_file,
+                    smtp_settings=smtp_settings,
+                    recipient=share_attachment_form.cleaned_data["recipient"],
+                    message=share_attachment_form.cleaned_data["message"],
+                    document_url=document_share_url,
+                    actor=request.user,
+                )
+                messages.success(request, "Dokument wurde per E-Mail gesendet.")
+                return redirect(request.get_full_path())
+            share_attachment_modal_open = True
 
     preview_file, preview_kind = _document_preview(document)
     preview_ocr_job = preview_file.latest_ocr_job if preview_file is not None else None
@@ -1150,6 +1277,12 @@ def document_detail(
         trigger_type=WorkflowTemplate.TriggerType.MANUAL,
     ).exists()
     comments = list(document.comments.all())
+    share_attachment_file = _document_original_file(document)
+    share_can_send_attachment = (
+        share_attachment_file is not None
+        and can_download_document_file(request.user, share_attachment_file)
+        and TenantSmtpSettings.objects.filter(tenant=tenant, is_active=True).exists()
+    )
 
     return render(
         request,
@@ -1164,6 +1297,12 @@ def document_detail(
             "preview_ocr_job": preview_ocr_job,
             "comment_form": comment_form,
             "metadata_form": metadata_form,
+            "share_attachment_form": share_attachment_form,
+            "share_attachment_file": share_attachment_file,
+            "share_can_send_attachment": share_can_send_attachment,
+            "share_attachment_modal_open": share_attachment_modal_open,
+            "document_share_url": document_share_url,
+            "share_mailto_url": share_mailto_url,
             "tag_form": tag_form,
             "start_workflow_form": start_workflow_form,
             "complete_workflow_task_form": complete_workflow_task_form,

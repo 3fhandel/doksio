@@ -24,6 +24,29 @@
           <div class="text-secondary">{{ document.space.path }} · {{ document.tenant.name }}</div>
         </div>
         <div class="d-flex align-items-center flex-wrap justify-content-end gap-2">
+          <div class="dropdown">
+            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+              Teilen
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li>
+                <button class="dropdown-item" type="button" data-copy-document-link data-document-share-url="{{ document_share_url }}">
+                  Link kopieren
+                </button>
+              </li>
+              <li>
+                <a class="dropdown-item" href="{{ share_mailto_url }}">
+                  Mail mit Link
+                </a>
+              </li>
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <button class="dropdown-item{% if not share_can_send_attachment %} disabled{% endif %}" type="button" data-bs-toggle="modal" data-bs-target="#documentShareAttachmentModal"{% if not share_can_send_attachment %} aria-disabled="true" disabled{% endif %}>
+                  Mail mit Anhang
+                </button>
+              </li>
+            </ul>
+          </div>
           {% if document_nav_current and document_nav_total %}
             <span class="text-secondary small">
               Dokument {{ document_nav_current }} von {{ document_nav_total }}
@@ -537,6 +560,45 @@
         </div>
       </section>
     </div>
+
+    <div class="modal fade" id="documentShareAttachmentModal" tabindex="-1" aria-labelledby="documentShareAttachmentModalLabel" aria-hidden="true">
+      <div class="modal-dialog">
+        <form class="modal-content" method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="share_attachment_email">
+          <div class="modal-header">
+            <h2 class="modal-title h5" id="documentShareAttachmentModalLabel">Dokument per E-Mail senden</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+          </div>
+          <div class="modal-body">
+            {% if share_attachment_file %}
+              <div class="alert alert-light border small">
+                Anhang: {{ share_attachment_file.original_filename }} · {{ share_attachment_file.byte_size|filesizeformat }}
+              </div>
+            {% endif %}
+            {% if not share_can_send_attachment %}
+              <div class="alert alert-warning">
+                Für den Versand mit Anhang müssen aktive SMTP-Einstellungen vorhanden sein und du brauchst Download-Berechtigung für die Originaldatei.
+              </div>
+            {% endif %}
+            <div class="mb-3">
+              <label class="form-label" for="{{ share_attachment_form.recipient.id_for_label }}">Empfänger</label>
+              {{ share_attachment_form.recipient }}
+              {{ share_attachment_form.recipient.errors }}
+            </div>
+            <div>
+              <label class="form-label" for="{{ share_attachment_form.message.id_for_label }}">Nachricht</label>
+              {{ share_attachment_form.message }}
+              {{ share_attachment_form.message.errors }}
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+            <button class="btn btn-primary" type="submit"{% if not share_can_send_attachment %} disabled{% endif %}>Senden</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </main>
 {% endblock %}
 
@@ -550,4 +612,29 @@
   {% elif preview_kind == "image" %}
     <script src="{% static 'js/document-preview.js' %}?v=10"></script>
   {% endif %}
+  <script>
+    document.querySelectorAll("[data-copy-document-link]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const shareUrl = button.getAttribute("data-document-share-url");
+        if (!shareUrl) {
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(shareUrl);
+          button.textContent = "Link kopiert";
+          window.setTimeout(() => {
+            button.textContent = "Link kopieren";
+          }, 1600);
+        } catch {
+          window.prompt("Link zum Dokument", shareUrl);
+        }
+      });
+    });
+    {% if share_attachment_modal_open %}
+      const shareAttachmentModal = document.getElementById("documentShareAttachmentModal");
+      if (shareAttachmentModal && window.bootstrap) {
+        window.bootstrap.Modal.getOrCreateInstance(shareAttachmentModal).show();
+      }
+    {% endif %}
+  </script>
 {% endblock %}

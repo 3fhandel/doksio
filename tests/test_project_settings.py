@@ -8,6 +8,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
 from doksio.project.url_helpers import build_public_url
+from doksio.project.version import build_version
 
 
 def test_upload_limits_are_sized_for_document_uploads():
@@ -40,3 +41,25 @@ def test_portainer_stack_contains_production_services():
     assert "redis:7-alpine" in content
     assert "minio/minio" in content
     assert "minio-init" in content
+
+
+def test_build_version_uses_environment_value(monkeypatch):
+    build_version.cache_clear()
+    monkeypatch.setenv("DOKSIO_BUILD_VERSION", "20260713-1336")
+
+    assert build_version() == "20260713-1336"
+
+    build_version.cache_clear()
+
+
+@override_settings(DOKSIO_BUILD_VERSION="")
+def test_build_version_uses_build_metadata_file(tmp_path, monkeypatch):
+    build_version.cache_clear()
+    monkeypatch.delenv("DOKSIO_BUILD_VERSION", raising=False)
+    metadata_file = tmp_path / ".doksio-build-version"
+    metadata_file.write_text("20260713-1404\n", encoding="utf-8")
+
+    with override_settings(BASE_DIR=tmp_path):
+        assert build_version() == "20260713-1404"
+
+    build_version.cache_clear()
