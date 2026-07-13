@@ -9,6 +9,7 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
+from doksio.documents.services import DuplicateDocumentError
 from doksio.ingestion.models import ImportSource
 from doksio.ingestion.services import ImportDocument, ResolveImportDocumentSpace
 from doksio.tenancy.models import Tenant
@@ -213,6 +214,17 @@ def http_import(request: HttpRequest, tenant_slug: str, source_id: int) -> JsonR
                 "remote_addr": request.META.get("REMOTE_ADDR", ""),
             },
         ).execute()
+    except DuplicateDocumentError as exc:
+        return JsonResponse(
+            {
+                "error": str(exc),
+                "code": "duplicate_document",
+                "duplicate": True,
+                "existing_document_id": exc.existing_document.id,
+                "existing_document_title": exc.existing_document.title,
+            },
+            status=409,
+        )
     except Exception as exc:
         return JsonResponse({"error": str(exc)}, status=400)
 

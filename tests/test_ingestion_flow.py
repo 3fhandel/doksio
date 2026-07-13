@@ -168,6 +168,51 @@ def test_folder_import_source_can_upload_through_api_endpoint(client):
 
 
 @pytest.mark.django_db
+def test_http_import_endpoint_returns_conflict_for_duplicate_document(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="API Eingang",
+        source_type=ImportSource.SourceType.HTTP_API,
+        token="secret-token",
+        auto_start_ocr=False,
+        extract_einvoice=False,
+        start_workflows=False,
+    )
+    url = reverse(
+        "ingestion:http_import",
+        kwargs={"tenant_slug": tenant.slug, "source_id": source.id},
+    )
+    headers = {
+        "X-Doksio-Import-Token": "secret-token",
+        "X-Doksio-Filename": "rechnung.pdf",
+    }
+
+    first_response = client.put(
+        url,
+        data=MINIMAL_PDF_BYTES,
+        content_type="application/pdf",
+        headers=headers,
+    )
+    second_response = client.put(
+        url,
+        data=MINIMAL_PDF_BYTES,
+        content_type="application/pdf",
+        headers={**headers, "X-Doksio-Filename": "rechnung-kopie.pdf"},
+    )
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 409
+    assert second_response.json()["code"] == "duplicate_document"
+    assert second_response.json()["duplicate"] is True
+    assert second_response.json()["existing_document_id"] == Document.objects.get().id
+    assert Document.objects.count() == 1
+    assert ImportJob.objects.filter(status=ImportJob.Status.FAILED).count() == 1
+
+
+@pytest.mark.django_db
 def test_http_import_endpoint_generates_filename_when_header_is_missing(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
@@ -902,14 +947,20 @@ def test_tenant_admin_can_download_folder_import_script(client):
     assert response["Content-Disposition"].endswith('.sh"')
     assert "X-Doksio-Import-Token: $IMPORT_TOKEN" in content
     assert "SOURCE_DIR=/imports/scans" in content
-    assert 'LOG_FILE="${DOKSIO_IMPORT_LOG:-$SOURCE_DIR/doksio-folder-import.log}"' in content
+    assert (
+        'LOG_FILE="${DOKSIO_IMPORT_LOG:-$SOURCE_DIR/doksio-folder-import.log}"'
+        in content
+    )
     assert "log INFO \"Doksio Ordner-Agent gestartet: $SOURCE_DIR\"" in content
     assert 'should_skip_file "$file" && continue' in content
     assert 'path_in_dir "$file" "$ARCHIVE_DIR"' in content
     assert 'path_in_dir "$file" "$ERROR_DIR"' in content
     assert "API_URL=https://doksio.example.test" in content
     assert "http://testserver" not in content
-    assert "curl --fail" in content
+    assert "curl --silent --show-error" in content
+    assert '--write-out "%{http_code}"' in content
+    assert 'elif [[ "$http_status" == "409" ]]; then' in content
+    assert "Dublette aus Quellordner gelöscht" in content
 
 
 @pytest.mark.django_db
@@ -966,11 +1017,20 @@ def test_tenant_admin_can_download_windows_folder_import_script(client):
     assert "$Recursive = $true" in content
     assert "$LogFile = if ($env:DOKSIO_IMPORT_LOG)" in content
     assert "function Test-DoksioSkippedFile" in content
-    assert "Test-DoksioPathInDirectory -Path $File.FullName -Directory $ArchiveDir" in content
+    assert (
+        "Test-DoksioPathInDirectory -Path $File.FullName -Directory $ArchiveDir"
+        in content
+    )
     assert "if (Test-DoksioSkippedFile -File $File) { continue }" in content
-    assert "Write-DoksioLog \"INFO\" \"Doksio Ordner-Agent gestartet: $SourceDir\"" in content
+    assert (
+        "Write-DoksioLog \"INFO\" "
+        "\"Doksio Ordner-Agent gestartet: $SourceDir\""
+        in content
+    )
     assert "Invoke-WebRequest" in content
     assert '"X-Doksio-Import-Token" = $ImportToken' in content
+    assert "$StatusCode -eq 409" in content
+    assert "Dublette aus Quellordner gelöscht" in content
     assert "https://doksio.example.test" in content
     assert "http://testserver" not in content
 

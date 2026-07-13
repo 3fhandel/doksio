@@ -188,7 +188,8 @@ touch "$LOG_FILE"
 log() {{
   local level="$1"
   shift
-  printf '%s [%s] %s\\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$*" | tee -a "$LOG_FILE"
+  printf '%s [%s] %s\\n' \\
+    "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$*" | tee -a "$LOG_FILE"
 }}
 
 safe_move() {{
@@ -212,6 +213,35 @@ safe_move() {{
   fi
   mv "$source" "$target"
   log INFO "Datei verschoben: $source -> $target"
+}}
+
+handle_imported_file() {{
+  local file="$1"
+  local filename="$2"
+  local duplicate="${{3:-0}}"
+
+  if [[ "$duplicate" == "1" ]]; then
+    if [[ -n "$ARCHIVE_DIR" ]]; then
+      safe_move "$file" "$ARCHIVE_DIR" "$filename"
+    else
+      rm -f "$file"
+      log INFO "Dublette aus Quellordner gelöscht: $file"
+    fi
+    return 0
+  fi
+
+  case "$AFTER_IMPORT" in
+    archive)
+      safe_move "$file" "$ARCHIVE_DIR" "$filename"
+      ;;
+    delete)
+      rm -f "$file"
+      log INFO "Datei gelöscht: $file"
+      ;;
+    keep)
+      log INFO "Datei bleibt im Quellordner: $file"
+      ;;
+  esac
 }}
 
 path_in_dir() {{
@@ -246,26 +276,29 @@ process_file() {{
 
   local response_file
   response_file="$(mktemp)"
-  if curl --fail --silent --show-error \\
+  local http_status
+  if http_status="$(curl --silent --show-error \\
+    --output "$response_file" \\
+    --write-out "%{{http_code}}" \\
     --request PUT \\
     --header "X-Doksio-Import-Token: $IMPORT_TOKEN" \\
     --header "X-Doksio-Filename: $filename" \\
     --header "Content-Type: application/octet-stream" \\
     --data-binary "@$file" \\
-    "$API_URL" > "$response_file"; then
-    log INFO "Import erfolgreich: $file $(tr -d '\\n' < "$response_file")"
-    case "$AFTER_IMPORT" in
-      archive)
-        safe_move "$file" "$ARCHIVE_DIR" "$filename"
-        ;;
-      delete)
-        rm -f "$file"
-        log INFO "Datei gelöscht: $file"
-        ;;
-      keep)
-        log INFO "Datei bleibt im Quellordner: $file"
-        ;;
-    esac
+    "$API_URL")"; then
+    if [[ "$http_status" =~ ^2 ]]; then
+      log INFO "Import erfolgreich: $file $(tr -d '\\n' < "$response_file")"
+      handle_imported_file "$file" "$filename" "0"
+    elif [[ "$http_status" == "409" ]]; then
+      log INFO "Dublette erkannt: $file $(tr -d '\\n' < "$response_file")"
+      handle_imported_file "$file" "$filename" "1"
+    else
+      log ERROR \\
+        "Import fehlgeschlagen ($http_status): $file $(tr -d '\\n' < "$response_file")"
+      if [[ -n "$ERROR_DIR" ]]; then
+        safe_move "$file" "$ERROR_DIR" "$filename"
+      fi
+    fi
   else
     log ERROR "Import fehlgeschlagen: $file $(tr -d '\\n' < "$response_file")"
     if [[ -n "$ERROR_DIR" ]]; then
@@ -314,7 +347,11 @@ $ArchiveDir = {_powershell_quote(folder.get("archive_path", ""))}
 $ErrorDir = {_powershell_quote(folder.get("error_path", ""))}
 $ApiUrl = {_powershell_quote(api_url)}
 $ImportToken = {_powershell_quote(import_source.token)}
-$LogFile = if ($env:DOKSIO_IMPORT_LOG) {{ $env:DOKSIO_IMPORT_LOG }} else {{ Join-Path $SourceDir "doksio-folder-import.log" }}
+$LogFile = if ($env:DOKSIO_IMPORT_LOG) {{
+    $env:DOKSIO_IMPORT_LOG
+}} else {{
+    Join-Path $SourceDir "doksio-folder-import.log"
+}}
 
 if (-not $SourceDir -or -not (Test-Path -LiteralPath $SourceDir -PathType Container)) {{
     Write-Error "Quellordner existiert nicht: $SourceDir"
@@ -341,11 +378,53 @@ function Move-DoksioFile {{
     if (Test-Path -LiteralPath $Target) {{
         $Stem = [System.IO.Path]::GetFileNameWithoutExtension($Filename)
         $Extension = [System.IO.Path]::GetExtension($Filename)
-        $Target = Join-Path $TargetDir "$Stem-$(Get-Date -Format 'yyyyMMddHHmmss')$Extension"
+        $Timestamp = Get-Date -Format 'yyyyMMddHHmmss'
+        $Target = Join-Path $TargetDir "$Stem-$Timestamp$Extension"
     }}
 
     Move-Item -LiteralPath $Source -Destination $Target -Force
     Write-DoksioLog "INFO" "Datei verschoben: $Source -> $Target"
+}}
+
+function Complete-DoksioImportedFile {{
+    param(
+        [System.IO.FileInfo] $File,
+        [string] $Filename,
+        [bool] $Duplicate = $false
+    )
+
+    if ($Duplicate) {{
+        if ($ArchiveDir) {{
+            Move-DoksioFile `
+                -Source $File.FullName `
+                -TargetDir $ArchiveDir `
+                -Filename $Filename
+        }} else {{
+            Remove-Item -LiteralPath $File.FullName -Force
+            Write-DoksioLog `
+                "INFO" `
+                "Dublette aus Quellordner gelöscht: $($File.FullName)"
+        }}
+        return
+    }}
+
+    switch ($AfterImport) {{
+        "archive" {{
+            Move-DoksioFile `
+                -Source $File.FullName `
+                -TargetDir $ArchiveDir `
+                -Filename $Filename
+        }}
+        "delete" {{
+            Remove-Item -LiteralPath $File.FullName -Force
+            Write-DoksioLog "INFO" "Datei gelöscht: $($File.FullName)"
+        }}
+        "keep" {{
+            Write-DoksioLog `
+                "INFO" `
+                "Datei bleibt im Quellordner: $($File.FullName)"
+        }}
+    }}
 }}
 
 function Test-DoksioPathInDirectory {{
@@ -353,7 +432,10 @@ function Test-DoksioPathInDirectory {{
     if (-not $Directory) {{ return $false }}
 
     $FullPath = [System.IO.Path]::GetFullPath($Path)
-    $TrimChars = @([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $TrimChars = @(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
     $FullDirectory = [System.IO.Path]::GetFullPath($Directory).TrimEnd($TrimChars)
     return $FullPath.StartsWith(
         $FullDirectory + [System.IO.Path]::DirectorySeparatorChar,
@@ -364,7 +446,9 @@ function Test-DoksioPathInDirectory {{
 function Test-DoksioSkippedFile {{
     param([System.IO.FileInfo] $File)
 
-    if ([System.IO.Path]::GetFullPath($File.FullName) -eq [System.IO.Path]::GetFullPath($LogFile)) {{
+    $FullFileName = [System.IO.Path]::GetFullPath($File.FullName)
+    $FullLogFile = [System.IO.Path]::GetFullPath($LogFile)
+    if ($FullFileName -eq $FullLogFile) {{
         return $true
     }}
     if (Test-DoksioPathInDirectory -Path $File.FullName -Directory $ArchiveDir) {{
@@ -394,26 +478,42 @@ function Invoke-DoksioImport {{
             -InFile $File.FullName `
             -UseBasicParsing
 
-        Write-DoksioLog "INFO" "Import erfolgreich: $($File.FullName) $($Response.Content)"
-        switch ($AfterImport) {{
-            "archive" {{ Move-DoksioFile -Source $File.FullName -TargetDir $ArchiveDir -Filename $Filename }}
-            "delete" {{
-                Remove-Item -LiteralPath $File.FullName -Force
-                Write-DoksioLog "INFO" "Datei gelöscht: $($File.FullName)"
-            }}
-            "keep" {{ Write-DoksioLog "INFO" "Datei bleibt im Quellordner: $($File.FullName)" }}
-        }}
+        Write-DoksioLog `
+            "INFO" `
+            "Import erfolgreich: $($File.FullName) $($Response.Content)"
+        Complete-DoksioImportedFile -File $File -Filename $Filename
     }} catch {{
-        Write-DoksioLog "ERROR" "Import fehlgeschlagen: $($File.FullName) $($_.Exception.Message)"
+        $StatusCode = $null
+        if ($_.Exception.Response) {{
+            $StatusCode = [int] $_.Exception.Response.StatusCode
+        }}
+        if ($StatusCode -eq 409) {{
+            Write-DoksioLog `
+                "INFO" `
+                "Dublette erkannt: $($File.FullName) $($_.Exception.Message)"
+            Complete-DoksioImportedFile -File $File -Filename $Filename -Duplicate $true
+            return
+        }}
+
+        Write-DoksioLog `
+            "ERROR" `
+            "Import fehlgeschlagen: $($File.FullName) $($_.Exception.Message)"
         if ($ErrorDir) {{
-            Move-DoksioFile -Source $File.FullName -TargetDir $ErrorDir -Filename $Filename
+            Move-DoksioFile `
+                -Source $File.FullName `
+                -TargetDir $ErrorDir `
+                -Filename $Filename
         }}
     }}
 }}
 
 Write-DoksioLog "INFO" "Doksio Ordner-Agent gestartet: $SourceDir"
 while ($true) {{
-    $Files = Get-ChildItem -LiteralPath $SourceDir -File -Filter $FilePattern -Recurse:$Recursive
+    $Files = Get-ChildItem `
+        -LiteralPath $SourceDir `
+        -File `
+        -Filter $FilePattern `
+        -Recurse:$Recursive
     foreach ($File in $Files) {{
         if (Test-DoksioSkippedFile -File $File) {{ continue }}
         Invoke-DoksioImport -File $File
