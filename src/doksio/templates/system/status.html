@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+
+{% block title %}Status | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page system-status-page">
+    <div class="container-fluid px-4">
+      <div class="system-status-header mb-4">
+        <div>
+          <h1 class="h3 mb-1">Status</h1>
+          <p class="text-secondary mb-0">
+            {% if status_scope == "tenant" %}
+              Betriebszustand und Verarbeitung für {{ tenant.name }}.
+            {% else %}
+              Globaler Betriebszustand und Verarbeitung über alle Mandanten.
+            {% endif %}
+          </p>
+        </div>
+        <div class="system-status-overall system-status-overall-{{ status.overall_state }}">
+          <span></span>
+          {% if status.overall_state == "ok" %}
+            Alles erreichbar
+          {% elif status.overall_state == "warning" %}
+            Hinweise vorhanden
+          {% else %}
+            Störung erkannt
+          {% endif %}
+        </div>
+      </div>
+
+      <section class="system-status-check-grid mb-4" aria-label="Dienststatus">
+        {% for check in status.checks %}
+          <article class="app-card system-status-check system-status-check-{{ check.state }}">
+            <div class="system-status-check-head">
+              <span class="system-status-dot"></span>
+              <div>
+                <h2 class="h6 mb-0">{{ check.label }}</h2>
+                <div class="small text-secondary">{{ check.message }}</div>
+              </div>
+            </div>
+            {% if check.meta %}
+              <div class="system-status-meta">{{ check.meta }}</div>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </section>
+
+      <section class="reports-kpi-grid mb-4" aria-label="Kennzahlen">
+        <div class="reports-kpi reports-kpi-accent">
+          <div class="metadata-label">Dokumente</div>
+          <div class="reports-kpi-value">{{ status.summary.documents }}</div>
+          <div class="reports-kpi-note">{{ status.summary.documents_last_24h }} in 24 Stunden</div>
+        </div>
+        <div class="reports-kpi">
+          <div class="metadata-label">Importquellen aktiv</div>
+          <div class="reports-kpi-value">{{ status.summary.active_import_sources }}</div>
+          <div class="reports-kpi-note">{{ status.summary.imports_last_24h }} Imports in 24 Stunden</div>
+        </div>
+        <div class="reports-kpi reports-kpi-warm">
+          <div class="metadata-label">OCR läuft</div>
+          <div class="reports-kpi-value">{{ status.ocr.running }}</div>
+          <div class="reports-kpi-note">{{ status.ocr.pending }} warten</div>
+        </div>
+        <div class="reports-kpi reports-kpi-green">
+          <div class="metadata-label">Offene Aufgaben</div>
+          <div class="reports-kpi-value">{{ status.workflows.open_tasks }}</div>
+          <div class="reports-kpi-note">{{ status.workflows.completed_tasks_last_24h }} erledigt in 24 Stunden</div>
+        </div>
+      </section>
+
+      <div class="system-status-grid mb-4">
+        <section class="app-card system-status-panel">
+          <div class="reports-panel-header">
+            <div>
+              <h2 class="h5 mb-1">Importe</h2>
+              <p class="text-secondary mb-0">Status aller Importvorgänge.</p>
+            </div>
+          </div>
+          <div class="system-status-status-list">
+            {% for row in status.imports.status_rows %}
+              <div class="system-status-status-row">
+                <span>{{ row.label }}</span>
+                <strong>{{ row.count }}</strong>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="app-card system-status-panel">
+          <div class="reports-panel-header">
+            <div>
+              <h2 class="h5 mb-1">OCR</h2>
+              <p class="text-secondary mb-0">Aktuelle OCR-Warteschlange und Ergebnisse.</p>
+            </div>
+          </div>
+          <div class="system-status-status-list">
+            {% for row in status.ocr.status_rows %}
+              <div class="system-status-status-row">
+                <span>{{ row.label }}</span>
+                <strong>{{ row.count }}</strong>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="app-card system-status-panel">
+          <div class="reports-panel-header">
+            <div>
+              <h2 class="h5 mb-1">Workflows</h2>
+              <p class="text-secondary mb-0">Laufende und abgeschlossene Workflow-Instanzen.</p>
+            </div>
+          </div>
+          <div class="system-status-status-list">
+            {% for row in status.workflows.status_rows %}
+              <div class="system-status-status-row">
+                <span>{{ row.label }}</span>
+                <strong>{{ row.count }}</strong>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+      </div>
+
+      <div class="system-status-grid">
+        <section class="app-card system-status-panel system-status-panel-wide">
+          <div class="reports-panel-header">
+            <div>
+              <h2 class="h5 mb-1">Letzte Importfehler</h2>
+              <p class="text-secondary mb-0">Die neuesten nicht importierbaren Dateien.</p>
+            </div>
+          </div>
+          <div class="system-status-event-list">
+            {% for job in status.imports.failed_recent %}
+              <div class="system-status-event">
+                <div>
+                  <div class="fw-semibold">{{ job.original_filename }}</div>
+                  <div class="small text-secondary">
+                    {{ job.tenant.name }} · {{ job.document_space.path }} · {{ job.updated_at|date:"d.m.Y H:i" }}
+                  </div>
+                </div>
+                <div class="small text-danger">{{ job.message|default:"Kein Fehlertext gespeichert" }}</div>
+              </div>
+            {% empty %}
+              <p class="text-secondary mb-0">Keine Importfehler vorhanden.</p>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="app-card system-status-panel system-status-panel-wide">
+          <div class="reports-panel-header">
+            <div>
+              <h2 class="h5 mb-1">Letzte OCR-Fehler</h2>
+              <p class="text-secondary mb-0">Dateien, bei denen lokale OCR fehlgeschlagen ist.</p>
+            </div>
+          </div>
+          <div class="system-status-event-list">
+            {% for job in status.ocr.failed_recent %}
+              <div class="system-status-event">
+                <div>
+                  <div class="fw-semibold">{{ job.document_file.document.title }}</div>
+                  <div class="small text-secondary">
+                    {{ job.tenant.name }} · {{ job.document_file.original_filename }} · {{ job.updated_at|date:"d.m.Y H:i" }}
+                  </div>
+                </div>
+                <div class="small text-danger">{{ job.error_message|default:"Kein Fehlertext gespeichert" }}</div>
+              </div>
+            {% empty %}
+              <p class="text-secondary mb-0">Keine OCR-Fehler vorhanden.</p>
+            {% endfor %}
+          </div>
+        </section>
+      </div>
+
+      <div class="small text-secondary mt-4">
+        Stand: {{ status.generated_at|date:"d.m.Y H:i:s" }}
+      </div>
+    </div>
+  </main>
+{% endblock %}

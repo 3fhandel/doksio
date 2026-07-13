@@ -219,38 +219,45 @@ class LocalOcrProvider:
         if tesseract is None:
             raise RuntimeError("tesseract ist nicht installiert.")
 
-        ocr_input_path = self._prepare_image_for_ocr(input_path=input_path)
-        text = self._run_tesseract(
-            tesseract=tesseract,
-            input_path=ocr_input_path,
-            language=language,
-        )
-        enhanced_input_path = self._prepare_enhanced_image_for_ocr(
-            input_path=ocr_input_path
-        )
-        if enhanced_input_path != ocr_input_path:
-            form_text = self._run_tesseract(
+        text = ""
+        ocr_input_paths = self._prepare_image_pages_for_ocr(input_path=input_path)
+        enhanced_max_pages = getattr(settings, "OCR_IMAGE_ENHANCED_MAX_PAGES", 1)
+        for page_index, ocr_input_path in enumerate(ocr_input_paths):
+            page_text = self._run_tesseract(
                 tesseract=tesseract,
-                input_path=enhanced_input_path,
+                input_path=ocr_input_path,
                 language=language,
-                psm=getattr(settings, "OCR_IMAGE_FORM_PSM", "6"),
             )
-            text = self._merge_ocr_text(text, form_text)
-        detail_source_path = (
-            enhanced_input_path
-            if enhanced_input_path != ocr_input_path
-            else ocr_input_path
-        )
-        for detail_input_path in self._prepare_detail_regions_for_ocr(
-            input_path=detail_source_path
-        ):
-            detail_text = self._run_tesseract(
-                tesseract=tesseract,
-                input_path=detail_input_path,
-                language=language,
-                psm=getattr(settings, "OCR_IMAGE_DETAIL_PSM", "6"),
+            text = self._merge_ocr_text(text, page_text)
+            if page_index >= enhanced_max_pages:
+                continue
+
+            enhanced_input_path = self._prepare_enhanced_image_for_ocr(
+                input_path=ocr_input_path
             )
-            text = self._merge_ocr_text(text, detail_text)
+            if enhanced_input_path != ocr_input_path:
+                form_text = self._run_tesseract(
+                    tesseract=tesseract,
+                    input_path=enhanced_input_path,
+                    language=language,
+                    psm=getattr(settings, "OCR_IMAGE_FORM_PSM", "6"),
+                )
+                text = self._merge_ocr_text(text, form_text)
+            detail_source_path = (
+                enhanced_input_path
+                if enhanced_input_path != ocr_input_path
+                else ocr_input_path
+            )
+            for detail_input_path in self._prepare_detail_regions_for_ocr(
+                input_path=detail_source_path
+            ):
+                detail_text = self._run_tesseract(
+                    tesseract=tesseract,
+                    input_path=detail_input_path,
+                    language=language,
+                    psm=getattr(settings, "OCR_IMAGE_DETAIL_PSM", "6"),
+                )
+                text = self._merge_ocr_text(text, detail_text)
         return OcrExtraction(
             text=text,
             engine="tesseract",
@@ -273,9 +280,54 @@ class LocalOcrProvider:
             check=True,
             capture_output=True,
             text=True,
-            timeout=getattr(settings, "OCR_COMMAND_TIMEOUT_SECONDS", 300),
+            timeout=getattr(settings, "OCR_TESSERACT_TIMEOUT_SECONDS", 120),
         )
         return result.stdout
+
+    def _prepare_image_pages_for_ocr(self, input_path: Path) -> list[Path]:
+        try:
+            from PIL import Image, ImageOps, ImageSequence
+        except ImportError:
+            return [self._prepare_image_for_ocr(input_path=input_path)]
+
+        max_edge = getattr(settings, "OCR_IMAGE_MAX_EDGE", 3000)
+        max_pages = getattr(settings, "OCR_IMAGE_MAX_PAGES", 25)
+        prepared_paths = []
+        try:
+            with Image.open(input_path) as image:
+                for page_index, frame in enumerate(ImageSequence.Iterator(image)):
+                    if page_index >= max_pages:
+                        break
+
+                    page = ImageOps.exif_transpose(frame)
+                    page.load()
+                    page = self._normalize_pillow_image_for_ocr(page=page)
+                    if max(page.size) > max_edge:
+                        page.thumbnail((max_edge, max_edge))
+
+                    prepared_path = input_path.with_name(
+                        f"{input_path.stem}.ocr-p{page_index + 1:03}.png"
+                    )
+                    page.save(prepared_path, format="PNG", optimize=True)
+                    prepared_paths.append(prepared_path)
+        except Exception:
+            return [self._prepare_image_for_ocr(input_path=input_path)]
+
+        return prepared_paths or [input_path]
+
+    def _normalize_pillow_image_for_ocr(self, *, page):
+        try:
+            from PIL import Image
+        except ImportError:
+            return page
+
+        if page.mode == "RGBA":
+            background = Image.new("RGB", page.size, "white")
+            background.paste(page, mask=page.getchannel("A"))
+            return background
+        if page.mode not in ("RGB", "L"):
+            return page.convert("RGB")
+        return page
 
     def _prepare_image_for_ocr(self, input_path: Path) -> Path:
         magick = shutil.which("magick")
@@ -578,8 +630,9 @@ class StartOcrForDocumentFile:
     run_inline: bool | None = None
 
     def execute(self) -> OcrJob:
+        document_file = self._ocr_document_file()
         job = CreateOcrJob(
-            document_file=self.document_file,
+            document_file=document_file,
             actor=self.actor,
         ).execute()
         should_run_inline = (
@@ -594,3 +647,23 @@ class StartOcrForDocumentFile:
 
         run_ocr_job.delay(job.id)
         return job
+
+    def _ocr_document_file(self) -> DocumentFile:
+        normalized_content_type = (
+            self.document_file.content_type.split(";", 1)[0].strip().lower()
+        )
+        if (
+            self.document_file.file_kind == DocumentFile.Kind.ORIGINAL
+            and normalized_content_type == "image/tiff"
+        ):
+            preview_file = (
+                self.document_file.derivatives.filter(
+                    file_kind=DocumentFile.Kind.PREVIEW,
+                    content_type__startswith="image/",
+                )
+                .order_by("-created_at", "-id")
+                .first()
+            )
+            if preview_file is not None:
+                return preview_file
+        return self.document_file

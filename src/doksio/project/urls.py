@@ -7,6 +7,7 @@ from django.http import HttpRequest, JsonResponse
 from django.urls import include, path
 
 from doksio.documents.views import index
+from doksio.project.views import system_status, tenant_status
 
 
 def health(request: HttpRequest) -> JsonResponse:
@@ -24,4 +25,6 @@ urlpatterns = [
     path("", include("doksio.reports.urls")),
     path("", include("doksio.exports.urls")),
     path("s/health/", health, name="health"),
+    path("s/status/", system_status, name="system_status"),
+    path("t/<slug:tenant_slug>/status/", tenant_status, name="tenant_status"),
 ]

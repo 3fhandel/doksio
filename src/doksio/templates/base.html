@@ -63,12 +63,18 @@
                   {% endif %}
                   {% if user.is_superuser %}
                     <li>
-                      <a class="dropdown-item" href="{% url 'admin:index' %}">
-                        {% include "includes/icons.html" with icon="shield" %}
-                        <span>System</span>
-                      </a>
-                    </li>
-                  {% endif %}
+                  <a class="dropdown-item" href="{% url 'admin:index' %}">
+                    {% include "includes/icons.html" with icon="shield" %}
+                    <span>System</span>
+                  </a>
+                </li>
+                <li>
+                  <a class="dropdown-item" href="{% url 'system_status' %}">
+                    {% include "includes/icons.html" with icon="activity" %}
+                    <span>Status</span>
+                  </a>
+                </li>
+              {% endif %}
                   <li><hr class="dropdown-divider"></li>
                   <li>
                     <a class="dropdown-item text-danger" href="{% url 'accounts:logout' %}">
@@ -135,6 +141,12 @@
                   <a class="app-sidebar-link {% if url_name == 'audit_log' %}active{% endif %}" href="{% url 'documents:audit_log' tenant.slug %}">
                     {% include "includes/icons.html" with icon="activity" %}
                     <span>Logs/Audit</span>
+                  </a>
+                {% endif %}
+                {% if can_manage_settings %}
+                  <a class="app-sidebar-link {% if url_name == 'tenant_status' %}active{% endif %}" href="{% url 'tenant_status' tenant.slug %}">
+                    {% include "includes/icons.html" with icon="activity" %}
+                    <span>Status</span>
                   </a>
                 {% endif %}
                 <a class="app-sidebar-link app-sidebar-link-primary {% if url_name == 'upload' %}active{% endif %}" href="{% url 'documents:upload' tenant.slug %}" data-shortcut-action="upload">

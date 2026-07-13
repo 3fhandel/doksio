@@ -19,7 +19,7 @@ IMAGE_CONTENT_TYPES = {
 }
 
 THUMBNAIL_SIZE = (220, 300)
-PREVIEW_SIZE = (2200, 2200)
+PREVIEW_SIZE = (3000, 3000)
 
 
 def supports_thumbnail_content_type(content_type: str) -> bool:

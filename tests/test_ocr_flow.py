@@ -13,7 +13,7 @@ from django.urls import reverse
 from doksio.accounts.models import TenantMembership
 from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
-from doksio.documents.models import Document
+from doksio.documents.models import Document, DocumentFile
 from doksio.documents.services import CreateDocumentFromUpload, CreateDocumentSpace
 from doksio.ocr.models import OcrJob
 from doksio.ocr.services import (
@@ -21,6 +21,7 @@ from doksio.ocr.services import (
     LocalOcrProvider,
     OcrExtraction,
     RunOcrJob,
+    StartOcrForDocumentFile,
     extract_document_title,
 )
 from doksio.tenancy.models import Tenant
@@ -114,6 +115,58 @@ def test_local_ocr_provider_auto_orients_images_before_tesseract(
         str(tmp_path / "scan.ocr.form-ocr.detail-top-left.png"),
     ]
     assert commands[6][-2:] == ["--psm", "6"]
+
+
+@override_settings(
+    OCR_IMAGE_MAX_EDGE=1000,
+    OCR_IMAGE_MAX_PAGES=2,
+    OCR_IMAGE_ENHANCED_MAX_PAGES=0,
+    OCR_TESSERACT_TIMEOUT_SECONDS=9,
+)
+def test_local_ocr_provider_converts_tiff_pages_before_tesseract(
+    monkeypatch,
+    tmp_path,
+):
+    from PIL import Image
+
+    input_path = tmp_path / "scan.tif"
+    first_page = Image.new("RGB", (2400, 1200), "white")
+    second_page = Image.new("RGB", (900, 600), "white")
+    third_page = Image.new("RGB", (900, 600), "white")
+    first_page.save(
+        input_path,
+        format="TIFF",
+        save_all=True,
+        append_images=[second_page, third_page],
+    )
+    commands = []
+    timeouts = []
+
+    def fake_which(command):
+        return f"/usr/bin/{command}" if command == "tesseract" else None
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        timeouts.append(kwargs["timeout"])
+        assert command[1].endswith(".png")
+        return subprocess.CompletedProcess(command, 0, f"Text {len(commands)}", "")
+
+    monkeypatch.setattr("doksio.ocr.services.shutil.which", fake_which)
+    monkeypatch.setattr("doksio.ocr.services.subprocess.run", fake_run)
+
+    extraction = LocalOcrProvider()._extract_image(
+        input_path=input_path,
+        language="deu+eng",
+    )
+
+    assert extraction.text.strip() == "Text 1\n\nText 2"
+    assert len(commands) == 2
+    assert all(str(input_path) not in command for command in commands)
+    assert commands[0][1] == str(tmp_path / "scan.ocr-p001.png")
+    assert commands[1][1] == str(tmp_path / "scan.ocr-p002.png")
+    assert timeouts == [9, 9]
+    with Image.open(tmp_path / "scan.ocr-p001.png") as prepared:
+        assert max(prepared.size) == 1000
 
 
 def test_extract_document_title_joins_hyphenated_line_breaks():
@@ -385,6 +438,42 @@ def test_create_document_from_upload_skips_automatic_ocr_for_unsupported_files()
     ).execute()
 
     assert not OcrJob.objects.filter(document_file=document_file).exists()
+
+
+@pytest.mark.django_db
+def test_start_ocr_for_tiff_uses_jpeg_preview_derivative(monkeypatch):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Scans").execute()
+    monkeypatch.setattr(
+        "doksio.documents.thumbnails._render_thumbnail_bytes",
+        lambda _document_file: b"thumbnail-bytes",
+    )
+    monkeypatch.setattr(
+        "doksio.documents.thumbnails._render_image_preview",
+        lambda _document_file: b"preview-jpeg-bytes",
+    )
+    monkeypatch.setattr("doksio.ocr.tasks.run_ocr_job.delay", lambda _job_id: None)
+    _document, original_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Scan",
+        space=space,
+        file_obj=BytesIO(b"tiff content"),
+        original_filename="scan.tif",
+        content_type="image/tiff",
+        auto_start_ocr=False,
+    ).execute()
+    preview_file = DocumentFile.objects.get(
+        document=original_file.document,
+        file_kind=DocumentFile.Kind.PREVIEW,
+    )
+
+    job = StartOcrForDocumentFile(
+        document_file=original_file,
+        run_inline=False,
+    ).execute()
+
+    assert job.document_file == preview_file
+    assert job.document_file.content_type == "image/jpeg"
 
 
 @pytest.mark.django_db
