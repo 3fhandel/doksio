@@ -26,9 +26,11 @@ Doksio deployment.
 - Do not use `DJANGO_ALLOWED_HOSTS=*` in production.
 - Keep PostgreSQL and MinIO volumes backed up.
 - `web` and `worker` must use the same image tag.
+- If `web` logs show missing application files, verify that `DOKSIO_IMAGE`
+  points to the image built from this repository and that Portainer pulled the
+  current tag.
 - For existing data repairs or after manual imports, run:
 
 ```sh
-python manage.py rebuild_search_index
+python -m django rebuild_search_index
 ```
-

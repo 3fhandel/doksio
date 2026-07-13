@@ -32,8 +32,8 @@ services:
     image: ${DOKSIO_IMAGE:?set DOKSIO_IMAGE}
     restart: unless-stopped
     command: >
-      sh -c "python manage.py migrate &&
-             python manage.py collectstatic --noinput &&
+      sh -c "python -m django migrate &&
+             python -m django collectstatic --noinput &&
              gunicorn doksio.project.wsgi:application
              --bind 0.0.0.0:8000
              --workers ${GUNICORN_WORKERS:-3}
