@@ -94,3 +94,12 @@ def page_url(context, page_param, page_number):
     params = request.GET.copy()
     params[page_param] = page_number
     return f"?{params.urlencode()}"
+
+
+@register.simple_tag
+def elided_page_range(page_obj):
+    return page_obj.paginator.get_elided_page_range(
+        page_obj.number,
+        on_each_side=1,
+        on_ends=1,
+    )

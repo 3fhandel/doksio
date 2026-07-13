@@ -23,6 +23,11 @@
       <nav class="navbar navbar-expand-lg border-bottom bg-white app-topbar">
         <div class="container-fluid">
           <div class="d-flex align-items-center gap-2">
+            {% if tenant and user.is_authenticated %}
+              <button class="btn btn-sm btn-outline-secondary app-mobile-sidebar-toggle" type="button" data-sidebar-toggle aria-label="Menü ein- oder ausblenden">
+                {% include "includes/icons.html" with icon="menu" %}
+              </button>
+            {% endif %}
             <a class="navbar-brand fw-semibold" href="{% if tenant and user.is_authenticated %}{% url 'documents:dashboard' tenant.slug %}{% else %}{% url 'index' %}{% endif %}">
               Doksio
             </a>

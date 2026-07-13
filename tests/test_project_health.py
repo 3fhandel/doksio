@@ -41,4 +41,5 @@ def test_topbar_shows_build_version(client):
 
     assert response.status_code == 200
     assert "Build 20260713-1336" in response.content.decode()
+    assert "app-mobile-sidebar-toggle" in response.content.decode()
     build_version.cache_clear()
