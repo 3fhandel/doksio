@@ -13,22 +13,24 @@ Doksio deployment.
 
 ## Deployment Steps
 
-1. Build and push a Doksio image, for example `ghcr.io/example/doksio:latest`.
-2. In Portainer, create a new Stack from `deploy/portainer-stack.yml`.
+1. In Portainer, create a new Stack from the Git repository.
+2. Use `deploy/portainer-stack.yml` as the compose path.
 3. Copy values from `deploy/portainer.env.example` into Portainer environment
    variables and replace every secret.
-4. Put a reverse proxy in front of `web` and point it at port `8000`.
-5. Set `DOKSIO_PUBLIC_BASE_URL`, `DJANGO_ALLOWED_HOSTS` and
+4. Leave `DOKSIO_IMAGE` unset unless you intentionally deploy a prebuilt image
+   from a registry.
+5. Put a reverse proxy in front of `web` and point it at port `8000`.
+6. Set `DOKSIO_PUBLIC_BASE_URL`, `DJANGO_ALLOWED_HOSTS` and
    `DJANGO_CSRF_TRUSTED_ORIGINS` to the real public URL.
 
 ## Notes
 
 - Do not use `DJANGO_ALLOWED_HOSTS=*` in production.
 - Keep PostgreSQL and MinIO volumes backed up.
-- `web` and `worker` must use the same image tag.
-- If `web` logs show missing application files, verify that `DOKSIO_IMAGE`
-  points to the image built from this repository and that Portainer pulled the
-  current tag.
+- The default stack builds the Doksio image directly from the Git repository.
+- If `web` logs show missing application files, verify that the Stack was
+  deployed from the repository root and that the compose path is exactly
+  `deploy/portainer-stack.yml`.
 - For existing data repairs or after manual imports, run:
 
 ```sh

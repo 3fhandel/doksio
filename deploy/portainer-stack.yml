@@ -29,7 +29,12 @@ x-doksio-environment: &doksio-environment
 
 services:
   web:
-    image: ${DOKSIO_IMAGE:?set DOKSIO_IMAGE}
+    image: ${DOKSIO_IMAGE:-doksio:latest}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        INSTALL_DEV: "false"
     restart: unless-stopped
     command: >
       sh -c "python -m django migrate &&
@@ -62,7 +67,12 @@ services:
       start_period: 60s
 
   worker:
-    image: ${DOKSIO_IMAGE:?set DOKSIO_IMAGE}
+    image: ${DOKSIO_IMAGE:-doksio:latest}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        INSTALL_DEV: "false"
     restart: unless-stopped
     command: celery -A doksio.project worker --loglevel=INFO
     environment: *doksio-environment
