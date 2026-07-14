@@ -8,8 +8,20 @@ app_name = "accounts"
 
 urlpatterns = [
     path("s/", views.system_login, name="system_login"),
+    path("s/oidc/login/", views.system_oidc_login, name="system_oidc_login"),
+    path(
+        "s/oidc/tenant-login/",
+        views.tenant_claim_oidc_login,
+        name="tenant_claim_oidc_login",
+    ),
+    path("s/oidc/callback/", views.oidc_callback, name="oidc_callback"),
     path("s/logout/", views.sign_out, name="logout"),
     path("t/<slug:tenant_slug>/", views.tenant_login, name="tenant_login"),
+    path(
+        "t/<slug:tenant_slug>/oidc/login/",
+        views.tenant_oidc_login,
+        name="tenant_oidc_login",
+    ),
     path(
         "t/<slug:tenant_slug>/password-reset/<uidb64>/<token>/",
         views.tenant_password_reset_confirm,

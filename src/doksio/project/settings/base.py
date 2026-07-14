@@ -43,6 +43,17 @@ DOKSIO_PUBLIC_BASE_URL = os.getenv(
     "http://localhost:8000",
 )
 DOKSIO_BUILD_VERSION = os.getenv("DOKSIO_BUILD_VERSION", "")
+DOKSIO_OIDC_ENABLED = env_bool("DOKSIO_OIDC_ENABLED", False)
+DOKSIO_OIDC_ISSUER_URL = os.getenv("DOKSIO_OIDC_ISSUER_URL", "").rstrip("/")
+DOKSIO_OIDC_CLIENT_ID = os.getenv("DOKSIO_OIDC_CLIENT_ID", "")
+DOKSIO_OIDC_CLIENT_SECRET = os.getenv("DOKSIO_OIDC_CLIENT_SECRET", "")
+DOKSIO_OIDC_AUTO_CREATE_USERS = env_bool("DOKSIO_OIDC_AUTO_CREATE_USERS", True)
+DOKSIO_OIDC_SCOPE = os.getenv("DOKSIO_OIDC_SCOPE", "openid email profile")
+DOKSIO_OIDC_USERNAME_CLAIM = os.getenv(
+    "DOKSIO_OIDC_USERNAME_CLAIM",
+    "preferred_username",
+)
+DOKSIO_OIDC_TENANT_CLAIM = os.getenv("DOKSIO_OIDC_TENANT_CLAIM", "doksio_tenants")
 
 INSTALLED_APPS = [
     "django.contrib.admin",

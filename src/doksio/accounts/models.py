@@ -27,6 +27,7 @@ class UserProfile(models.Model):
         on_delete=models.CASCADE,
         related_name="doksio_profile",
     )
+    oidc_subject = models.CharField(max_length=255, blank=True, null=True, unique=True)
     display_name = models.CharField(max_length=150, blank=True)
     keyboard_shortcuts = models.JSONField(default=default_keyboard_shortcuts)
     notifications_enabled = models.BooleanField(default=True)

@@ -18,6 +18,15 @@ from doksio.accounts.forms import (
     UserProfileForm,
 )
 from doksio.accounts.models import Notification, UserProfile
+from doksio.accounts.oidc import (
+    build_oidc_authorization_url,
+    exchange_oidc_code,
+    fetch_oidc_userinfo,
+    oidc_enabled,
+    pop_oidc_login_context,
+    tenant_slugs_from_oidc_claims,
+    user_from_oidc_claims,
+)
 from doksio.accounts.services import MarkAllNotificationsRead, MarkNotificationRead
 from doksio.documents.policies import can_administer_tenant
 from doksio.tenancy.models import Tenant
@@ -26,6 +35,10 @@ from doksio.tenancy.services import get_tenant_for_user
 
 def _safe_next_url(request: HttpRequest, fallback: str) -> str:
     next_url = request.POST.get("next") or request.GET.get("next")
+    return _safe_url(request, next_url, fallback)
+
+
+def _safe_url(request: HttpRequest, next_url: str | None, fallback: str) -> str:
     if next_url and url_has_allowed_host_and_scheme(
         next_url,
         allowed_hosts={request.get_host()},
@@ -53,6 +66,7 @@ def system_login(request: HttpRequest) -> HttpResponse:
         {
             "form": form,
             "next": request.GET.get("next", ""),
+            "oidc_enabled": oidc_enabled(),
         },
     )
 
@@ -79,6 +93,7 @@ def tenant_login(request: HttpRequest, tenant_slug: str) -> HttpResponse:
             "form": form,
             "tenant": tenant,
             "next": request.GET.get("next", ""),
+            "oidc_enabled": oidc_enabled(),
         },
     )
 
@@ -86,6 +101,97 @@ def tenant_login(request: HttpRequest, tenant_slug: str) -> HttpResponse:
 def sign_out(request: HttpRequest) -> HttpResponse:
     logout(request)
     return redirect("accounts:system_login")
+
+
+def system_oidc_login(request: HttpRequest) -> HttpResponse:
+    return redirect(
+        build_oidc_authorization_url(
+            request=request,
+            mode="system",
+            next_url=request.GET.get("next", ""),
+        )
+    )
+
+
+def tenant_claim_oidc_login(request: HttpRequest) -> HttpResponse:
+    return redirect(
+        build_oidc_authorization_url(
+            request=request,
+            mode="tenant_claim",
+            next_url=request.GET.get("next", ""),
+        )
+    )
+
+
+def tenant_oidc_login(request: HttpRequest, tenant_slug: str) -> HttpResponse:
+    tenant = get_object_or_404(Tenant, slug=tenant_slug, is_active=True)
+    return redirect(
+        build_oidc_authorization_url(
+            request=request,
+            mode="tenant",
+            tenant_slug=tenant.slug,
+            next_url=request.GET.get("next", ""),
+        )
+    )
+
+
+def oidc_callback(request: HttpRequest) -> HttpResponse:
+    error = request.GET.get("error")
+    if error:
+        messages.error(request, f"OIDC-Anmeldung fehlgeschlagen: {error}")
+        return redirect("accounts:system_login")
+
+    code = request.GET.get("code", "")
+    state = request.GET.get("state", "")
+    context = pop_oidc_login_context(request, state)
+    if not code:
+        raise PermissionDenied("OIDC-Callback ohne Code.")
+
+    token_response = exchange_oidc_code(code)
+    access_token = token_response.get("access_token")
+    if not access_token:
+        raise PermissionDenied("OIDC-Token-Antwort ohne Access Token.")
+    claims = fetch_oidc_userinfo(access_token)
+    user = user_from_oidc_claims(claims)
+
+    if context.mode == "system":
+        if not user.is_superuser:
+            raise PermissionDenied
+        login(request, user)
+        return redirect(_safe_url(request, context.next_url, reverse("admin:index")))
+
+    tenant = _tenant_from_oidc_context(user, context, claims)
+    login(request, user)
+    fallback_url = reverse("documents:dashboard", kwargs={"tenant_slug": tenant.slug})
+    return redirect(_safe_url(request, context.next_url, fallback_url))
+
+
+def _tenant_from_oidc_context(user, context, claims: dict) -> Tenant:
+    if context.tenant_slug:
+        tenant = get_object_or_404(
+            Tenant,
+            slug=context.tenant_slug,
+            is_active=True,
+        )
+        if get_tenant_for_user(user, tenant.slug) is None:
+            raise PermissionDenied
+        return tenant
+
+    tenant_slugs = tenant_slugs_from_oidc_claims(claims)
+    if not tenant_slugs:
+        raise PermissionDenied("OIDC-Antwort enthält keinen Tenant-Hinweis.")
+
+    matching_tenants = []
+    for tenant_slug in tenant_slugs:
+        tenant = Tenant.objects.filter(slug=tenant_slug, is_active=True).first()
+        if tenant and get_tenant_for_user(user, tenant.slug) is not None:
+            matching_tenants.append(tenant)
+
+    if len(matching_tenants) == 1:
+        return matching_tenants[0]
+    if len(matching_tenants) > 1:
+        raise PermissionDenied("OIDC-Antwort passt zu mehreren Tenants.")
+    raise PermissionDenied("Benutzer hat keinen Zugriff auf den OIDC-Tenant.")
 
 
 def tenant_password_reset_confirm(

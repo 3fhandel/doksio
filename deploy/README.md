@@ -41,3 +41,41 @@ Doksio deployment.
 ```sh
 python -m django rebuild_search_index
 ```
+
+## Authentik / OIDC
+
+Doksio can use authentik as an OpenID Connect identity provider while keeping
+tenant roles and permissions in Doksio.
+
+Configure an authentik OAuth2/OpenID provider with this redirect URI:
+
+```text
+https://doksio.example.test/s/oidc/callback/
+```
+
+Then set these stack variables:
+
+```env
+DOKSIO_OIDC_ENABLED=true
+DOKSIO_OIDC_ISSUER_URL=https://auth.example.test/application/o/doksio
+DOKSIO_OIDC_CLIENT_ID=...
+DOKSIO_OIDC_CLIENT_SECRET=...
+DOKSIO_OIDC_TENANT_CLAIM=doksio_tenants
+```
+
+Users are matched by stored OIDC subject, then initially by email or username.
+New users can be created automatically, but they still need a Doksio tenant
+membership before they can access `/t/<tenant>/...`.
+
+For tenant auto-detection, add a claim in authentik that contains one Doksio
+tenant slug, or a list of slugs:
+
+```json
+{
+  "doksio_tenants": ["demo"]
+}
+```
+
+The generic tenant login URL is `/s/oidc/tenant-login/`. Doksio only uses the
+claim as a hint and still checks the local tenant membership before logging the
+user into `/t/<tenant>/...`.

@@ -13,6 +13,12 @@
           </div>
 
           <form class="app-card p-4" method="post">
+            {% if oidc_enabled %}
+              <a class="btn btn-primary w-100 mb-3" href="{% url 'accounts:system_oidc_login' %}{% if next %}?next={{ next|urlencode }}{% endif %}">
+                Mit Authentik anmelden
+              </a>
+              <div class="text-secondary small text-center mb-3">oder mit lokalem System-Admin anmelden</div>
+            {% endif %}
             {% csrf_token %}
             <input type="hidden" name="next" value="{{ next }}">
 
