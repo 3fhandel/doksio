@@ -41,9 +41,30 @@ body {
   backdrop-filter: blur(12px);
 }
 
-.navbar-brand {
-  color: var(--doksio-primary-strong);
+.navbar-brand.app-brand {
+  display: inline-flex;
+  align-items: center;
+  max-width: 13rem;
+  min-height: 2.25rem;
+  padding: 0;
   letter-spacing: 0;
+}
+
+.app-brand-logo {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: 2.15rem;
+  object-fit: contain;
+}
+
+.app-login-logo {
+  display: block;
+  width: min(100%, 28rem);
+  height: auto;
+  max-height: 8rem;
+  margin: 0 auto 1.25rem;
+  object-fit: contain;
 }
 
 .app-topbar .navbar-text {

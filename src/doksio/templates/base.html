@@ -28,8 +28,8 @@
                 {% include "includes/icons.html" with icon="menu" %}
               </button>
             {% endif %}
-            <a class="navbar-brand fw-semibold" href="{% if tenant and user.is_authenticated %}{% url 'documents:dashboard' tenant.slug %}{% else %}{% url 'index' %}{% endif %}">
-              Doksio
+            <a class="navbar-brand app-brand" href="{% if tenant and user.is_authenticated %}{% url 'documents:dashboard' tenant.slug %}{% else %}{% url 'index' %}{% endif %}">
+              <img class="app-brand-logo" src="{% static 'img/doksio-logo-compact.png' %}" alt="Doksio">
             </a>
             {% if doksio_build_version %}
               <span class="app-build-version" title="Build {{ doksio_build_version }}">
