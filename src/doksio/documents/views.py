@@ -19,7 +19,7 @@ from doksio.accounts.forms import (
     TenantRoleCreateForm,
     TenantRoleUpdateForm,
 )
-from doksio.accounts.models import TenantMembership, TenantRole
+from doksio.accounts.models import TenantMembership, TenantRole, UserProfile
 from doksio.accounts.permissions import TenantPermissions
 from doksio.accounts.services import (
     AddTenantMember,
@@ -2313,6 +2313,9 @@ def tenant_settings_member_create(
                 tenant=tenant,
                 username=form.cleaned_data["username"],
                 email=form.cleaned_data["email"],
+                display_name=form.cleaned_data["display_name"],
+                first_name=form.cleaned_data["first_name"],
+                last_name=form.cleaned_data["last_name"],
                 password=form.cleaned_data["password"],
                 roles=list(form.cleaned_data["roles"]),
                 actor=request.user,
@@ -2359,6 +2362,9 @@ def tenant_settings_member_edit(
             UpdateTenantMembership(
                 membership=membership,
                 email=form.cleaned_data["email"],
+                display_name=form.cleaned_data["display_name"],
+                first_name=form.cleaned_data["first_name"],
+                last_name=form.cleaned_data["last_name"],
                 password=form.cleaned_data["password"],
                 roles=list(form.cleaned_data["roles"]),
                 is_active=form.cleaned_data["is_active"],
@@ -2367,9 +2373,13 @@ def tenant_settings_member_edit(
             messages.success(request, "Benutzer wurde aktualisiert.")
             return redirect("documents:settings_members", tenant_slug=tenant.slug)
     else:
+        profile = UserProfile.objects.filter(user=membership.user).first()
         form = TenantMembershipUpdateForm(
             tenant=tenant,
             initial={
+                "display_name": profile.display_name if profile else "",
+                "first_name": membership.user.first_name,
+                "last_name": membership.user.last_name,
                 "email": membership.user.email,
                 "roles": membership.roles.all(),
                 "is_active": membership.is_active,

@@ -243,9 +243,13 @@ def profile_notifications(request: HttpRequest, tenant_slug: str) -> HttpRespons
             user_profile.notifications_enabled = form.cleaned_data[
                 "notifications_enabled"
             ]
+            user_profile.mention_notifications_enabled = form.cleaned_data[
+                "mention_notifications_enabled"
+            ]
             user_profile.save(
                 update_fields=[
                     "notifications_enabled",
+                    "mention_notifications_enabled",
                     "updated_at",
                 ]
             )

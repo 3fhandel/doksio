@@ -30,6 +30,7 @@ class UserProfile(models.Model):
     display_name = models.CharField(max_length=150, blank=True)
     keyboard_shortcuts = models.JSONField(default=default_keyboard_shortcuts)
     notifications_enabled = models.BooleanField(default=True)
+    mention_notifications_enabled = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -18,6 +18,16 @@
         </label>
       </div>
       {{ form.notifications_enabled.errors }}
+      <div class="form-check form-switch mt-3">
+        {{ form.mention_notifications_enabled }}
+        <label class="form-check-label" for="{{ form.mention_notifications_enabled.id_for_label }}">
+          {{ form.mention_notifications_enabled.label }}
+        </label>
+      </div>
+      <div class="form-text">
+        Gilt für Kommentare, in denen dich jemand mit @ erwähnt.
+      </div>
+      {{ form.mention_notifications_enabled.errors }}
     </div>
 
     <div class="profile-actions">

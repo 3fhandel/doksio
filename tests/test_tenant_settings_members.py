@@ -144,12 +144,19 @@ def test_tenant_admin_can_add_member_from_settings(client):
         {
             "username": target_user.username,
             "role": roles["viewer"].id,
+            "display_name": "Alice Anzeige",
+            "first_name": "Alice",
+            "last_name": "Beispiel",
         },
     )
 
     assert response.status_code == 302
     membership = TenantMembership.objects.get(tenant=tenant, user=target_user)
+    target_user.refresh_from_db()
     assert membership.role == roles["viewer"]
+    assert target_user.first_name == "Alice"
+    assert target_user.last_name == "Beispiel"
+    assert UserProfile.objects.get(user=target_user).display_name == "Alice Anzeige"
 
 
 @pytest.mark.django_db
@@ -209,14 +216,24 @@ def test_tenant_admin_can_update_member_from_settings(client):
         ),
         {
             "role": roles["viewer"].id,
+            "display_name": "Alice Anzeige",
+            "first_name": "Alice",
+            "last_name": "Beispiel",
+            "email": "alice@example.test",
             "is_active": "",
         },
     )
 
     assert response.status_code == 302
     target_membership.refresh_from_db()
+    target_user.refresh_from_db()
+    profile = UserProfile.objects.get(user=target_user)
     assert target_membership.role == roles["viewer"]
     assert target_membership.is_active is False
+    assert target_user.first_name == "Alice"
+    assert target_user.last_name == "Beispiel"
+    assert target_user.email == "alice@example.test"
+    assert profile.display_name == "Alice Anzeige"
 
 
 @pytest.mark.django_db

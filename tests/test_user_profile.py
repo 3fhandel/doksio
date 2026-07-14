@@ -128,19 +128,24 @@ def test_profile_view_changes_password(client):
 @pytest.mark.django_db
 def test_profile_view_saves_notifications(client):
     tenant, user = _create_tenant_user()
-    UserProfile.objects.create(user=user, notifications_enabled=True)
+    UserProfile.objects.create(
+        user=user,
+        notifications_enabled=True,
+        mention_notifications_enabled=True,
+    )
     client.force_login(user)
 
     response = client.post(
         reverse("accounts:profile_notifications", kwargs={"tenant_slug": tenant.slug}),
         {
-            "notifications_enabled": "",
+            "notifications_enabled": "on",
         },
     )
 
     profile = UserProfile.objects.get(user=user)
     assert response.status_code == 302
-    assert profile.notifications_enabled is False
+    assert profile.notifications_enabled is True
+    assert profile.mention_notifications_enabled is False
 
 
 @pytest.mark.django_db

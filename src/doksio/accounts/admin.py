@@ -35,7 +35,13 @@ class TenantMembershipAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ["user", "notifications_enabled", "updated_at"]
+    list_display = [
+        "user",
+        "display_name",
+        "notifications_enabled",
+        "mention_notifications_enabled",
+        "updated_at",
+    ]
     search_fields = ["user__username", "user__email"]
 
 

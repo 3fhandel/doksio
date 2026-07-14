@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
-from doksio.accounts.models import Notification, TenantMembership
+from doksio.accounts.models import Notification, TenantMembership, UserProfile
 from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
 from doksio.documents.models import (
@@ -1108,6 +1108,48 @@ def test_add_document_comment_mentions_tenant_user_and_notifies():
     assert notification.document_comment == comment
     assert not Notification.objects.filter(recipient=author).exists()
     assert not Notification.objects.filter(recipient=other_tenant_user).exists()
+
+
+@pytest.mark.django_db
+def test_add_document_comment_respects_disabled_mention_notifications():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    author = get_user_model().objects.create_user(username="alice")
+    mentioned_user = get_user_model().objects.create_user(username="bob")
+    UserProfile.objects.create(
+        user=mentioned_user,
+        notifications_enabled=True,
+        mention_notifications_enabled=False,
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=author,
+        role=roles["member"],
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=mentioned_user,
+        role=roles["member"],
+    )
+    document, _document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Invoice 4711",
+        space=space,
+        file_obj=BytesIO(b"invoice content"),
+        original_filename="invoice.pdf",
+        content_type="application/pdf",
+        created_by=author,
+    ).execute()
+
+    comment = AddDocumentComment(
+        document=document,
+        body="Bitte @bob prüfen.",
+        actor=author,
+    ).execute()
+
+    assert list(comment.mentioned_users.all()) == [mentioned_user]
+    assert not Notification.objects.filter(recipient=mentioned_user).exists()
 
 
 @pytest.mark.django_db

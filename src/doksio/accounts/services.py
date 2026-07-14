@@ -107,6 +107,9 @@ class AddTenantMember:
     role: TenantRole | None = None
     roles: list[TenantRole] | None = None
     email: str = ""
+    display_name: str = ""
+    first_name: str = ""
+    last_name: str = ""
     password: str = ""
     actor: get_user_model() | None = None
 
@@ -123,6 +126,8 @@ class AddTenantMember:
             username=self.username,
             defaults={
                 "email": self.email,
+                "first_name": self.first_name,
+                "last_name": self.last_name,
                 "is_staff": False,
                 "is_superuser": False,
             },
@@ -135,11 +140,22 @@ class AddTenantMember:
             if self.email and user.email != self.email:
                 user.email = self.email
                 update_fields.append("email")
+            if self.first_name != user.first_name:
+                user.first_name = self.first_name
+                update_fields.append("first_name")
+            if self.last_name != user.last_name:
+                user.last_name = self.last_name
+                update_fields.append("last_name")
             if self.password:
                 user.set_password(self.password)
                 update_fields.append("password")
             if update_fields:
                 user.save(update_fields=update_fields)
+        if self.display_name:
+            profile, _created = UserProfile.objects.get_or_create(user=user)
+            if profile.display_name != self.display_name:
+                profile.display_name = self.display_name
+                profile.save(update_fields=["display_name", "updated_at"])
 
         primary_role = roles[0]
         membership, created = TenantMembership.objects.get_or_create(
@@ -190,6 +206,9 @@ class UpdateTenantMembership:
     role: TenantRole | None = None
     roles: list[TenantRole] | None = None
     email: str = ""
+    display_name: str = ""
+    first_name: str = ""
+    last_name: str = ""
     password: str = ""
     actor: get_user_model() | None = None
 
@@ -210,11 +229,21 @@ class UpdateTenantMembership:
         if self.email != user.email:
             user.email = self.email
             user_update_fields.append("email")
+        if self.first_name != user.first_name:
+            user.first_name = self.first_name
+            user_update_fields.append("first_name")
+        if self.last_name != user.last_name:
+            user.last_name = self.last_name
+            user_update_fields.append("last_name")
         if self.password:
             user.set_password(self.password)
             user_update_fields.append("password")
         if user_update_fields:
             user.save(update_fields=user_update_fields)
+        profile, _created = UserProfile.objects.get_or_create(user=user)
+        if profile.display_name != self.display_name:
+            profile.display_name = self.display_name
+            profile.save(update_fields=["display_name", "updated_at"])
 
         self.membership.role = roles[0]
         self.membership.is_active = self.is_active
@@ -238,6 +267,7 @@ class UpdateTenantMembership:
                 "previous_role_id": previous_role_id,
                 "is_active": self.membership.is_active,
                 "previous_active": previous_active,
+                "display_name": profile.display_name,
             },
         ).execute()
 
@@ -445,6 +475,12 @@ class CreateNotification:
     def execute(self) -> Notification | None:
         profile = UserProfile.objects.filter(user=self.recipient).first()
         if profile is not None and not profile.notifications_enabled:
+            return None
+        if (
+            profile is not None
+            and self.notification_type == Notification.Type.DOCUMENT_COMMENT_MENTION
+            and not profile.mention_notifications_enabled
+        ):
             return None
 
         notification, _created = Notification.objects.get_or_create(

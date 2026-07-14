@@ -22,11 +22,35 @@
         <div class="alert alert-danger">{{ form.non_field_errors }}</div>
       {% endif %}
       <div class="row g-3">
+        <div class="col-12">
+          <h3 class="h6 mb-0">Profil</h3>
+        </div>
         {% if form.username %}
           <div class="col-md-6">
             <label class="form-label" for="{{ form.username.id_for_label }}">Benutzername</label>
             {{ form.username }}
             {{ form.username.errors }}
+          </div>
+        {% endif %}
+        {% if form.display_name %}
+          <div class="col-md-6">
+            <label class="form-label" for="{{ form.display_name.id_for_label }}">Anzeigename</label>
+            {{ form.display_name }}
+            {{ form.display_name.errors }}
+          </div>
+        {% endif %}
+        {% if form.first_name %}
+          <div class="col-md-6">
+            <label class="form-label" for="{{ form.first_name.id_for_label }}">Vorname</label>
+            {{ form.first_name }}
+            {{ form.first_name.errors }}
+          </div>
+        {% endif %}
+        {% if form.last_name %}
+          <div class="col-md-6">
+            <label class="form-label" for="{{ form.last_name.id_for_label }}">Nachname</label>
+            {{ form.last_name }}
+            {{ form.last_name.errors }}
           </div>
         {% endif %}
         {% if form.email %}
@@ -46,6 +70,9 @@
             {{ form.password.errors }}
           </div>
         {% endif %}
+        <div class="col-12">
+          <h3 class="h6 mb-0 mt-2">Rollen und Zugriff</h3>
+        </div>
         <div class="col-md-6">
           <div class="metadata-label mb-2">Rollen</div>
           {% for checkbox in form.roles %}

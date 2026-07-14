@@ -219,6 +219,11 @@ class UserProfileForm(forms.Form):
         required=False,
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
+    mention_notifications_enabled = forms.BooleanField(
+        label="Benachrichtigung, wenn ich erwähnt wurde",
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
 
     def __init__(self, *args, profile: UserProfile, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -250,6 +255,9 @@ class UserProfileForm(forms.Form):
             self.initial["last_name"] = self.user.last_name
             self.initial["email"] = self.user.email
             self.initial["notifications_enabled"] = profile.notifications_enabled
+            self.initial["mention_notifications_enabled"] = (
+                profile.mention_notifications_enabled
+            )
 
     def clean(self) -> dict:
         cleaned_data = super().clean()
@@ -326,6 +334,24 @@ class TenantMembershipCreateForm(forms.Form):
         required=False,
         widget=forms.EmailInput(attrs={"class": "form-control"}),
     )
+    display_name = forms.CharField(
+        label="Anzeigename",
+        max_length=150,
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control"}),
+    )
+    first_name = forms.CharField(
+        label="Vorname",
+        max_length=150,
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control"}),
+    )
+    last_name = forms.CharField(
+        label="Nachname",
+        max_length=150,
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control"}),
+    )
     password = forms.CharField(
         label="Passwort",
         required=False,
@@ -377,6 +403,24 @@ class TenantMembershipCreateForm(forms.Form):
 
 
 class TenantMembershipUpdateForm(forms.Form):
+    display_name = forms.CharField(
+        label="Anzeigename",
+        max_length=150,
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control form-control-sm"}),
+    )
+    first_name = forms.CharField(
+        label="Vorname",
+        max_length=150,
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control form-control-sm"}),
+    )
+    last_name = forms.CharField(
+        label="Nachname",
+        max_length=150,
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control form-control-sm"}),
+    )
     email = forms.EmailField(
         label="E-Mail",
         required=False,
