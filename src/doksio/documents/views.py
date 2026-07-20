@@ -1808,6 +1808,22 @@ def document_detail(
     ).exists()
     comments = list(document.comments.all())
     share_attachment_file = _document_original_file(document)
+    share_can_open_mail_client = (
+        share_attachment_file is not None
+        and can_download_document_file(request.user, share_attachment_file)
+    )
+    share_attachment_download_url = ""
+    if share_can_open_mail_client and share_attachment_file is not None:
+        share_attachment_download_url = (
+            reverse(
+                "documents:download",
+                kwargs={
+                    "tenant_slug": tenant.slug,
+                    "file_id": share_attachment_file.id,
+                },
+            )
+            + "?inline=1"
+        )
     share_can_send_attachment = (
         share_attachment_file is not None
         and can_download_document_file(request.user, share_attachment_file)
@@ -1830,6 +1846,8 @@ def document_detail(
             "metadata_form": metadata_form,
             "share_attachment_form": share_attachment_form,
             "share_attachment_file": share_attachment_file,
+            "share_attachment_download_url": share_attachment_download_url,
+            "share_can_open_mail_client": share_can_open_mail_client,
             "share_can_send_attachment": share_can_send_attachment,
             "share_attachment_modal_open": share_attachment_modal_open,
             "document_share_url": document_share_url,

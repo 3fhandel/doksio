@@ -1269,6 +1269,51 @@ def test_document_detail_can_send_original_file_as_email_attachment(
 
 
 @pytest.mark.django_db
+def test_document_detail_offers_native_share_with_original_attachment(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    document, document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Invoice 4711",
+        space=space,
+        file_obj=BytesIO(b"invoice content"),
+        original_filename="invoice.pdf",
+        content_type="application/pdf",
+    ).execute()
+    client.force_login(user)
+
+    detail_response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        )
+    )
+    content = detail_response.content.decode()
+    expected_file_url = (
+        reverse(
+            "documents:download",
+            kwargs={"tenant_slug": tenant.slug, "file_id": document_file.id},
+        )
+        + "?inline=1"
+    )
+    assert "Über System teilen" in content
+    assert "data-share-document-file" in content
+    assert f'data-share-file-url="{expected_file_url}"' in content
+    assert 'data-share-file-name="invoice.pdf"' in content
+    assert 'data-share-file-type="application/pdf"' in content
+
+
+@pytest.mark.django_db
 def test_document_detail_shows_review_assist_without_document_box_setting(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(

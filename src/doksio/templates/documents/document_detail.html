@@ -39,6 +39,21 @@
                   Mail mit Link
                 </a>
               </li>
+              <li>
+                <button
+                  class="dropdown-item{% if not share_can_open_mail_client %} disabled{% endif %}"
+                  type="button"
+                  data-share-document-file
+                  data-share-file-url="{{ share_attachment_download_url }}"
+                  data-share-file-name="{{ share_attachment_file.original_filename|default:'' }}"
+                  data-share-file-type="{{ share_attachment_file.content_type|default:'application/octet-stream' }}"
+                  data-share-title="Doksio Dokument: {{ document.title }}"
+                  data-share-text="Link zum Dokument: {{ document_share_url }}"
+                  {% if not share_can_open_mail_client %}aria-disabled="true" disabled{% endif %}
+                >
+                  Über System teilen
+                </button>
+              </li>
               <li><hr class="dropdown-divider"></li>
               <li>
                 <button class="dropdown-item{% if not share_can_send_attachment %} disabled{% endif %}" type="button" data-bs-toggle="modal" data-bs-target="#documentShareAttachmentModal"{% if not share_can_send_attachment %} aria-disabled="true" disabled{% endif %}>
@@ -651,6 +666,46 @@
           }, 1600);
         } catch {
           window.prompt("Link zum Dokument", shareUrl);
+        }
+      });
+    });
+    document.querySelectorAll("[data-share-document-file]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const fileUrl = button.getAttribute("data-share-file-url");
+        const fileName = button.getAttribute("data-share-file-name") || "doksio-dokument";
+        const fileType = button.getAttribute("data-share-file-type") || "application/octet-stream";
+        const title = button.getAttribute("data-share-title") || "Doksio Dokument";
+        const text = button.getAttribute("data-share-text") || "";
+        const unsupportedMessage = "Dieser Browser kann Dateien nicht über das System teilen. Nutze alternativ \"Mail mit Anhang\", damit Doksio die Mail versendet.";
+
+        if (!fileUrl || !navigator.share || !navigator.canShare || typeof File === "undefined") {
+          window.alert(unsupportedMessage);
+          return;
+        }
+
+        const originalText = button.textContent;
+        button.disabled = true;
+        button.textContent = "Bereite Anhang vor...";
+        try {
+          const response = await fetch(fileUrl, { credentials: "same-origin" });
+          if (!response.ok) {
+            throw new Error("download_failed");
+          }
+          const blob = await response.blob();
+          const file = new File([blob], fileName, { type: fileType || blob.type });
+          const sharePayload = { title, text, files: [file] };
+          if (!navigator.canShare(sharePayload)) {
+            window.alert(unsupportedMessage);
+            return;
+          }
+          await navigator.share(sharePayload);
+        } catch (error) {
+          if (!error || error.name !== "AbortError") {
+            window.alert("Der Anhang konnte nicht an das System übergeben werden.");
+          }
+        } finally {
+          button.disabled = false;
+          button.textContent = originalText;
         }
       });
     });
