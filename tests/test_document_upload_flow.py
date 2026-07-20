@@ -644,6 +644,112 @@ def test_document_import_batch_list_shows_open_batches(client):
 
 
 @pytest.mark.django_db
+def test_document_import_batch_detail_renders_staged_file_preview(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    batch = DocumentImportBatch.objects.create(
+        tenant=tenant,
+        title="Offener Stapel",
+        created_by=user,
+    )
+    storage_key = "tests/import-batches/preview.pdf"
+    default_storage.delete(storage_key)
+    storage_key = default_storage.save(
+        storage_key,
+        SimpleUploadedFile("preview.pdf", b"%PDF-1.4\npreview"),
+    )
+    item = DocumentImportBatchItem.objects.create(
+        tenant=tenant,
+        batch=batch,
+        source_storage_key=storage_key,
+        original_filename="preview.pdf",
+        content_type="application/pdf",
+        byte_size=16,
+    )
+    client.force_login(user)
+
+    response = client.get(
+        reverse(
+            "documents:import_batch_detail",
+            kwargs={"tenant_slug": tenant.slug, "batch_id": batch.id},
+        )
+    )
+
+    preview_url = reverse(
+        "documents:import_batch_item_preview",
+        kwargs={
+            "tenant_slug": tenant.slug,
+            "batch_id": batch.id,
+            "item_id": item.id,
+        },
+    )
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "import-batch-preview" in content
+    assert preview_url in content
+    assert "preview.pdf" in content
+
+
+@pytest.mark.django_db
+def test_document_import_batch_item_preview_returns_staged_file(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    batch = DocumentImportBatch.objects.create(
+        tenant=tenant,
+        title="Offener Stapel",
+        created_by=user,
+    )
+    storage_key = "tests/import-batches/inline.pdf"
+    default_storage.delete(storage_key)
+    storage_key = default_storage.save(
+        storage_key,
+        SimpleUploadedFile("inline.pdf", b"%PDF-1.4\ninline"),
+    )
+    item = DocumentImportBatchItem.objects.create(
+        tenant=tenant,
+        batch=batch,
+        source_storage_key=storage_key,
+        original_filename="inline.pdf",
+        content_type="application/pdf",
+        byte_size=15,
+    )
+    client.force_login(user)
+
+    response = client.get(
+        reverse(
+            "documents:import_batch_item_preview",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "batch_id": batch.id,
+                "item_id": item.id,
+            },
+        )
+    )
+
+    assert response.status_code == 200
+    assert response["Content-Type"] == "application/pdf"
+    assert b"".join(response.streaming_content) == b"%PDF-1.4\ninline"
+
+
+@pytest.mark.django_db
 def test_document_import_batch_discard_deletes_staged_files(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()

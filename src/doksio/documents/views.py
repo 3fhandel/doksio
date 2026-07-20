@@ -12,6 +12,7 @@ from django.core.mail import EmailMessage, get_connection
 from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.http import (
     FileResponse,
+    Http404,
     HttpRequest,
     HttpResponse,
     HttpResponseNotAllowed,
@@ -1371,6 +1372,39 @@ def _batch_item_forms(
     return forms
 
 
+def _batch_preview_kind(item: DocumentImportBatchItem | None) -> str:
+    if item is None:
+        return ""
+    if item.content_type in PDF_PREVIEW_CONTENT_TYPES:
+        return "pdf"
+    if item.content_type in BROWSER_IMAGE_PREVIEW_CONTENT_TYPES:
+        return "image"
+    return ""
+
+
+def _selected_batch_preview_item(
+    request: HttpRequest,
+    batch: DocumentImportBatch,
+) -> DocumentImportBatchItem | None:
+    items = list(
+        batch.items.select_related("target_space").filter(
+            status__in=[
+                DocumentImportBatchItem.Status.STAGED,
+                DocumentImportBatchItem.Status.ERROR,
+                DocumentImportBatchItem.Status.SKIPPED,
+            ],
+        )
+    )
+    if not items:
+        return None
+    preview_item_id = request.GET.get("preview")
+    if preview_item_id:
+        for item in items:
+            if str(item.id) == preview_item_id:
+                return item
+    return items[0]
+
+
 def document_import_batch_detail(
     request: HttpRequest,
     tenant_slug: str,
@@ -1391,6 +1425,7 @@ def document_import_batch_detail(
         tenant=tenant,
     )
     item_forms = _batch_item_forms(request=request, tenant=tenant, batch=batch)
+    preview_item = _selected_batch_preview_item(request, batch)
 
     if request.method == "POST":
         if batch.status != DocumentImportBatch.Status.OPEN:
@@ -1464,6 +1499,7 @@ def document_import_batch_detail(
             )
 
     item_forms = _batch_item_forms(request=request, tenant=tenant, batch=batch)
+    preview_item = _selected_batch_preview_item(request, batch)
     status_counts = batch.items.values("status").annotate(total=Count("id"))
     counts_by_status = {row["status"]: row["total"] for row in status_counts}
     return render(
@@ -1473,9 +1509,44 @@ def document_import_batch_detail(
             "tenant": tenant,
             "batch": batch,
             "item_forms": item_forms,
+            "preview_item": preview_item,
+            "preview_kind": _batch_preview_kind(preview_item),
             "counts_by_status": counts_by_status,
             "can_manage_settings": can_administer_tenant(request.user, tenant),
         },
+    )
+
+
+def document_import_batch_item_preview(
+    request: HttpRequest,
+    tenant_slug: str,
+    batch_id: int,
+    item_id: int,
+) -> FileResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None:
+        raise PermissionDenied
+    if not can_batch_import_documents(request.user, tenant):
+        raise PermissionDenied
+
+    item = get_object_or_404(
+        DocumentImportBatchItem.objects.select_related("batch"),
+        id=item_id,
+        batch_id=batch_id,
+        tenant=tenant,
+    )
+    if not default_storage.exists(item.source_storage_key):
+        raise Http404("Staging-Datei existiert nicht mehr.")
+
+    file_handle = default_storage.open(item.source_storage_key, "rb")
+    return FileResponse(
+        file_handle,
+        as_attachment=False,
+        filename=item.original_filename,
+        content_type=item.content_type,
     )
 
 

@@ -33,6 +33,14 @@ urlpatterns = [
         name="import_batch_detail",
     ),
     path(
+        (
+            "t/<slug:tenant_slug>/documents/import-batches/<int:batch_id>/"
+            "items/<int:item_id>/preview/"
+        ),
+        views.document_import_batch_item_preview,
+        name="import_batch_item_preview",
+    ),
+    path(
         "t/<slug:tenant_slug>/documents/import-batches/<int:batch_id>/discard/",
         views.document_import_batch_discard,
         name="import_batch_discard",

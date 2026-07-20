@@ -30,100 +30,140 @@
         </div>
       </div>
 
-      <form method="post" class="app-card p-0">
-        {% csrf_token %}
-        <div class="table-responsive">
-          <table class="table table-sm align-middle mb-0">
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th>Datei</th>
-                <th>Vorschlag</th>
-                <th style="min-width: 18rem;">Zielbox</th>
-                <th>Überspringen</th>
-                <th>Ergebnis</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for item, form in item_forms %}
+      <div class="import-batch-workspace">
+        <form method="post" class="app-card p-0">
+          {% csrf_token %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
                 <tr>
-                  <td>
-                    {% if item.status == "imported" %}
-                      <span class="badge text-bg-success">{{ item.get_status_display }}</span>
-                    {% elif item.status == "duplicate" %}
-                      <span class="badge text-bg-warning">{{ item.get_status_display }}</span>
-                    {% elif item.status == "error" %}
-                      <span class="badge text-bg-danger">{{ item.get_status_display }}</span>
-                    {% elif item.status == "skipped" %}
-                      <span class="badge text-bg-secondary">{{ item.get_status_display }}</span>
-                    {% else %}
-                      <span class="badge text-bg-light">{{ item.get_status_display }}</span>
-                    {% endif %}
-                  </td>
-                  <td>
-                    <div class="fw-medium">{{ item.original_filename }}</div>
-                    <div class="small text-secondary">{{ item.content_type }} · {{ item.byte_size|filesizeformat }}</div>
-                  </td>
-                  <td>
-                    {% if item.suggested_space %}
-                      <div>{{ item.suggested_space.path }}</div>
-                      {% if item.suggestion_reason %}
-                        <div class="small text-secondary">{{ item.suggestion_reason }}</div>
+                  <th>Status</th>
+                  <th>Datei</th>
+                  <th>Vorschlag</th>
+                  <th style="min-width: 18rem;">Zielbox</th>
+                  <th>Überspringen</th>
+                  <th>Ergebnis</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item, form in item_forms %}
+                  <tr{% if preview_item and preview_item.id == item.id %} class="table-primary"{% endif %}>
+                    <td>
+                      {% if item.status == "imported" %}
+                        <span class="badge text-bg-success">{{ item.get_status_display }}</span>
+                      {% elif item.status == "duplicate" %}
+                        <span class="badge text-bg-warning">{{ item.get_status_display }}</span>
+                      {% elif item.status == "error" %}
+                        <span class="badge text-bg-danger">{{ item.get_status_display }}</span>
+                      {% elif item.status == "skipped" %}
+                        <span class="badge text-bg-secondary">{{ item.get_status_display }}</span>
+                      {% else %}
+                        <span class="badge text-bg-light">{{ item.get_status_display }}</span>
                       {% endif %}
-                    {% else %}
-                      <span class="text-secondary">Kein Vorschlag</span>
-                    {% endif %}
-                  </td>
-                  <td>
-                    {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
-                      {{ form.target_space }}
-                      {{ form.target_space.errors }}
-                    {% elif item.imported_document %}
-                      <a href="{% url 'documents:detail' tenant.slug item.imported_document.id %}">{{ item.imported_document.title }}</a>
-                    {% else %}
-                      <span class="text-secondary">-</span>
-                    {% endif %}
-                  </td>
-                  <td>
-                    {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
-                      <div class="form-check mb-0">
-                        {{ form.skip }}
-                      </div>
-                    {% else %}
-                      <span class="text-secondary">-</span>
-                    {% endif %}
-                  </td>
-                  <td class="small">
-                    {% if item.message %}
-                      {{ item.message }}
-                    {% elif item.target_space %}
-                      Ziel: {{ item.target_space.path }}
-                    {% else %}
-                      <span class="text-secondary">Bitte Zielbox wählen</span>
-                    {% endif %}
-                  </td>
-                </tr>
-              {% empty %}
-                <tr>
-                  <td colspan="6" class="text-center text-secondary py-4">Dieser Stapel enthält keine Dateien.</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        {% if batch.status == "open" %}
-          <div class="d-flex justify-content-between gap-2 border-top p-3">
-            <button class="btn btn-outline-danger" type="submit" formaction="{% url 'documents:import_batch_discard' tenant.slug batch.id %}" onclick="return confirm('Diesen Stapelimport verwerfen und alle noch nicht importierten Staging-Dateien löschen?');">Stapel verwerfen</button>
-            <div class="d-flex gap-2">
-              <button class="btn btn-outline-secondary" type="submit" name="action" value="save">Zuordnung speichern</button>
-              <button class="btn btn-primary" type="submit" name="action" value="finalize">
-                {% include "includes/icons.html" with icon="package" %}
-                <span class="ms-1">Import abschließen</span>
-              </button>
-            </div>
+                    </td>
+                    <td>
+                      <div class="fw-medium">{{ item.original_filename }}</div>
+                      <div class="small text-secondary">{{ item.content_type }} · {{ item.byte_size|filesizeformat }}</div>
+                      {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
+                        <a class="small" href="{% url 'documents:import_batch_detail' tenant.slug batch.id %}?preview={{ item.id }}">Vorschau</a>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if item.suggested_space %}
+                        <div>{{ item.suggested_space.path }}</div>
+                        {% if item.suggestion_reason %}
+                          <div class="small text-secondary">{{ item.suggestion_reason }}</div>
+                        {% endif %}
+                      {% else %}
+                        <span class="text-secondary">Kein Vorschlag</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
+                        {{ form.target_space }}
+                        {{ form.target_space.errors }}
+                      {% elif item.imported_document %}
+                        <a href="{% url 'documents:detail' tenant.slug item.imported_document.id %}">{{ item.imported_document.title }}</a>
+                      {% else %}
+                        <span class="text-secondary">-</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
+                        <div class="form-check mb-0">
+                          {{ form.skip }}
+                        </div>
+                      {% else %}
+                        <span class="text-secondary">-</span>
+                      {% endif %}
+                    </td>
+                    <td class="small">
+                      {% if item.message %}
+                        {{ item.message }}
+                      {% elif item.target_space %}
+                        Ziel: {{ item.target_space.path }}
+                      {% else %}
+                        <span class="text-secondary">Bitte Zielbox wählen</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% empty %}
+                  <tr>
+                    <td colspan="6" class="text-center text-secondary py-4">Dieser Stapel enthält keine Dateien.</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
           </div>
-        {% endif %}
-      </form>
+          {% if batch.status == "open" %}
+            <div class="d-flex justify-content-between gap-2 border-top p-3">
+              <button class="btn btn-outline-danger" type="submit" formaction="{% url 'documents:import_batch_discard' tenant.slug batch.id %}" onclick="return confirm('Diesen Stapelimport verwerfen und alle noch nicht importierten Staging-Dateien löschen?');">Stapel verwerfen</button>
+              <div class="d-flex gap-2">
+                <button class="btn btn-outline-secondary" type="submit" name="action" value="save">Zuordnung speichern</button>
+                <button class="btn btn-primary" type="submit" name="action" value="finalize">
+                  {% include "includes/icons.html" with icon="package" %}
+                  <span class="ms-1">Import abschließen</span>
+                </button>
+              </div>
+            </div>
+          {% endif %}
+        </form>
+
+        <aside class="app-card import-batch-preview">
+          <div class="d-flex align-items-start justify-content-between gap-2 p-3 border-bottom">
+            <div>
+              <h2 class="h5 mb-1">Vorschau</h2>
+              {% if preview_item %}
+                <div class="small text-secondary">{{ preview_item.original_filename }}</div>
+              {% else %}
+                <div class="small text-secondary">Keine Datei ausgewählt</div>
+              {% endif %}
+            </div>
+            {% if preview_item %}
+              <a class="btn btn-sm btn-outline-secondary" href="{% url 'documents:import_batch_item_preview' tenant.slug batch.id preview_item.id %}" target="_blank" rel="noopener">Öffnen</a>
+            {% endif %}
+          </div>
+          <div class="import-batch-preview-body">
+            {% if preview_item and preview_kind == "pdf" %}
+              <iframe class="import-batch-preview-frame" src="{% url 'documents:import_batch_item_preview' tenant.slug batch.id preview_item.id %}" title="Vorschau {{ preview_item.original_filename }}"></iframe>
+            {% elif preview_item and preview_kind == "image" %}
+              <img class="import-batch-preview-image" src="{% url 'documents:import_batch_item_preview' tenant.slug batch.id preview_item.id %}" alt="{{ preview_item.original_filename }}">
+            {% elif preview_item %}
+              <div class="document-preview-empty">
+                <div>
+                  <div class="fw-medium mb-1">Keine Inline-Vorschau verfügbar</div>
+                  <div class="mb-3">Dieser Dateityp kann im Browser nicht zuverlässig direkt angezeigt werden.</div>
+                  <a class="btn btn-sm btn-outline-secondary" href="{% url 'documents:import_batch_item_preview' tenant.slug batch.id preview_item.id %}" target="_blank" rel="noopener">Datei öffnen</a>
+                </div>
+              </div>
+            {% else %}
+              <div class="document-preview-empty">
+                <div>Wähle links eine Datei für die Vorschau aus.</div>
+              </div>
+            {% endif %}
+          </div>
+        </aside>
+      </div>
     </div>
   </main>
 {% endblock %}
