@@ -56,6 +56,11 @@ urlpatterns = [
         name="core_metadata_edit",
     ),
     path(
+        "t/<slug:tenant_slug>/documents/<int:document_id>/split/",
+        views.document_split,
+        name="split",
+    ),
+    path(
         "t/<slug:tenant_slug>/documents/<int:document_id>/delete/",
         views.document_delete,
         name="delete",

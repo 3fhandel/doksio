@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import mimetypes
 import uuid
 from contextlib import suppress
@@ -1193,6 +1194,57 @@ def _is_scanned_bilevel_render(image) -> bool:
     return (blackish + whiteish) / total >= 0.97
 
 
+def pdf_page_count(document_file: DocumentFile) -> int:
+    if document_file.content_type != "application/pdf":
+        return 0
+
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        return 0
+
+    with default_storage.open(document_file.storage_key, "rb") as stored_file:
+        pdf_bytes = stored_file.read()
+
+    pdf = pdfium.PdfDocument(pdf_bytes)
+    try:
+        return len(pdf)
+    finally:
+        pdf.close()
+
+
+def _extract_pdf_pages(
+    *,
+    source_file: DocumentFile,
+    start_page: int,
+    end_page: int,
+) -> bytes:
+    try:
+        import pypdfium2 as pdfium
+    except ImportError as exc:
+        raise ValueError("PDF-Aufteilung ist nicht verfügbar.") from exc
+
+    with default_storage.open(source_file.storage_key, "rb") as stored_file:
+        pdf_bytes = stored_file.read()
+
+    source_pdf = pdfium.PdfDocument(pdf_bytes)
+    target_pdf = pdfium.PdfDocument.new()
+    try:
+        page_count = len(source_pdf)
+        if start_page < 1 or end_page < start_page or end_page > page_count:
+            raise ValueError("Ungültiger Seitenbereich.")
+        target_pdf.import_pages(
+            source_pdf,
+            pages=list(range(start_page - 1, end_page)),
+        )
+        output = io.BytesIO()
+        target_pdf.save(output)
+        return output.getvalue()
+    finally:
+        target_pdf.close()
+        source_pdf.close()
+
+
 @dataclass(frozen=True)
 class CreateDocumentFromUpload:
     tenant: Tenant
@@ -1403,6 +1455,131 @@ class CreateDocumentFromUpload:
                 "metadata": metadata_from_einvoice,
             },
         ).execute()
+
+
+@dataclass(frozen=True)
+class DocumentSplitPart:
+    start_page: int
+    end_page: int
+    target_space: DocumentSpace
+    title: str = ""
+
+
+@dataclass(frozen=True)
+class SplitPdfDocument:
+    document: Document
+    source_file: DocumentFile
+    parts: list[DocumentSplitPart]
+    keep_original: bool = True
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> list[Document]:
+        if self.source_file.document_id != self.document.id:
+            raise ValueError("Source file belongs to a different document.")
+        if self.source_file.content_type != "application/pdf":
+            raise ValueError("Nur PDF-Dokumente können aufgeteilt werden.")
+        if len(self.parts) < 2:
+            raise ValueError("Mindestens zwei Teildokumente sind erforderlich.")
+
+        page_count = pdf_page_count(self.source_file)
+        if page_count < 2:
+            raise ValueError("Das Dokument enthält nicht genug Seiten.")
+        self._validate_parts(page_count)
+
+        created_documents = []
+        for index, part in enumerate(self.parts, start=1):
+            extracted_pdf = _extract_pdf_pages(
+                source_file=self.source_file,
+                start_page=part.start_page,
+                end_page=part.end_page,
+            )
+            filename = self._part_filename(index=index, part=part)
+            document, _document_file = CreateDocumentFromUpload(
+                tenant=self.document.tenant,
+                title=part.title.strip() or self._part_title(index=index, part=part),
+                space=part.target_space,
+                file_obj=io.BytesIO(extracted_pdf),
+                original_filename=filename,
+                content_type="application/pdf",
+                created_by=self.actor,
+                document_date=self.document.document_date,
+            ).execute()
+            created_documents.append(document)
+            RecordAuditEvent(
+                tenant=self.document.tenant,
+                actor=self.actor,
+                event_type="document.split_part_created",
+                object_type="documents.Document",
+                object_id=str(document.id),
+                data={
+                    "source_document_id": self.document.id,
+                    "source_file_id": self.source_file.id,
+                    "part_index": index,
+                    "start_page": part.start_page,
+                    "end_page": part.end_page,
+                    "target_space_id": part.target_space.id,
+                    "target_space_path": part.target_space.path,
+                },
+            ).execute()
+
+        RecordAuditEvent(
+            tenant=self.document.tenant,
+            actor=self.actor,
+            event_type="document.split",
+            object_type="documents.Document",
+            object_id=str(self.document.id),
+            data={
+                "source_file_id": self.source_file.id,
+                "parts": [
+                    {
+                        "document_id": created_document.id,
+                        "start_page": part.start_page,
+                        "end_page": part.end_page,
+                        "target_space_id": part.target_space.id,
+                    }
+                    for created_document, part in zip(
+                        created_documents,
+                        self.parts,
+                        strict=True,
+                    )
+                ],
+                "keep_original": self.keep_original,
+            },
+        ).execute()
+
+        if not self.keep_original:
+            DeleteDocument(
+                document=self.document,
+                reason="Aufgeteilt",
+                actor=self.actor,
+            ).execute()
+
+        return created_documents
+
+    def _validate_parts(self, page_count: int) -> None:
+        expected_start = 1
+        for part in self.parts:
+            if part.target_space.tenant_id != self.document.tenant_id:
+                raise ValueError("Zielbox gehört zu einem anderen Tenant.")
+            if part.start_page != expected_start:
+                raise ValueError("Die Seitenbereiche müssen lückenlos sein.")
+            if part.end_page < part.start_page:
+                raise ValueError("Ungültiger Seitenbereich.")
+            expected_start = part.end_page + 1
+        if expected_start != page_count + 1:
+            raise ValueError("Die Seitenbereiche müssen alle Seiten abdecken.")
+
+    def _part_title(self, *, index: int, part: DocumentSplitPart) -> str:
+        return (
+            f"{self.document.title} - Teil {index} "
+            f"(S. {part.start_page}-{part.end_page})"
+        )
+
+    def _part_filename(self, *, index: int, part: DocumentSplitPart) -> str:
+        path = Path(self.source_file.original_filename)
+        stem = path.stem or f"dokument-{self.document.id}"
+        return f"{stem}-teil-{index}-seiten-{part.start_page}-{part.end_page}.pdf"
 
 
 @dataclass(frozen=True)

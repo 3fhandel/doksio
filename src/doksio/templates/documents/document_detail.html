@@ -411,28 +411,17 @@
           <section class="app-card document-compact-card document-panel">
             <h2 class="h6 mb-0">Zusammenarbeit</h2>
 
-            {% if can_use_workflows and workflow_templates_available or not open_workflow_tasks or can_delete_document %}
+            {% if can_use_workflows and workflow_templates_available %}
               <div class="document-panel-section">
                 <h3 class="document-section-title">Aktionen</h3>
-                {% if can_use_workflows and workflow_templates_available %}
-                  <form method="post">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="start_workflow">
-                    <label class="form-label" for="{{ start_workflow_form.template.id_for_label }}">Workflow starten</label>
-                    {{ start_workflow_form.template }}
-                    {{ start_workflow_form.template.errors }}
-                    <button class="btn btn-sm btn-outline-primary mt-3" type="submit">Workflow starten</button>
-                  </form>
-                {% elif not open_workflow_tasks %}
-                  <p class="text-secondary mb-0">Keine direkten Aktionen verfügbar.</p>
-                {% endif %}
-                {% if can_delete_document %}
-                  <div class="border-top mt-3 pt-3">
-                    <a class="btn btn-sm btn-outline-danger" href="{% url 'documents:delete' document.tenant.slug document.id %}?back={{ back_url|urlencode }}{% if document_nav_param %}&amp;nav={{ document_nav_param|urlencode }}{% endif %}">
-                      Dokument löschen
-                    </a>
-                  </div>
-                {% endif %}
+                <form method="post">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="start_workflow">
+                  <label class="form-label" for="{{ start_workflow_form.template.id_for_label }}">Workflow starten</label>
+                  {{ start_workflow_form.template }}
+                  {{ start_workflow_form.template.errors }}
+                  <button class="btn btn-sm btn-outline-primary mt-3" type="submit">Workflow starten</button>
+                </form>
               </div>
             {% endif %}
 
@@ -488,6 +477,26 @@
               </div>
             </div>
           </section>
+
+          {% if document_can_split or can_delete_document %}
+            <section class="app-card document-compact-card document-panel">
+              <h2 class="h6 mb-0">Verwaltung</h2>
+              <div class="document-panel-section">
+                <div class="document-admin-actions">
+                  {% if document_can_split %}
+                    <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:split' document.tenant.slug document.id %}?back={{ back_url|urlencode }}{% if document_nav_param %}&amp;nav={{ document_nav_param|urlencode }}{% endif %}">
+                      Dokument aufteilen
+                    </a>
+                  {% endif %}
+                  {% if can_delete_document %}
+                    <a class="btn btn-sm btn-outline-danger" href="{% url 'documents:delete' document.tenant.slug document.id %}?back={{ back_url|urlencode }}{% if document_nav_param %}&amp;nav={{ document_nav_param|urlencode }}{% endif %}">
+                      Dokument löschen
+                    </a>
+                  {% endif %}
+                </div>
+              </div>
+            </section>
+          {% endif %}
         </aside>
       </div>
 

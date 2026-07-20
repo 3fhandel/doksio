@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from datetime import date
 from io import BytesIO
@@ -31,6 +32,7 @@ from doksio.documents.services import (
     OptimizeDocumentBoxScans,
     SetDocumentTags,
     UpdateDocumentMetadata,
+    pdf_page_count,
 )
 from doksio.einvoices.zugferd import extract_einvoice_from_pdf
 from doksio.exports.models import ExportRun, ExportRunItem
@@ -78,6 +80,20 @@ def _bloated_scanned_pdf_bytes() -> bytes:
         draw.line((80, y_position, 1120, y_position), fill=0, width=2)
     image.convert("RGB").save(output, format="PDF", resolution=300)
     return output.getvalue()
+
+
+def _sample_pdf_bytes(page_count: int = 3) -> bytes:
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument.new()
+    try:
+        for page_number in range(page_count):
+            pdf.new_page(595 + page_number, 842)
+        output = BytesIO()
+        pdf.save(output)
+        return output.getvalue()
+    finally:
+        pdf.close()
 
 
 def _zugferd_pdf_bytes() -> bytes:
@@ -479,6 +495,9 @@ def test_document_batch_import_permission_defaults():
     assert not roles["viewer"].permissions.filter(
         code="documents.batch_import",
     ).exists()
+    assert roles["admin"].permissions.filter(code="documents.split").exists()
+    assert roles["member"].permissions.filter(code="documents.split").exists()
+    assert not roles["viewer"].permissions.filter(code="documents.split").exists()
 
 
 @pytest.mark.django_db
@@ -1311,6 +1330,195 @@ def test_document_detail_offers_native_share_with_original_attachment(client):
     assert f'data-share-file-url="{expected_file_url}"' in content
     assert 'data-share-file-name="invoice.pdf"' in content
     assert 'data-share-file-type="application/pdf"' in content
+
+
+@pytest.mark.django_db
+def test_document_detail_links_to_split_view_for_pdf_with_permission(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    document, _document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Stapelscan",
+        space=space,
+        file_obj=BytesIO(_sample_pdf_bytes(3)),
+        original_filename="stapelscan.pdf",
+        content_type="application/pdf",
+        created_by=user,
+    ).execute()
+    client.force_login(user)
+
+    response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        )
+    )
+
+    assert response.status_code == 200
+    assert "Dokument aufteilen" in response.content.decode()
+    assert reverse(
+        "documents:split",
+        kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+    ) in response.content.decode()
+
+    split_response = client.get(
+        reverse(
+            "documents:split",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        )
+    )
+    split_content = split_response.content.decode()
+    assert split_response.status_code == 200
+    assert "Seitenraster" in split_content
+    assert "data-document-split" in split_content
+    assert "Originaldokument behalten" in split_content
+
+
+@pytest.mark.django_db
+def test_document_split_creates_new_pdf_documents(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    invoices = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    personnel = CreateDocumentSpace(tenant=tenant, name="Personal").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    source_document, _source_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Stapelscan",
+        space=invoices,
+        file_obj=BytesIO(_sample_pdf_bytes(3)),
+        original_filename="stapelscan.pdf",
+        content_type="application/pdf",
+        document_date=date(2026, 7, 20),
+        created_by=user,
+    ).execute()
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:split",
+            kwargs={"tenant_slug": tenant.slug, "document_id": source_document.id},
+        ),
+        {
+            "split_payload": json.dumps(
+                [
+                    {
+                        "start_page": 1,
+                        "end_page": 1,
+                        "title": "Rechnung",
+                        "target_space_id": invoices.id,
+                    },
+                    {
+                        "start_page": 2,
+                        "end_page": 3,
+                        "title": "Personalakte",
+                        "target_space_id": personnel.id,
+                    },
+                ]
+            ),
+            "original_handling": "keep",
+        },
+    )
+
+    assert response.status_code == 302
+    created_documents = list(
+        Document.objects.filter(tenant=tenant)
+        .exclude(id=source_document.id)
+        .order_by("id")
+    )
+    assert [document.title for document in created_documents] == [
+        "Rechnung",
+        "Personalakte",
+    ]
+    assert [document.space for document in created_documents] == [invoices, personnel]
+    assert [document.document_date for document in created_documents] == [
+        date(2026, 7, 20),
+        date(2026, 7, 20),
+    ]
+    created_files = [
+        document.files.get(file_kind=DocumentFile.Kind.ORIGINAL)
+        for document in created_documents
+    ]
+    assert [pdf_page_count(document_file) for document_file in created_files] == [1, 2]
+    source_document.refresh_from_db()
+    assert source_document.status == Document.Status.ACTIVE
+    assert AuditEvent.objects.filter(
+        event_type="document.split",
+        object_id=str(source_document.id),
+        data__keep_original=True,
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_document_split_can_delete_original_after_success(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    source_document, _source_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Stapelscan",
+        space=space,
+        file_obj=BytesIO(_sample_pdf_bytes(2)),
+        original_filename="stapelscan.pdf",
+        content_type="application/pdf",
+        created_by=user,
+    ).execute()
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:split",
+            kwargs={"tenant_slug": tenant.slug, "document_id": source_document.id},
+        ),
+        {
+            "split_payload": json.dumps(
+                [
+                    {
+                        "start_page": 1,
+                        "end_page": 1,
+                        "target_space_id": space.id,
+                    },
+                    {
+                        "start_page": 2,
+                        "end_page": 2,
+                        "target_space_id": space.id,
+                    },
+                ]
+            ),
+            "original_handling": "delete",
+        },
+    )
+
+    assert response.status_code == 302
+    source_document.refresh_from_db()
+    assert source_document.status == Document.Status.DELETED
+    assert source_document.deleted_reason == "Aufgeteilt"
 
 
 @pytest.mark.django_db

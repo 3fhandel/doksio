@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Dokument aufteilen | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container-fluid px-4">
+      {% if messages %}
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+        <div>
+          <a class="text-decoration-none" href="{{ detail_url }}">&larr; Dokument</a>
+          <h1 class="h3 mt-1 mb-1">Dokument aufteilen</h1>
+          <div class="text-secondary">
+            {{ document.title }} · {{ page_count }} Seiten · {{ document.space.path }}
+          </div>
+        </div>
+      </div>
+
+      <form
+        class="document-split-layout"
+        method="post"
+        data-document-split
+        data-page-count="{{ page_count }}"
+        data-pdf-url="{% url 'documents:download' tenant.slug source_file.id %}?inline=1"
+        data-pdf-worker-url="{% static 'vendor/pdfjs/pdf.worker.min.js' %}"
+      >
+        {% csrf_token %}
+        {{ form.split_payload }}
+        {% if form.non_field_errors or form.split_payload.errors %}
+          <div class="alert alert-danger document-split-errors">
+            {{ form.non_field_errors }}
+            {{ form.split_payload.errors }}
+          </div>
+        {% endif %}
+
+        <section class="app-card document-split-preview">
+          <div class="document-split-toolbar">
+            <div>
+              <h2 class="h5 mb-1">Seitenraster</h2>
+              <div class="small text-secondary">
+                Setze Trennlinien zwischen Seiten. Jeder Abschnitt wird ein neues Dokument.
+              </div>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-clear-breaks>
+              Trennlinien zurücksetzen
+            </button>
+          </div>
+          <div class="document-split-grid" data-page-grid>
+            <div class="document-preview-empty">Seiten werden geladen...</div>
+          </div>
+        </section>
+
+        <aside class="app-card document-split-sidebar">
+          <div class="document-panel-section border-0 pt-0">
+            <h2 class="h5 mb-2">Teildokumente</h2>
+            <div class="small text-secondary mb-3">
+              Wähle pro Abschnitt die Zielbox. Titel sind optional.
+            </div>
+            <div class="document-split-parts" data-parts-list></div>
+          </div>
+
+          <div class="document-panel-section">
+            <h3 class="document-section-title">Original</h3>
+            {% for radio in form.original_handling %}
+              <div class="form-check mb-2">
+                {{ radio.tag }}
+                <label class="form-check-label" for="{{ radio.id_for_label }}">
+                  {{ radio.choice_label }}
+                </label>
+              </div>
+            {% endfor %}
+            {{ form.original_handling.errors }}
+          </div>
+
+          <div class="document-panel-section">
+            <div class="d-grid gap-2">
+              <button class="btn btn-primary" type="submit">Aufteilung erstellen</button>
+              <a class="btn btn-outline-secondary" href="{{ detail_url }}">Abbrechen</a>
+            </div>
+          </div>
+        </aside>
+
+        <template data-space-options-template>
+          {% for space in target_spaces %}
+            <option value="{{ space.id }}"{% if space.id == document.space_id %} selected{% endif %}>{{ space.path }}</option>
+          {% endfor %}
+        </template>
+      </form>
+    </div>
+  </main>
+{% endblock %}
+
+{% block extra_body %}
+  <script src="{% static 'vendor/pdfjs/pdf.min.js' %}?v=3.11.174"></script>
+  <script>
+    (() => {
+      const root = document.querySelector("[data-document-split]");
+      if (!root || !window.pdfjsLib) {
+        return;
+      }
+
+      const pageCount = Number(root.getAttribute("data-page-count"));
+      const pdfUrl = root.getAttribute("data-pdf-url");
+      const workerUrl = root.getAttribute("data-pdf-worker-url");
+      const pageGrid = root.querySelector("[data-page-grid]");
+      const partsList = root.querySelector("[data-parts-list]");
+      const payloadInput = root.querySelector("input[name='split_payload']");
+      const optionsTemplate = root.querySelector("[data-space-options-template]");
+      const breaks = new Set();
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+
+      const rangesFromBreaks = () => {
+        const sortedBreaks = Array.from(breaks).sort((a, b) => a - b);
+        let startPage = 1;
+        const ranges = [];
+        sortedBreaks.forEach((breakAfter) => {
+          ranges.push({ startPage, endPage: breakAfter });
+          startPage = breakAfter + 1;
+        });
+        ranges.push({ startPage, endPage: pageCount });
+        return ranges;
+      };
+
+      const updateParts = () => {
+        const previousValues = new Map();
+        partsList.querySelectorAll("[data-part]").forEach((part) => {
+          previousValues.set(part.getAttribute("data-range"), {
+            title: part.querySelector("[data-part-title]")?.value || "",
+            space: part.querySelector("[data-part-space]")?.value || "",
+          });
+        });
+
+        partsList.replaceChildren();
+        rangesFromBreaks().forEach((range, index) => {
+          const rangeKey = `${range.startPage}-${range.endPage}`;
+          const previous = previousValues.get(rangeKey) || {};
+          const wrapper = document.createElement("div");
+          wrapper.className = "document-split-part";
+          wrapper.dataset.part = "";
+          wrapper.dataset.range = rangeKey;
+          wrapper.innerHTML = `
+            <div class="document-split-part-header">
+              <div>
+                <div class="fw-semibold">Teil ${index + 1}</div>
+                <div class="small text-secondary">Seiten ${range.startPage}-${range.endPage}</div>
+              </div>
+              <span class="badge text-bg-light">${range.endPage - range.startPage + 1} Seiten</span>
+            </div>
+            <label class="form-label small mb-1">Titel</label>
+            <input class="form-control form-control-sm mb-2" type="text" data-part-title placeholder="Automatisch setzen">
+            <label class="form-label small mb-1">Zielbox</label>
+            <select class="form-select form-select-sm" data-part-space>${optionsTemplate.innerHTML}</select>
+          `;
+          const titleInput = wrapper.querySelector("[data-part-title]");
+          const spaceSelect = wrapper.querySelector("[data-part-space]");
+          titleInput.value = previous.title || "";
+          if (previous.space) {
+            spaceSelect.value = previous.space;
+          }
+          titleInput.addEventListener("input", syncPayload);
+          spaceSelect.addEventListener("change", syncPayload);
+          partsList.appendChild(wrapper);
+        });
+        syncPayload();
+      };
+
+      const syncPayload = () => {
+        const ranges = rangesFromBreaks();
+        const parts = Array.from(partsList.querySelectorAll("[data-part]"));
+        payloadInput.value = JSON.stringify(ranges.map((range, index) => ({
+          start_page: range.startPage,
+          end_page: range.endPage,
+          title: parts[index]?.querySelector("[data-part-title]")?.value || "",
+          target_space_id: parts[index]?.querySelector("[data-part-space]")?.value || "",
+        })));
+      };
+
+      const toggleBreak = (button, pageNumber) => {
+        if (breaks.has(pageNumber)) {
+          breaks.delete(pageNumber);
+          button.classList.remove("is-active");
+          button.setAttribute("aria-pressed", "false");
+        } else {
+          breaks.add(pageNumber);
+          button.classList.add("is-active");
+          button.setAttribute("aria-pressed", "true");
+        }
+        updateParts();
+      };
+
+      const renderPdf = async () => {
+        const pdf = await window.pdfjsLib.getDocument(pdfUrl).promise;
+        pageGrid.replaceChildren();
+        for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+          const page = await pdf.getPage(pageNumber);
+          const viewport = page.getViewport({ scale: 0.22 });
+          const item = document.createElement("div");
+          item.className = "document-split-page";
+          const canvas = document.createElement("canvas");
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          await page.render({
+            canvasContext: canvas.getContext("2d"),
+            viewport,
+          }).promise;
+          item.appendChild(canvas);
+          const label = document.createElement("div");
+          label.className = "document-split-page-label";
+          label.textContent = `Seite ${pageNumber}`;
+          item.appendChild(label);
+          if (pageNumber < pdf.numPages) {
+            const button = document.createElement("button");
+            button.className = "document-split-break";
+            button.type = "button";
+            button.setAttribute("aria-pressed", "false");
+            button.textContent = "Trennung";
+            button.addEventListener("click", () => toggleBreak(button, pageNumber));
+            item.appendChild(button);
+          }
+          pageGrid.appendChild(item);
+        }
+        updateParts();
+      };
+
+      root.querySelector("[data-clear-breaks]").addEventListener("click", () => {
+        breaks.clear();
+        pageGrid.querySelectorAll(".document-split-break").forEach((button) => {
+          button.classList.remove("is-active");
+          button.setAttribute("aria-pressed", "false");
+        });
+        updateParts();
+      });
+
+      root.addEventListener("submit", (event) => {
+        syncPayload();
+        if (breaks.size === 0) {
+          event.preventDefault();
+          window.alert("Setze mindestens eine Trennlinie.");
+        }
+      });
+
+      renderPdf().catch(() => {
+        pageGrid.replaceChildren();
+        const error = document.createElement("div");
+        error.className = "document-preview-empty";
+        error.textContent = "Die Seitenvorschau konnte nicht geladen werden.";
+        pageGrid.appendChild(error);
+      });
+    })();
+  </script>
+{% endblock %}

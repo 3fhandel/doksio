@@ -55,6 +55,7 @@ from doksio.documents.forms import (
     DocumentSpaceEmptyForm,
     DocumentSpaceForm,
     DocumentSpaceUpdateForm,
+    DocumentSplitForm,
     DocumentTagForm,
     DocumentUploadForm,
 )
@@ -76,6 +77,7 @@ from doksio.documents.policies import (
     can_manage_document_spaces,
     can_manage_members,
     can_manage_roles,
+    can_split_document,
     can_upload_document,
     can_view_audit,
     can_view_document,
@@ -92,14 +94,17 @@ from doksio.documents.services import (
     DeleteDocument,
     DeleteDocumentSpace,
     DiscardDocumentImportBatch,
+    DocumentSplitPart,
     DuplicateDocumentError,
     EmptyDocumentSpace,
     FinalizeDocumentImportBatch,
     SetDocumentTags,
+    SplitPdfDocument,
     UpdateDocumentCoreMetadata,
     UpdateDocumentMetadata,
     UpdateDocumentMetadataField,
     UpdateDocumentSpace,
+    pdf_page_count,
 )
 from doksio.ingestion.forms import ImportSourceForm, TenantSmtpSettingsForm
 from doksio.ingestion.models import ImportJob, ImportSource, TenantSmtpSettings
@@ -1829,6 +1834,11 @@ def document_detail(
         and can_download_document_file(request.user, share_attachment_file)
         and TenantSmtpSettings.objects.filter(tenant=tenant, is_active=True).exists()
     )
+    document_can_split = (
+        share_attachment_file is not None
+        and share_attachment_file.content_type == "application/pdf"
+        and can_split_document(request.user, document)
+    )
 
     return render(
         request,
@@ -1850,6 +1860,7 @@ def document_detail(
             "share_can_open_mail_client": share_can_open_mail_client,
             "share_can_send_attachment": share_can_send_attachment,
             "share_attachment_modal_open": share_attachment_modal_open,
+            "document_can_split": document_can_split,
             "document_share_url": document_share_url,
             "share_mailto_url": share_mailto_url,
             "tag_form": tag_form,
@@ -1989,6 +2000,113 @@ def document_core_metadata_edit(
             "tenant": tenant,
             "document": document,
             "form": form,
+            "detail_url": detail_url,
+            "can_manage_settings": can_administer_tenant(request.user, tenant),
+        },
+    )
+
+
+def document_split(
+    request: HttpRequest,
+    tenant_slug: str,
+    document_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None:
+        raise PermissionDenied
+
+    document = get_object_or_404(
+        Document.objects.select_related("space").prefetch_related("files"),
+        id=document_id,
+        tenant=tenant,
+        status=Document.Status.ACTIVE,
+    )
+    if not can_split_document(request.user, document):
+        raise PermissionDenied
+
+    source_file = _document_original_file(document)
+    if source_file is None or source_file.content_type != "application/pdf":
+        raise Http404("Dieses Dokument kann nicht aufgeteilt werden.")
+
+    page_count = pdf_page_count(source_file)
+    if page_count < 2:
+        messages.warning(request, "Dieses PDF enthält nicht genug Seiten.")
+        return redirect(
+            "documents:detail",
+            tenant_slug=tenant.slug,
+            document_id=document.id,
+        )
+
+    target_spaces = filter_document_spaces_for_user(
+        DocumentSpace.objects.filter(
+            tenant=tenant,
+            is_active=True,
+            deleted_at__isnull=True,
+        ),
+        request.user,
+        tenant,
+        TenantPermissions.DOCUMENTS_UPLOAD,
+    ).order_by("path")
+    if not target_spaces.exists():
+        raise PermissionDenied
+
+    detail_url = _document_detail_context_url(
+        tenant_slug=tenant.slug,
+        document_id=document.id,
+        back_url=_safe_return_url(
+            request,
+            reverse("documents:list", kwargs={"tenant_slug": tenant.slug}),
+            value=request.GET.get("back"),
+        ),
+        nav_param=request.GET.get("nav", ""),
+    )
+    form = DocumentSplitForm(
+        request.POST or None,
+        tenant=tenant,
+        user=request.user,
+        page_count=page_count,
+        initial={"original_handling": "keep"},
+    )
+    if request.method == "POST" and form.is_valid():
+        parts = [
+            DocumentSplitPart(
+                start_page=item["start_page"],
+                end_page=item["end_page"],
+                target_space=item["target_space"],
+                title=item["title"],
+            )
+            for item in form.cleaned_data["split_payload"]
+        ]
+        created_documents = SplitPdfDocument(
+            document=document,
+            source_file=source_file,
+            parts=parts,
+            keep_original=form.cleaned_data["original_handling"] == "keep",
+            actor=request.user,
+        ).execute()
+        messages.success(
+            request,
+            f"{len(created_documents)} Teildokumente wurden erstellt.",
+        )
+        return redirect(
+            "documents:detail",
+            tenant_slug=tenant.slug,
+            document_id=created_documents[0].id,
+        )
+
+    return render(
+        request,
+        "documents/document_split.html",
+        {
+            "tenant": tenant,
+            "document": document,
+            "source_file": source_file,
+            "page_count": page_count,
+            "form": form,
+            "target_spaces": target_spaces,
             "detail_url": detail_url,
             "can_manage_settings": can_administer_tenant(request.user, tenant),
         },

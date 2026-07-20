@@ -237,6 +237,17 @@ def can_delete_document(
     )
 
 
+def can_split_document(
+    user: AbstractBaseUser | AnonymousUser,
+    document: Document,
+) -> bool:
+    return has_document_permission(
+        user,
+        document,
+        TenantPermissions.DOCUMENTS_SPLIT,
+    )
+
+
 def can_manage_members(
     user: AbstractBaseUser | AnonymousUser,
     tenant: Tenant,

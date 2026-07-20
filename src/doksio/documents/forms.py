@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from django import forms
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.utils.text import slugify
@@ -224,6 +226,98 @@ class DocumentShareAttachmentForm(forms.Form):
         required=False,
         widget=forms.Textarea(attrs={"class": "form-control", "rows": 4}),
     )
+
+
+class DocumentSplitForm(forms.Form):
+    ORIGINAL_HANDLING_CHOICES = [
+        ("keep", "Originaldokument behalten"),
+        ("delete", "Originaldokument nach erfolgreicher Aufteilung löschen"),
+    ]
+
+    def __init__(
+        self,
+        *args,
+        tenant: Tenant,
+        user: AbstractBaseUser | AnonymousUser,
+        page_count: int,
+        **kwargs,
+    ) -> None:
+        self.tenant = tenant
+        self.user = user
+        self.page_count = page_count
+        super().__init__(*args, **kwargs)
+        self.target_spaces = filter_document_spaces_for_user(
+            DocumentSpace.objects.filter(
+                tenant=tenant,
+                is_active=True,
+                deleted_at__isnull=True,
+            ),
+            user,
+            tenant,
+            TenantPermissions.DOCUMENTS_UPLOAD,
+        ).order_by("path")
+
+    split_payload = forms.CharField(widget=forms.HiddenInput)
+    original_handling = forms.ChoiceField(
+        label="Originaldatei",
+        choices=ORIGINAL_HANDLING_CHOICES,
+        initial="keep",
+        widget=forms.RadioSelect(attrs={"class": "form-check-input"}),
+    )
+
+    def clean_split_payload(self):
+        raw_payload = self.cleaned_data["split_payload"]
+        try:
+            payload = json.loads(raw_payload)
+        except json.JSONDecodeError as exc:
+            raise forms.ValidationError(
+                "Die Aufteilung konnte nicht gelesen werden."
+            ) from exc
+
+        if not isinstance(payload, list) or len(payload) < 2:
+            raise forms.ValidationError(
+                "Mindestens zwei Teildokumente sind erforderlich."
+            )
+
+        allowed_spaces = {space.id: space for space in self.target_spaces}
+        cleaned_parts = []
+        expected_start = 1
+        for index, item in enumerate(payload, start=1):
+            if not isinstance(item, dict):
+                raise forms.ValidationError("Ungültiger Abschnitt.")
+            try:
+                start_page = int(item.get("start_page"))
+                end_page = int(item.get("end_page"))
+                target_space_id = int(item.get("target_space_id"))
+            except (TypeError, ValueError) as exc:
+                raise forms.ValidationError(
+                    f"Abschnitt {index} ist unvollständig."
+                ) from exc
+
+            if start_page != expected_start or end_page < start_page:
+                raise forms.ValidationError("Die Seitenbereiche müssen lückenlos sein.")
+            if end_page > self.page_count:
+                raise forms.ValidationError(
+                    "Ein Seitenbereich liegt außerhalb des PDFs."
+                )
+            target_space = allowed_spaces.get(target_space_id)
+            if target_space is None:
+                raise forms.ValidationError(
+                    "Für mindestens eine Zielbox fehlt die Berechtigung."
+                )
+            cleaned_parts.append(
+                {
+                    "start_page": start_page,
+                    "end_page": end_page,
+                    "target_space": target_space,
+                    "title": str(item.get("title", "")).strip(),
+                }
+            )
+            expected_start = end_page + 1
+
+        if expected_start != self.page_count + 1:
+            raise forms.ValidationError("Die Aufteilung muss alle Seiten abdecken.")
+        return cleaned_parts
 
 
 class DocumentSpaceForm(forms.Form):

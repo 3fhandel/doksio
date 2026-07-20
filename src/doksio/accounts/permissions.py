@@ -16,6 +16,7 @@ class TenantPermissions:
     DOCUMENTS_VIEW = "documents.view"
     DOCUMENTS_UPLOAD = "documents.upload"
     DOCUMENTS_BATCH_IMPORT = "documents.batch_import"
+    DOCUMENTS_SPLIT = "documents.split"
     DOCUMENTS_DOWNLOAD = "documents.download"
     DOCUMENTS_DELETE = "documents.delete"
     DOCUMENTS_EXPORT = "documents.export"
@@ -50,6 +51,15 @@ PERMISSION_DEFINITIONS = [
         description=(
             "Mehrere Dokumente in einem Import-Stapel hochladen, prüfen "
             "und Dokumentenboxen zuordnen."
+        ),
+    ),
+    PermissionDefinition(
+        code=TenantPermissions.DOCUMENTS_SPLIT,
+        label="Dokumente aufteilen",
+        category="Dokumente",
+        sort_order=27,
+        description=(
+            "Mehrseitige PDF-Dokumente in mehrere neue Dokumente aufteilen."
         ),
     ),
     PermissionDefinition(
@@ -129,6 +139,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         TenantPermissions.DOCUMENTS_VIEW,
         TenantPermissions.DOCUMENTS_UPLOAD,
         TenantPermissions.DOCUMENTS_BATCH_IMPORT,
+        TenantPermissions.DOCUMENTS_SPLIT,
         TenantPermissions.DOCUMENTS_DOWNLOAD,
         TenantPermissions.DOCUMENTS_DELETE,
         TenantPermissions.DOCUMENTS_EXPORT,
@@ -145,6 +156,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         TenantPermissions.DOCUMENTS_VIEW,
         TenantPermissions.DOCUMENTS_UPLOAD,
         TenantPermissions.DOCUMENTS_BATCH_IMPORT,
+        TenantPermissions.DOCUMENTS_SPLIT,
         TenantPermissions.DOCUMENTS_DOWNLOAD,
         TenantPermissions.WORKFLOWS_USE,
     },
