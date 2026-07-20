@@ -23,6 +23,7 @@ from doksio.workflows.services import (
     CreateWorkflowTemplate,
     StartMatchingWorkflowsForDocument,
     StartWorkflowForDocument,
+    UpdateWorkflowStep,
 )
 
 
@@ -317,6 +318,41 @@ def test_workflow_settings_create_template_and_step(client):
     assert step.name == "Sachlich prüfen"
     assert step.assigned_role == roles["member"]
     assert step.comment_policy == WorkflowStep.CommentPolicy.REQUIRED
+
+
+@pytest.mark.django_db
+def test_update_workflow_step_role_syncs_open_running_tasks():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    document = _create_document(tenant, space)
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Rechnungsprüfung",
+        slug="rechnung",
+    ).execute()
+    step = CreateWorkflowStep(
+        template=template,
+        name="Prüfen",
+        step_type="task",
+        assigned_role=roles["member"],
+    ).execute()
+    StartWorkflowForDocument(template=template, document=document).execute()
+    task = WorkflowTask.objects.get(step=step)
+    assert task.assigned_role == roles["member"]
+
+    UpdateWorkflowStep(
+        step=step,
+        name="Prüfen",
+        step_type="task",
+        assigned_role=roles["admin"],
+        instructions="",
+        sort_order=100,
+        comment_policy=WorkflowStep.CommentPolicy.OPTIONAL,
+    ).execute()
+
+    task.refresh_from_db()
+    assert task.assigned_role == roles["admin"]
 
 
 @pytest.mark.django_db

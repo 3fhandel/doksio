@@ -11,9 +11,9 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
 from doksio.accounts.models import TenantMembership
+from doksio.accounts.permissions import TenantPermissions
 from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
-from doksio.documents.models import Document
 from doksio.documents.services import CreateDocumentFromUpload, CreateDocumentSpace
 from doksio.exports.models import ExportRun, ExportRunItem
 from doksio.tenancy.models import Tenant
@@ -28,6 +28,9 @@ def test_document_image_export_downloads_zip_for_enabled_boxes(client):
         datev_document_image_export_enabled=True,
     ).execute()
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    roles["member"].permissions.add(
+        roles["admin"].permissions.get(code=TenantPermissions.DOCUMENTS_EXPORT)
+    )
     user = get_user_model().objects.create_user(
         username="alice",
         password="secret",
@@ -143,6 +146,9 @@ def test_document_image_export_ignores_boxes_without_export_flag(client):
         datev_document_image_export_enabled=False,
     ).execute()
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    roles["member"].permissions.add(
+        roles["admin"].permissions.get(code=TenantPermissions.DOCUMENTS_EXPORT)
+    )
     user = get_user_model().objects.create_user(
         username="alice",
         password="secret",
@@ -193,6 +199,32 @@ def test_document_image_export_ignores_boxes_without_export_flag(client):
 
 
 @pytest.mark.django_db
+def test_document_image_export_requires_export_permission(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    client.force_login(user)
+
+    response = client.get(
+        reverse("exports:document_images", kwargs={"tenant_slug": tenant.slug})
+    )
+    sidebar_response = client.get(
+        reverse("documents:list", kwargs={"tenant_slug": tenant.slug})
+    )
+
+    assert response.status_code == 403
+    assert "Exporte" not in sidebar_response.content.decode()
+
+
+@pytest.mark.django_db
 def test_document_image_export_does_not_export_same_document_twice(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(
@@ -201,6 +233,9 @@ def test_document_image_export_does_not_export_same_document_twice(client):
         datev_document_image_export_enabled=True,
     ).execute()
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    roles["member"].permissions.add(
+        roles["admin"].permissions.get(code=TenantPermissions.DOCUMENTS_EXPORT)
+    )
     user = get_user_model().objects.create_user(
         username="alice",
         password="secret",

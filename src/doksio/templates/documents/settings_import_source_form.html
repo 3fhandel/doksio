@@ -130,6 +130,11 @@
               {{ form.folder_file_pattern.errors }}
             </div>
             <div class="col-md-4">
+              <label class="form-label" for="{{ form.folder_run_mode.id_for_label }}">Ausführung</label>
+              {{ form.folder_run_mode }}
+              {{ form.folder_run_mode.errors }}
+            </div>
+            <div class="col-md-4">
               <label class="form-label" for="{{ form.folder_poll_interval_seconds.id_for_label }}">Prüfintervall</label>
               {{ form.folder_poll_interval_seconds }}
               {{ form.folder_poll_interval_seconds.errors }}

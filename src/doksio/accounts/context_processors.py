@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from doksio.accounts.models import Notification, UserProfile, default_keyboard_shortcuts
+from doksio.accounts.permissions import TenantPermissions
 from doksio.documents.policies import (
     can_administer_tenant,
     can_view_audit,
     can_view_reports,
     has_tenant_permission,
 )
-from doksio.accounts.permissions import TenantPermissions
 from doksio.tenancy.services import get_tenant_for_user
 from doksio.workflows.models import WorkflowTask
 from doksio.workflows.policies import filter_workflow_tasks_for_user
@@ -44,7 +44,7 @@ def user_profile(request):
             context["can_export_documents"] = has_tenant_permission(
                 request.user,
                 tenant,
-                TenantPermissions.DOCUMENTS_DOWNLOAD,
+                TenantPermissions.DOCUMENTS_EXPORT,
             )
             unread_notifications = Notification.objects.filter(
                 tenant=tenant,

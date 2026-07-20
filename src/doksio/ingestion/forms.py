@@ -20,6 +20,11 @@ FOLDER_AFTER_IMPORT_CHOICES = [
     ("delete", "Datei nach erfolgreichem Import löschen"),
 ]
 
+FOLDER_RUN_MODE_CHOICES = [
+    ("service", "Dauerhaft laufen und intervallweise prüfen"),
+    ("once", "Einmal ausführen und beenden"),
+]
+
 EMAIL_UNPROCESSABLE_ACTION_CHOICES = [
     ("keep", "In Mailbox belassen"),
     ("mark_seen", "Als gelesen markieren"),
@@ -184,6 +189,13 @@ class ImportSourceForm(forms.Form):
         min_value=30,
         initial=300,
         widget=forms.NumberInput(attrs={"class": "form-control", "min": 30}),
+    )
+    folder_run_mode = forms.ChoiceField(
+        label="Ausführung",
+        choices=FOLDER_RUN_MODE_CHOICES,
+        required=False,
+        initial="service",
+        widget=forms.Select(attrs={"class": "form-select"}),
     )
     folder_after_import = forms.ChoiceField(
         label="Nach erfolgreichem Import",
@@ -400,6 +412,7 @@ class ImportSourceForm(forms.Form):
             "folder_file_pattern": folder.get("file_pattern", "*"),
             "folder_recursive": folder.get("recursive", False),
             "folder_poll_interval_seconds": folder.get("poll_interval_seconds", 300),
+            "folder_run_mode": folder.get("run_mode", "service"),
             "folder_after_import": folder.get("after_import", "archive"),
             "folder_archive_path": folder.get("archive_path", ""),
             "folder_error_path": folder.get("error_path", ""),
@@ -632,6 +645,7 @@ class ImportSourceForm(forms.Form):
                     "poll_interval_seconds": self.cleaned_data[
                         "folder_poll_interval_seconds"
                     ],
+                    "run_mode": self.cleaned_data["folder_run_mode"],
                     "after_import": self.cleaned_data["folder_after_import"],
                     "archive_path": self.cleaned_data["folder_archive_path"],
                     "error_path": self.cleaned_data["folder_error_path"],

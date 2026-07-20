@@ -78,6 +78,11 @@ urlpatterns = [
         name="settings_role_edit",
     ),
     path(
+        "t/<slug:tenant_slug>/settings/roles/<int:role_id>/delete/",
+        views.tenant_settings_role_delete,
+        name="settings_role_delete",
+    ),
+    path(
         "t/<slug:tenant_slug>/settings/document-boxes/",
         views.tenant_settings_document_boxes,
         name="settings_document_boxes",

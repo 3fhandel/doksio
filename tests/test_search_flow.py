@@ -294,6 +294,56 @@ def test_search_documents_respects_additive_document_box_roles():
 
 
 @pytest.mark.django_db
+def test_document_search_box_filter_hides_inaccessible_document_boxes(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    EnsureDefaultTenantRoles(tenant=tenant).execute()
+    view_permission = (
+        TenantRole.objects.get(tenant=tenant, slug="viewer")
+        .permissions.get(code=TenantPermissions.DOCUMENTS_VIEW)
+    )
+    visible_box = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    hidden_box = CreateDocumentSpace(tenant=tenant, name="Personal").execute()
+    _visible_document, _visible_file = _create_document(
+        tenant,
+        visible_box,
+        "Rechnung",
+    )
+    _hidden_document, _hidden_file = _create_document(
+        tenant,
+        hidden_box,
+        "Personalakte",
+    )
+    role = TenantRole.objects.create(
+        tenant=tenant,
+        name="Rechnungen",
+        slug="rechnungen",
+        can_access_all_document_spaces=False,
+    )
+    role.permissions.set([view_permission])
+    role.document_spaces.set([visible_box])
+    user = get_user_model().objects.create_user(username="alice", password="secret")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=role,
+    )
+    client.force_login(user)
+
+    response = client.get(
+        reverse("search:documents", kwargs={"tenant_slug": tenant.slug}),
+    )
+
+    box_names = list(
+        response.context["form"].fields["box"].queryset.values_list(
+            "name",
+            flat=True,
+        )
+    )
+    assert response.status_code == 200
+    assert box_names == ["Rechnungen"]
+
+
+@pytest.mark.django_db
 def test_document_search_view_renders_results_for_tenant_member(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()

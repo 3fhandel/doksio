@@ -49,7 +49,7 @@ class DocumentImageExportForm(forms.Form):
             ),
             user,
             tenant,
-            TenantPermissions.DOCUMENTS_DOWNLOAD,
+            TenantPermissions.DOCUMENTS_EXPORT,
         )
 
     def clean(self) -> dict:
@@ -73,7 +73,7 @@ class DocumentImageExportForm(forms.Form):
             documents,
             self.user,
             self.tenant,
-            TenantPermissions.DOCUMENTS_DOWNLOAD,
+            TenantPermissions.DOCUMENTS_EXPORT,
         )
         exported_document_ids = ExportRunItem.objects.filter(
             tenant=self.tenant,

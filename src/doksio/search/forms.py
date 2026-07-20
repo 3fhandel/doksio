@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from django import forms
 
+from doksio.accounts.permissions import TenantPermissions
 from doksio.documents.metadata import effective_metadata_fields
 from doksio.documents.models import DocumentMetadataField, DocumentSpace, DocumentTag
+from doksio.documents.policies import filter_document_spaces_for_user
 from doksio.tenancy.models import Tenant
 
 
@@ -28,14 +30,23 @@ class DocumentSearchForm(forms.Form):
         ("title_asc", "Titel A-Z"),
     ]
 
-    def __init__(self, *args, tenant: Tenant, **kwargs) -> None:
+    def __init__(self, *args, tenant: Tenant, user=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.tenant = tenant
+        self.user = user
         self.metadata_filter_fields = []
-        self.fields["box"].queryset = DocumentSpace.objects.filter(
+        box_queryset = DocumentSpace.objects.filter(
             tenant=tenant,
             is_active=True,
         ).order_by("path")
+        if user is not None:
+            box_queryset = filter_document_spaces_for_user(
+                box_queryset,
+                user,
+                tenant,
+                TenantPermissions.DOCUMENTS_VIEW,
+            )
+        self.fields["box"].queryset = box_queryset
         self.fields["tags"].queryset = DocumentTag.objects.filter(
             tenant=tenant,
         ).order_by("name")
@@ -54,11 +65,7 @@ class DocumentSearchForm(forms.Form):
         if not raw_box:
             return None
         try:
-            return DocumentSpace.objects.get(
-                tenant=self.tenant,
-                is_active=True,
-                id=raw_box,
-            )
+            return self.fields["box"].queryset.get(id=raw_box)
         except (DocumentSpace.DoesNotExist, ValueError, TypeError):
             return None
 

@@ -17,6 +17,7 @@ class TenantPermissions:
     DOCUMENTS_UPLOAD = "documents.upload"
     DOCUMENTS_DOWNLOAD = "documents.download"
     DOCUMENTS_DELETE = "documents.delete"
+    DOCUMENTS_EXPORT = "documents.export"
     DOCUMENT_SPACES_MANAGE = "document_spaces.manage"
     SETTINGS_VIEW = "settings.view"
     SETTINGS_MEMBERS_MANAGE = "settings.members.manage"
@@ -52,6 +53,13 @@ PERMISSION_DEFINITIONS = [
         category="Dokumente",
         sort_order=35,
         description="Dokumente logisch löschen und laufende Workflows abbrechen.",
+    ),
+    PermissionDefinition(
+        code=TenantPermissions.DOCUMENTS_EXPORT,
+        label="Dokumente exportieren",
+        category="Dokumente",
+        sort_order=37,
+        description="Exportpakete erzeugen und gespeicherte Exporte herunterladen.",
     ),
     PermissionDefinition(
         code=TenantPermissions.DOCUMENT_SPACES_MANAGE,
@@ -111,6 +119,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         TenantPermissions.DOCUMENTS_UPLOAD,
         TenantPermissions.DOCUMENTS_DOWNLOAD,
         TenantPermissions.DOCUMENTS_DELETE,
+        TenantPermissions.DOCUMENTS_EXPORT,
         TenantPermissions.DOCUMENT_SPACES_MANAGE,
         TenantPermissions.SETTINGS_VIEW,
         TenantPermissions.SETTINGS_MEMBERS_MANAGE,

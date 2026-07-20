@@ -7,7 +7,7 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.files.storage import default_storage
 from django.core.mail import EmailMessage, get_connection
-from django.db.models import Count, Q
+from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.http import FileResponse, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -24,6 +24,7 @@ from doksio.accounts.permissions import TenantPermissions
 from doksio.accounts.services import (
     AddTenantMember,
     CreateTenantRole,
+    DeleteTenantRole,
     SendTenantPasswordResetEmail,
     UpdateTenantMembership,
     UpdateTenantRole,
@@ -169,6 +170,7 @@ SOURCE_DIR={_shell_quote(folder.get("path", ""))}
 FILE_PATTERN={_shell_quote(folder.get("file_pattern", "*"))}
 RECURSIVE={_shell_quote("1" if folder.get("recursive") else "0")}
 POLL_INTERVAL={_shell_quote(folder.get("poll_interval_seconds", 300))}
+RUN_MODE={_shell_quote(folder.get("run_mode", "service"))}
 AFTER_IMPORT={_shell_quote(folder.get("after_import", "archive"))}
 ARCHIVE_DIR={_shell_quote(folder.get("archive_path", ""))}
 ERROR_DIR={_shell_quote(folder.get("error_path", ""))}
@@ -308,8 +310,7 @@ process_file() {{
   rm -f "$response_file"
 }}
 
-log INFO "Doksio Ordner-Agent gestartet: $SOURCE_DIR"
-while true; do
+process_pending_files() {{
   if [[ "$RECURSIVE" == "1" ]]; then
     while IFS= read -r -d '' file; do
       should_skip_file "$file" && continue
@@ -323,6 +324,15 @@ while true; do
       find "$SOURCE_DIR" -type f -name "$FILE_PATTERN" \\
         ! -path "$SOURCE_DIR/*/*" -print0
     )
+  fi
+}}
+
+log INFO "Doksio Ordner-Agent gestartet: $SOURCE_DIR"
+while true; do
+  process_pending_files
+  if [[ "$RUN_MODE" == "once" ]]; then
+    log INFO "Einmallauf beendet."
+    exit 0
   fi
   sleep "$POLL_INTERVAL"
 done
@@ -342,6 +352,7 @@ $SourceDir = {_powershell_quote(folder.get("path", ""))}
 $FilePattern = {_powershell_quote(folder.get("file_pattern", "*"))}
 $Recursive = {recursive_switch}
 $PollIntervalSeconds = {_powershell_quote(folder.get("poll_interval_seconds", 300))}
+$RunMode = {_powershell_quote(folder.get("run_mode", "service"))}
 $AfterImport = {_powershell_quote(folder.get("after_import", "archive"))}
 $ArchiveDir = {_powershell_quote(folder.get("archive_path", ""))}
 $ErrorDir = {_powershell_quote(folder.get("error_path", ""))}
@@ -507,8 +518,7 @@ function Invoke-DoksioImport {{
     }}
 }}
 
-Write-DoksioLog "INFO" "Doksio Ordner-Agent gestartet: $SourceDir"
-while ($true) {{
+function Invoke-DoksioPendingFiles {{
     $Files = Get-ChildItem `
         -LiteralPath $SourceDir `
         -File `
@@ -517,6 +527,15 @@ while ($true) {{
     foreach ($File in $Files) {{
         if (Test-DoksioSkippedFile -File $File) {{ continue }}
         Invoke-DoksioImport -File $File
+    }}
+}}
+
+Write-DoksioLog "INFO" "Doksio Ordner-Agent gestartet: $SourceDir"
+while ($true) {{
+    Invoke-DoksioPendingFiles
+    if ($RunMode -eq "once") {{
+        Write-DoksioLog "INFO" "Einmallauf beendet."
+        break
     }}
     Start-Sleep -Seconds ([int] $PollIntervalSeconds)
 }}
@@ -2446,7 +2465,17 @@ def tenant_settings_roles(
     roles = (
         TenantRole.objects.prefetch_related("permissions", "document_spaces")
         .filter(tenant=tenant)
-        .order_by("name")
+        .annotate(
+            system_role_order=Case(
+                When(is_system_role=True, slug="admin", then=Value(0)),
+                When(is_system_role=True, slug="member", then=Value(1)),
+                When(is_system_role=True, slug="viewer", then=Value(2)),
+                When(is_system_role=True, then=Value(10)),
+                default=Value(20),
+                output_field=IntegerField(),
+            )
+        )
+        .order_by("system_role_order", "name", "id")
     )
     return render(
         request,
@@ -2561,6 +2590,39 @@ def tenant_settings_role_edit(
             "form": form,
             "form_title": "Rolle bearbeiten",
             "submit_label": "Rolle speichern",
+            "active_settings_section": "roles",
+        },
+    )
+
+
+def tenant_settings_role_delete(
+    request: HttpRequest,
+    tenant_slug: str,
+    role_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_roles(request.user, tenant):
+        raise PermissionDenied
+
+    role = get_object_or_404(TenantRole, id=role_id, tenant=tenant)
+    if request.method == "POST":
+        try:
+            DeleteTenantRole(role=role, actor=request.user).execute()
+        except ValueError as error:
+            messages.error(request, str(error))
+        else:
+            messages.success(request, "Rolle wurde gelöscht.")
+        return redirect("documents:settings_roles", tenant_slug=tenant.slug)
+
+    return render(
+        request,
+        "documents/settings_role_delete.html",
+        {
+            "tenant": tenant,
+            "role": role,
             "active_settings_section": "roles",
         },
     )

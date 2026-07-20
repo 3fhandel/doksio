@@ -89,7 +89,8 @@ def _create_notifications_for_task(task: WorkflowTask) -> None:
                 "document_id": task.document_id,
             },
         )
-        + f"?back={reverse('documents:tasks', kwargs={'tenant_slug': task.tenant.slug})}"
+        + "?back="
+        + reverse("documents:tasks", kwargs={"tenant_slug": task.tenant.slug})
     )
     for recipient in _candidate_recipients_for_task(task):
         can_see_task = filter_workflow_tasks_for_user(
@@ -293,6 +294,7 @@ class UpdateWorkflowStep:
         if self.assigned_role and self.assigned_role.tenant_id != self.step.tenant_id:
             raise ValueError("Assigned role belongs to a different tenant.")
 
+        previous_assigned_role_id = self.step.assigned_role_id
         self.step.name = self.name
         self.step.step_type = self.step_type
         self.step.assigned_role = self.assigned_role
@@ -310,6 +312,7 @@ class UpdateWorkflowStep:
                 "updated_at",
             ]
         )
+        updated_open_tasks = self._sync_open_tasks(previous_assigned_role_id)
         RecordAuditEvent(
             tenant=self.step.tenant,
             actor=self.actor,
@@ -321,9 +324,24 @@ class UpdateWorkflowStep:
                 "name": self.step.name,
                 "step_type": self.step.step_type,
                 "sort_order": self.step.sort_order,
+                "assigned_role_id": self.step.assigned_role_id,
+                "previous_assigned_role_id": previous_assigned_role_id,
+                "updated_open_tasks": updated_open_tasks,
             },
         ).execute()
         return self.step
+
+    def _sync_open_tasks(self, previous_assigned_role_id: int | None) -> int:
+        if previous_assigned_role_id == self.step.assigned_role_id:
+            return 0
+        return WorkflowTask.objects.filter(
+            tenant=self.step.tenant,
+            step=self.step,
+            status=WorkflowTask.Status.OPEN,
+        ).update(
+            assigned_role=self.step.assigned_role,
+            updated_at=timezone.now(),
+        )
 
 
 @dataclass(frozen=True)

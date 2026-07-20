@@ -30,7 +30,7 @@ def document_image_export(request: HttpRequest, tenant_slug: str) -> HttpRespons
     if not has_tenant_permission(
         request.user,
         tenant,
-        TenantPermissions.DOCUMENTS_DOWNLOAD,
+        TenantPermissions.DOCUMENTS_EXPORT,
     ):
         raise PermissionDenied
 
@@ -90,7 +90,7 @@ def export_run_download(
     if not has_tenant_permission(
         request.user,
         tenant,
-        TenantPermissions.DOCUMENTS_DOWNLOAD,
+        TenantPermissions.DOCUMENTS_EXPORT,
     ):
         raise PermissionDenied
 

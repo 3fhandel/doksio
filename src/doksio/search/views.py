@@ -32,7 +32,7 @@ def document_search(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     ):
         raise PermissionDenied
 
-    form = DocumentSearchForm(request.GET or None, tenant=tenant)
+    form = DocumentSearchForm(request.GET or None, tenant=tenant, user=request.user)
     documents = []
     documents_count = 0
     documents_page_obj = None

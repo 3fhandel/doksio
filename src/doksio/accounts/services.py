@@ -463,6 +463,54 @@ class UpdateTenantRole:
 
 
 @dataclass(frozen=True)
+class DeleteTenantRole:
+    role: TenantRole
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> None:
+        if self.role.is_system_role:
+            raise ValueError("Standardrollen können nicht gelöscht werden.")
+
+        if self.role.memberships.exists() or self.role.multi_role_memberships.exists():
+            raise ValueError(
+                "Diese Rolle ist noch Benutzern zugeordnet und kann nicht gelöscht "
+                "werden."
+            )
+
+        if self.role.workflow_steps.exists() or self.role.workflow_tasks.exists():
+            raise ValueError(
+                "Diese Rolle wird noch in Workflows verwendet und kann nicht gelöscht "
+                "werden."
+            )
+
+        tenant = self.role.tenant
+        role_id = self.role.id
+        role_name = self.role.name
+        role_slug = self.role.slug
+        permission_codes = list(self.role.permissions.values_list("code", flat=True))
+        document_space_ids = list(
+            self.role.document_spaces.values_list("id", flat=True)
+        )
+
+        self.role.delete()
+
+        RecordAuditEvent(
+            tenant=tenant,
+            actor=self.actor,
+            event_type="tenant_role.deleted",
+            object_type="accounts.TenantRole",
+            object_id=str(role_id),
+            data={
+                "name": role_name,
+                "slug": role_slug,
+                "permissions": permission_codes,
+                "document_space_ids": document_space_ids,
+            },
+        ).execute()
+
+
+@dataclass(frozen=True)
 class CreateNotification:
     tenant: Tenant
     recipient: get_user_model()

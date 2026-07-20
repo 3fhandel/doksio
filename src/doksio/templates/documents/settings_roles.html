@@ -62,9 +62,16 @@
                 {% endif %}
               </td>
               <td class="text-end">
-                <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:settings_role_edit' tenant.slug role.id %}">
-                  Bearbeiten
-                </a>
+                <div class="d-inline-flex gap-2">
+                  <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:settings_role_edit' tenant.slug role.id %}">
+                    Bearbeiten
+                  </a>
+                  {% if not role.is_system_role %}
+                    <a class="btn btn-sm btn-outline-danger" href="{% url 'documents:settings_role_delete' tenant.slug role.id %}">
+                      Löschen
+                    </a>
+                  {% endif %}
+                </div>
               </td>
             </tr>
           {% empty %}

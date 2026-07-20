@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.test import override_settings
 from django.urls import reverse
 
-from doksio.accounts.models import TenantMembership, UserProfile
+from doksio.accounts.models import TenantMembership, TenantRole, UserProfile
 from doksio.accounts.permissions import TenantPermissions
 from doksio.accounts.services import (
     AddTenantMember,
@@ -515,6 +515,127 @@ def test_tenant_admin_cannot_send_password_reset_without_active_smtp(client):
     assert response.status_code == 302
     assert not AuditEvent.objects.filter(
         event_type="tenant_membership.password_reset_email_sent"
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_roles_list_shows_default_roles_before_custom_roles(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    TenantRole.objects.create(
+        tenant=tenant,
+        name="Ablage",
+        slug="ablage",
+        is_system_role=False,
+    )
+    admin_user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=admin_user,
+        role=roles["admin"],
+    )
+    client.force_login(admin_user)
+
+    response = client.get(
+        reverse("documents:settings_roles", kwargs={"tenant_slug": tenant.slug})
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert content.index("Admin") < content.index("Member")
+    assert content.index("Member") < content.index("Viewer")
+    assert content.index("Viewer") < content.index("Ablage")
+    assert (
+        reverse(
+            "documents:settings_role_delete",
+            kwargs={"tenant_slug": tenant.slug, "role_id": roles["admin"].id},
+        )
+        not in content
+    )
+    assert "Löschen" in content
+
+
+@pytest.mark.django_db
+def test_tenant_admin_can_delete_custom_role(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    custom_role = TenantRole.objects.create(
+        tenant=tenant,
+        name="Prüfung",
+        slug="pruefung",
+        is_system_role=False,
+    )
+    admin_user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=admin_user,
+        role=roles["admin"],
+    )
+    client.force_login(admin_user)
+
+    response = client.post(
+        reverse(
+            "documents:settings_role_delete",
+            kwargs={"tenant_slug": tenant.slug, "role_id": custom_role.id},
+        )
+    )
+
+    assert response.status_code == 302
+    assert not TenantRole.objects.filter(id=custom_role.id).exists()
+    assert AuditEvent.objects.filter(
+        event_type="tenant_role.deleted",
+        object_id=str(custom_role.id),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_tenant_admin_cannot_delete_assigned_custom_role(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    custom_role = TenantRole.objects.create(
+        tenant=tenant,
+        name="Prüfung",
+        slug="pruefung",
+        is_system_role=False,
+    )
+    admin_user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    target_user = get_user_model().objects.create_user(username="alice")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=admin_user,
+        role=roles["admin"],
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=target_user,
+        role=custom_role,
+    )
+    client.force_login(admin_user)
+
+    response = client.post(
+        reverse(
+            "documents:settings_role_delete",
+            kwargs={"tenant_slug": tenant.slug, "role_id": custom_role.id},
+        ),
+        follow=True,
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert TenantRole.objects.filter(id=custom_role.id).exists()
+    assert "Diese Rolle ist noch Benutzern zugeordnet" in content
+    assert not AuditEvent.objects.filter(
+        event_type="tenant_role.deleted",
+        object_id=str(custom_role.id),
     ).exists()
 
 

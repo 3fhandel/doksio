@@ -1074,6 +1074,7 @@ def test_tenant_admin_can_create_folder_and_email_import_source_settings(client)
             "folder_file_pattern": "*.pdf",
             "folder_recursive": "on",
             "folder_poll_interval_seconds": "120",
+            "folder_run_mode": "once",
             "folder_after_import": "archive",
             "folder_archive_path": "/imports/archive",
             "folder_error_path": "/imports/error",
@@ -1085,6 +1086,7 @@ def test_tenant_admin_can_create_folder_and_email_import_source_settings(client)
     source = ImportSource.objects.get(name="Scan Ordner")
     assert source.settings["folder"]["path"] == "/imports/scans"
     assert source.settings["folder"]["recursive"] is True
+    assert source.settings["folder"]["run_mode"] == "once"
 
     response = client.post(
         reverse(
@@ -1208,6 +1210,7 @@ def test_tenant_admin_can_download_folder_import_script(client):
                 "file_pattern": "*.pdf",
                 "recursive": False,
                 "poll_interval_seconds": 300,
+                "run_mode": "once",
                 "after_import": "archive",
                 "archive_path": "/imports/archive",
                 "error_path": "/imports/error",
@@ -1233,11 +1236,15 @@ def test_tenant_admin_can_download_folder_import_script(client):
     assert response["Content-Disposition"].endswith('.sh"')
     assert "X-Doksio-Import-Token: $IMPORT_TOKEN" in content
     assert "SOURCE_DIR=/imports/scans" in content
+    assert "RUN_MODE=once" in content
     assert (
         'LOG_FILE="${DOKSIO_IMPORT_LOG:-$SOURCE_DIR/doksio-folder-import.log}"'
         in content
     )
     assert "log INFO \"Doksio Ordner-Agent gestartet: $SOURCE_DIR\"" in content
+    assert "process_pending_files() {" in content
+    assert 'if [[ "$RUN_MODE" == "once" ]]; then' in content
+    assert 'log INFO "Einmallauf beendet."' in content
     assert 'should_skip_file "$file" && continue' in content
     assert 'path_in_dir "$file" "$ARCHIVE_DIR"' in content
     assert 'path_in_dir "$file" "$ERROR_DIR"' in content
@@ -1276,6 +1283,7 @@ def test_tenant_admin_can_download_windows_folder_import_script(client):
                 "file_pattern": "*.pdf",
                 "recursive": True,
                 "poll_interval_seconds": 300,
+                "run_mode": "once",
                 "after_import": "archive",
                 "archive_path": "C:\\Imports\\Archive",
                 "error_path": "C:\\Imports\\Error",
@@ -1301,8 +1309,12 @@ def test_tenant_admin_can_download_windows_folder_import_script(client):
     assert response["Content-Disposition"].endswith('.ps1"')
     assert "$SourceDir = 'C:\\Imports\\Scans'" in content
     assert "$Recursive = $true" in content
+    assert "$RunMode = 'once'" in content
     assert "$LogFile = if ($env:DOKSIO_IMPORT_LOG)" in content
     assert "function Test-DoksioSkippedFile" in content
+    assert "function Invoke-DoksioPendingFiles" in content
+    assert 'if ($RunMode -eq "once")' in content
+    assert 'Write-DoksioLog "INFO" "Einmallauf beendet."' in content
     assert (
         "Test-DoksioPathInDirectory -Path $File.FullName -Directory $ArchiveDir"
         in content
