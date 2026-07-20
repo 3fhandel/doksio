@@ -4,7 +4,7 @@ from django import forms
 from django.utils.text import slugify
 
 from doksio.accounts.models import TenantRole
-from doksio.documents.models import DocumentSpace
+from doksio.documents.models import DocumentMetadataField, DocumentSpace
 from doksio.tenancy.models import Tenant
 from doksio.workflows.models import WorkflowStep, WorkflowTemplate
 
@@ -93,6 +93,15 @@ class WorkflowStepForm(forms.Form):
             tenant=tenant,
             is_active=True,
         ).order_by("name")
+        self.fields["required_metadata_fields"].queryset = (
+            DocumentMetadataField.objects.select_related("space")
+            .filter(
+                tenant=tenant,
+                is_active=True,
+                space__deleted_at__isnull=True,
+            )
+            .order_by("space__path", "sort_order", "name")
+        )
 
     name = forms.CharField(
         label="Name",
@@ -110,6 +119,18 @@ class WorkflowStepForm(forms.Form):
         queryset=TenantRole.objects.none(),
         empty_label="Keine feste Rolle",
         widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    required_metadata_fields = forms.ModelMultipleChoiceField(
+        label="Pflicht-Metadaten",
+        required=False,
+        queryset=DocumentMetadataField.objects.none(),
+        widget=forms.CheckboxSelectMultiple(
+            attrs={"class": "workflow-metadata-checks"},
+        ),
+        help_text=(
+            "Nur für den Schritt „Daten vervollständigen“. Wenn alle Felder "
+            "bereits gefüllt sind, läuft der Schritt automatisch durch."
+        ),
     )
     instructions = forms.CharField(
         label="Anweisung",

@@ -52,6 +52,90 @@ def _create_task_for_step(
     return task
 
 
+def _metadata_value_is_filled(value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
+
+
+def _complete_metadata_step_is_satisfied(
+    *,
+    step: WorkflowStep,
+    document: Document,
+) -> bool:
+    required_slugs = list(
+        step.required_metadata_fields.filter(
+            is_active=True,
+            space__deleted_at__isnull=True,
+        ).values_list("slug", flat=True)
+    )
+    if not required_slugs:
+        return True
+    document_metadata = (
+        Document.objects.filter(id=document.id)
+        .values_list("metadata", flat=True)
+        .first()
+        or {}
+    )
+    return all(
+        _metadata_value_is_filled(document_metadata.get(slug))
+        for slug in required_slugs
+    )
+
+
+def _advance_instance_to_step(
+    *,
+    instance: WorkflowInstance,
+    step: WorkflowStep | None,
+    actor=None,
+) -> None:
+    if step is None:
+        instance.status = WorkflowInstance.Status.COMPLETED
+        instance.current_step = None
+        instance.completed_at = timezone.now()
+        instance.save(
+            update_fields=[
+                "status",
+                "current_step",
+                "completed_at",
+                "updated_at",
+            ]
+        )
+        return
+
+    instance.current_step = step
+    instance.save(update_fields=["current_step", "updated_at"])
+    if (
+        step.step_type == WorkflowStep.StepType.COMPLETE_METADATA
+        and _complete_metadata_step_is_satisfied(step=step, document=instance.document)
+    ):
+        next_step = _next_step(step)
+        RecordAuditEvent(
+            tenant=instance.tenant,
+            actor=actor,
+            event_type="workflow_step.auto_completed",
+            object_type="workflows.WorkflowStep",
+            object_id=str(step.id),
+            data={
+                "instance_id": instance.id,
+                "document_id": instance.document_id,
+                "workflow_template_name": instance.template.name,
+                "step_id": step.id,
+                "step_name": step.name,
+                "next_step_id": next_step.id if next_step else None,
+                "next_step_name": next_step.name if next_step else None,
+            },
+        ).execute()
+        _advance_instance_to_step(instance=instance, step=next_step, actor=actor)
+        return
+
+    _create_task_for_step(instance=instance, step=step)
+
+
 def _candidate_recipients_for_task(task: WorkflowTask):
     user_model = get_user_model()
     if task.assigned_to_id:
@@ -285,6 +369,7 @@ class CreateWorkflowStep:
     name: str
     step_type: str
     assigned_role: TenantRole | None = None
+    required_metadata_fields: list | None = None
     instructions: str = ""
     sort_order: int = 100
     comment_policy: str = WorkflowStep.CommentPolicy.OPTIONAL
@@ -297,6 +382,12 @@ class CreateWorkflowStep:
             and self.assigned_role.tenant_id != self.template.tenant_id
         ):
             raise ValueError("Assigned role belongs to a different tenant.")
+        required_metadata_fields = list(self.required_metadata_fields or [])
+        if any(
+            field.tenant_id != self.template.tenant_id
+            for field in required_metadata_fields
+        ):
+            raise ValueError("Required metadata field belongs to a different tenant.")
 
         step = WorkflowStep.objects.create(
             tenant=self.template.tenant,
@@ -308,6 +399,7 @@ class CreateWorkflowStep:
             sort_order=self.sort_order,
             comment_policy=self.comment_policy,
         )
+        step.required_metadata_fields.set(required_metadata_fields)
         RecordAuditEvent(
             tenant=self.template.tenant,
             actor=self.actor,
@@ -330,6 +422,7 @@ class UpdateWorkflowStep:
     name: str
     step_type: str
     assigned_role: TenantRole | None = None
+    required_metadata_fields: list | None = None
     instructions: str = ""
     sort_order: int = 100
     comment_policy: str = WorkflowStep.CommentPolicy.OPTIONAL
@@ -337,8 +430,17 @@ class UpdateWorkflowStep:
 
     @transaction.atomic
     def execute(self) -> WorkflowStep:
-        if self.assigned_role and self.assigned_role.tenant_id != self.step.tenant_id:
+        if (
+            self.assigned_role
+            and self.assigned_role.tenant_id != self.step.tenant_id
+        ):
             raise ValueError("Assigned role belongs to a different tenant.")
+        required_metadata_fields = list(self.required_metadata_fields or [])
+        if any(
+            field.tenant_id != self.step.tenant_id
+            for field in required_metadata_fields
+        ):
+            raise ValueError("Required metadata field belongs to a different tenant.")
 
         previous_assigned_role_id = self.step.assigned_role_id
         self.step.name = self.name
@@ -358,6 +460,7 @@ class UpdateWorkflowStep:
                 "updated_at",
             ]
         )
+        self.step.required_metadata_fields.set(required_metadata_fields)
         updated_open_tasks = self._sync_open_tasks(previous_assigned_role_id)
         RecordAuditEvent(
             tenant=self.step.tenant,
@@ -408,15 +511,14 @@ class StartWorkflowForDocument:
             tenant=self.document.tenant,
             template=self.template,
             document=self.document,
-            current_step=first_step,
+            current_step=None,
             started_by=self.actor,
         )
-        if first_step is None:
-            instance.status = WorkflowInstance.Status.COMPLETED
-            instance.completed_at = timezone.now()
-            instance.save(update_fields=["status", "completed_at", "updated_at"])
-        else:
-            _create_task_for_step(instance=instance, step=first_step)
+        _advance_instance_to_step(
+            instance=instance,
+            step=first_step,
+            actor=self.actor,
+        )
         _create_notifications_for_workflow_started(instance)
 
         RecordAuditEvent(
@@ -537,6 +639,16 @@ class CompleteWorkflowTask:
             and not self.comment.strip()
         ):
             raise ValueError("This workflow task requires a comment.")
+        if (
+            self.task.step.step_type == WorkflowStep.StepType.COMPLETE_METADATA
+            and not _complete_metadata_step_is_satisfied(
+                step=self.task.step,
+                document=self.task.document,
+            )
+        ):
+            raise ValueError(
+                "Bitte zuerst die erforderlichen Metadaten vollständig ausfüllen."
+            )
 
         comment = ""
         if self.task.step.comment_policy != WorkflowStep.CommentPolicy.DISABLED:
@@ -558,22 +670,7 @@ class CompleteWorkflowTask:
 
         instance = self.task.instance
         next_step = _next_step(self.task.step)
-        if next_step is None:
-            instance.status = WorkflowInstance.Status.COMPLETED
-            instance.current_step = None
-            instance.completed_at = timezone.now()
-            instance.save(
-                update_fields=[
-                    "status",
-                    "current_step",
-                    "completed_at",
-                    "updated_at",
-                ]
-            )
-        else:
-            instance.current_step = next_step
-            instance.save(update_fields=["current_step", "updated_at"])
-            _create_task_for_step(instance=instance, step=next_step)
+        _advance_instance_to_step(instance=instance, step=next_step, actor=self.actor)
 
         RecordAuditEvent(
             tenant=self.task.tenant,

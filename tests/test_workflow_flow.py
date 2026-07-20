@@ -9,6 +9,7 @@ from django.urls import reverse
 from doksio.accounts.models import Notification, TenantMembership, UserProfile
 from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
+from doksio.documents.models import DocumentMetadataField
 from doksio.documents.services import CreateDocumentFromUpload, CreateDocumentSpace
 from doksio.tenancy.models import Tenant
 from doksio.workflows.models import (
@@ -111,6 +112,94 @@ def test_complete_workflow_task_advances_to_next_step_and_completes_instance():
     assert instance.status == WorkflowInstance.Status.COMPLETED
     assert instance.current_step is None
     assert AuditEvent.objects.filter(event_type="workflow_task.completed").count() == 2
+
+
+@pytest.mark.django_db
+def test_complete_metadata_step_auto_advances_when_fields_are_filled():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    metadata_field = DocumentMetadataField.objects.create(
+        tenant=tenant,
+        space=space,
+        name="Kostenstelle",
+        slug="kostenstelle",
+    )
+    document = _create_document(tenant, space)
+    document.metadata = {"kostenstelle": "4711"}
+    document.save(update_fields=["metadata", "updated_at"])
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Rechnungsprüfung",
+        slug="rechnung",
+    ).execute()
+    CreateWorkflowStep(
+        template=template,
+        name="Daten prüfen",
+        step_type=WorkflowStep.StepType.COMPLETE_METADATA,
+        required_metadata_fields=[metadata_field],
+        sort_order=10,
+    ).execute()
+    next_step = CreateWorkflowStep(
+        template=template,
+        name="Sachlich prüfen",
+        step_type=WorkflowStep.StepType.TASK,
+        sort_order=20,
+    ).execute()
+
+    instance = StartWorkflowForDocument(template=template, document=document).execute()
+
+    instance.refresh_from_db()
+    assert instance.current_step == next_step
+    assert not WorkflowTask.objects.filter(title="Daten prüfen").exists()
+    assert WorkflowTask.objects.filter(title="Sachlich prüfen").exists()
+    assert AuditEvent.objects.filter(
+        event_type="workflow_step.auto_completed",
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_complete_metadata_step_requires_selected_metadata_before_completion():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    metadata_field = DocumentMetadataField.objects.create(
+        tenant=tenant,
+        space=space,
+        name="Kostenstelle",
+        slug="kostenstelle",
+    )
+    document = _create_document(tenant, space)
+    user = get_user_model().objects.create_user(username="alice")
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Rechnungsprüfung",
+        slug="rechnung",
+    ).execute()
+    CreateWorkflowStep(
+        template=template,
+        name="Daten vervollständigen",
+        step_type=WorkflowStep.StepType.COMPLETE_METADATA,
+        required_metadata_fields=[metadata_field],
+        sort_order=10,
+    ).execute()
+    next_step = CreateWorkflowStep(
+        template=template,
+        name="Sachlich prüfen",
+        step_type=WorkflowStep.StepType.TASK,
+        sort_order=20,
+    ).execute()
+    instance = StartWorkflowForDocument(template=template, document=document).execute()
+    task = instance.tasks.get(status=WorkflowTask.Status.OPEN)
+
+    with pytest.raises(ValueError, match="erforderlichen Metadaten"):
+        CompleteWorkflowTask(task=task, actor=user).execute()
+
+    document.metadata = {"kostenstelle": "4711"}
+    document.save(update_fields=["metadata", "updated_at"])
+    CompleteWorkflowTask(task=task, actor=user).execute()
+
+    instance.refresh_from_db()
+    assert instance.current_step == next_step
+    assert WorkflowTask.objects.filter(title="Sachlich prüfen").exists()
 
 
 @pytest.mark.django_db
@@ -318,6 +407,21 @@ def test_workflow_settings_create_template_and_step(client):
     assert step.name == "Sachlich prüfen"
     assert step.assigned_role == roles["member"]
     assert step.comment_policy == WorkflowStep.CommentPolicy.REQUIRED
+
+    response = client.get(
+        reverse(
+            "workflows:settings_template_edit",
+            kwargs={"tenant_slug": tenant.slug, "template_id": template.id},
+        )
+    )
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "workflow-visualization" in content
+    assert "Workflow-Ablauf" in content
+    assert "Schritt 1 · Freigabe" in content
+    assert "Sachlich prüfen" in content
+    assert "Member" in content
+    assert "Kommentar erforderlich" in content
 
 
 @pytest.mark.django_db

@@ -43,6 +43,16 @@
           {{ form.comment_policy }}
           {{ form.comment_policy.errors }}
         </div>
+        <div class="col-12">
+          <label class="form-label">{{ form.required_metadata_fields.label }}</label>
+          <div class="workflow-metadata-field-picker">
+            {{ form.required_metadata_fields }}
+          </div>
+          {% if form.required_metadata_fields.help_text %}
+            <div class="form-text">{{ form.required_metadata_fields.help_text }}</div>
+          {% endif %}
+          {{ form.required_metadata_fields.errors }}
+        </div>
       </div>
       <button class="btn btn-primary mt-4" type="submit">{{ submit_label }}</button>
     </form>

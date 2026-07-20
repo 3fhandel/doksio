@@ -60,6 +60,7 @@ class WorkflowStep(models.Model):
     class StepType(models.TextChoices):
         TASK = "task", "Aufgabe"
         APPROVAL = "approval", "Freigabe"
+        COMPLETE_METADATA = "complete_metadata", "Daten vervollständigen"
 
     class CommentPolicy(models.TextChoices):
         DISABLED = "disabled", "Kein Kommentar"
@@ -88,6 +89,11 @@ class WorkflowStep(models.Model):
         null=True,
         on_delete=models.PROTECT,
         related_name="workflow_steps",
+    )
+    required_metadata_fields = models.ManyToManyField(
+        "documents.DocumentMetadataField",
+        blank=True,
+        related_name="required_by_workflow_steps",
     )
     instructions = models.TextField(blank=True)
     sort_order = models.PositiveIntegerField(default=100)

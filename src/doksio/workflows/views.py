@@ -190,6 +190,9 @@ def workflow_step_create(
                 name=form.cleaned_data["name"],
                 step_type=form.cleaned_data["step_type"],
                 assigned_role=form.cleaned_data["assigned_role"],
+                required_metadata_fields=list(
+                    form.cleaned_data["required_metadata_fields"]
+                ),
                 instructions=form.cleaned_data["instructions"],
                 sort_order=form.cleaned_data["sort_order"],
                 comment_policy=form.cleaned_data["comment_policy"],
@@ -238,6 +241,9 @@ def workflow_step_edit(
                 name=form.cleaned_data["name"],
                 step_type=form.cleaned_data["step_type"],
                 assigned_role=form.cleaned_data["assigned_role"],
+                required_metadata_fields=list(
+                    form.cleaned_data["required_metadata_fields"]
+                ),
                 instructions=form.cleaned_data["instructions"],
                 sort_order=form.cleaned_data["sort_order"],
                 comment_policy=form.cleaned_data["comment_policy"],
@@ -256,6 +262,7 @@ def workflow_step_edit(
                 "name": step.name,
                 "step_type": step.step_type,
                 "assigned_role": step.assigned_role,
+                "required_metadata_fields": step.required_metadata_fields.all(),
                 "instructions": step.instructions,
                 "sort_order": step.sort_order,
                 "comment_policy": step.comment_policy,

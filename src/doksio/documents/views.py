@@ -174,6 +174,16 @@ def _with_workflow_counts(documents):
     )
 
 
+def _metadata_value_is_filled(value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
+
+
 def _shell_quote(value: object) -> str:
     return shlex.quote("" if value is None else str(value))
 
@@ -1705,7 +1715,7 @@ def document_detail(
                         "step",
                         "instance",
                         "assigned_role",
-                    ),
+                    ).prefetch_related("step__required_metadata_fields"),
                     id=complete_workflow_task_form.cleaned_data["task_id"],
                     tenant=tenant,
                     document=document,
@@ -1713,13 +1723,17 @@ def document_detail(
                 )
                 if not can_complete_workflow_task(request.user, task):
                     raise PermissionDenied
-                CompleteWorkflowTask(
-                    task=task,
-                    actor=request.user,
-                    comment=complete_workflow_task_form.cleaned_data["comment"],
-                ).execute()
-                messages.success(request, "Workflow-Aufgabe wurde erledigt.")
-                return redirect(request.get_full_path())
+                try:
+                    CompleteWorkflowTask(
+                        task=task,
+                        actor=request.user,
+                        comment=complete_workflow_task_form.cleaned_data["comment"],
+                    ).execute()
+                except ValueError as error:
+                    messages.error(request, str(error))
+                else:
+                    messages.success(request, "Workflow-Aufgabe wurde erledigt.")
+                    return redirect(request.get_full_path())
         elif action == "share_attachment_email":
             share_attachment_form = DocumentShareAttachmentForm(request.POST)
             if share_attachment_form.is_valid():
@@ -1771,12 +1785,22 @@ def document_detail(
     ]
     open_workflow_tasks_queryset = document.workflow_tasks.filter(
         status=WorkflowTask.Status.OPEN,
-    ).select_related("step", "assigned_role", "instance__template")
+    ).select_related("step", "assigned_role", "instance__template").prefetch_related(
+        "step__required_metadata_fields",
+    )
     open_workflow_tasks = [
         task
         for task in open_workflow_tasks_queryset
         if can_complete_workflow_task(request.user, task)
     ]
+    for task in open_workflow_tasks:
+        required_metadata_fields = list(task.step.required_metadata_fields.all())
+        task.required_metadata_fields_for_completion = required_metadata_fields
+        task.missing_metadata_fields_for_completion = [
+            field
+            for field in required_metadata_fields
+            if not _metadata_value_is_filled(document.metadata.get(field.slug))
+        ]
     workflow_templates_available = WorkflowTemplate.objects.filter(
         tenant=tenant,
         is_active=True,
