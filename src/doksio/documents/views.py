@@ -21,6 +21,7 @@ from django.http import (
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 
 from doksio.accounts.forms import (
     TenantMembershipCreateForm,
@@ -1517,6 +1518,7 @@ def document_import_batch_detail(
     )
 
 
+@xframe_options_sameorigin
 def document_import_batch_item_preview(
     request: HttpRequest,
     tenant_slug: str,

@@ -746,6 +746,7 @@ def test_document_import_batch_item_preview_returns_staged_file(client):
 
     assert response.status_code == 200
     assert response["Content-Type"] == "application/pdf"
+    assert response["X-Frame-Options"] == "SAMEORIGIN"
     assert b"".join(response.streaming_content) == b"%PDF-1.4\ninline"
 
 
