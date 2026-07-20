@@ -1,0 +1,13 @@
+Hallo,
+
+{{ title }}
+
+{% if body %}{{ body }}
+
+{% endif %}{% if link_url %}Direkt öffnen:
+{{ link_url }}
+
+{% endif %}Tenant: {{ tenant.name }}
+
+--
+Doksio

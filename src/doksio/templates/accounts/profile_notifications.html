@@ -10,34 +10,63 @@
 
     <div class="profile-section">
       <h2 class="h5 mb-1">Benachrichtigungen</h2>
-      <p class="text-secondary mb-3">In-App-Benachrichtigungen für neue Aufgaben und wichtige Ereignisse.</p>
-      <div class="form-check form-switch">
-        {{ form.notifications_enabled }}
-        <label class="form-check-label" for="{{ form.notifications_enabled.id_for_label }}">
-          {{ form.notifications_enabled.label }}
-        </label>
+      <p class="text-secondary mb-3">
+        Lege je Ereignis fest, ob Doksio dich intern oder zusätzlich per
+        E-Mail benachrichtigen soll.
+      </p>
+      <div class="table-responsive">
+        <table class="table align-middle mb-0">
+          <thead>
+            <tr>
+              <th scope="col">Ereignis</th>
+              <th class="text-center" scope="col">In-App</th>
+              <th class="text-center" scope="col">E-Mail</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">
+                Workflow gestartet
+                <div class="small fw-normal text-secondary">
+                  Wenn für ein Dokument ein Workflow startet.
+                </div>
+              </th>
+              <td class="text-center">{{ form.notification_workflow_started_in_app }}</td>
+              <td class="text-center">{{ form.notification_workflow_started_email }}</td>
+            </tr>
+            <tr>
+              <th scope="row">
+                Neue Workflow-Aufgabe
+                <div class="small fw-normal text-secondary">
+                  Wenn dir ein Workflow-Schritt zugeordnet wird.
+                </div>
+              </th>
+              <td class="text-center">{{ form.notification_workflow_task_created_in_app }}</td>
+              <td class="text-center">{{ form.notification_workflow_task_created_email }}</td>
+            </tr>
+            <tr>
+              <th scope="row">
+                Ich wurde erwähnt
+                <div class="small fw-normal text-secondary">
+                  Wenn dich jemand in einem Kommentar mit @ erwähnt.
+                </div>
+              </th>
+              <td class="text-center">{{ form.notification_document_comment_mention_in_app }}</td>
+              <td class="text-center">{{ form.notification_document_comment_mention_email }}</td>
+            </tr>
+            <tr>
+              <th scope="row">
+                Importfehler
+                <div class="small fw-normal text-secondary">
+                  Wenn ein Importvorgang nicht verarbeitet werden konnte.
+                </div>
+              </th>
+              <td class="text-center">{{ form.notification_import_failed_in_app }}</td>
+              <td class="text-center">{{ form.notification_import_failed_email }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-      {{ form.notifications_enabled.errors }}
-      <div class="form-check form-switch mt-3">
-        {{ form.workflow_notifications_enabled }}
-        <label class="form-check-label" for="{{ form.workflow_notifications_enabled.id_for_label }}">
-          {{ form.workflow_notifications_enabled.label }}
-        </label>
-      </div>
-      <div class="form-text">
-        Gilt für Benachrichtigungen, wenn dir eine neue Workflow-Aufgabe zugeordnet wird.
-      </div>
-      {{ form.workflow_notifications_enabled.errors }}
-      <div class="form-check form-switch mt-3">
-        {{ form.mention_notifications_enabled }}
-        <label class="form-check-label" for="{{ form.mention_notifications_enabled.id_for_label }}">
-          {{ form.mention_notifications_enabled.label }}
-        </label>
-      </div>
-      <div class="form-text">
-        Gilt für Kommentare, in denen dich jemand mit @ erwähnt.
-      </div>
-      {{ form.mention_notifications_enabled.errors }}
     </div>
 
     <div class="profile-actions">

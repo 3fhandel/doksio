@@ -14,6 +14,7 @@ from typing import BinaryIO
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import transaction
 from django.db.models import Q
@@ -157,7 +158,11 @@ def _convert_tiff_to_pdf(
             for frame in ImageSequence.Iterator(image):
                 page = ImageOps.exif_transpose(frame)
                 page.load()
-                if page.mode == "RGBA":
+                if page.mode == "1":
+                    page = page.copy()
+                elif page.mode == "L" and _is_bilevel_image(page):
+                    page = page.point(lambda value: 255 if value > 127 else 0, "1")
+                elif page.mode == "RGBA":
                     background = Image.new("RGB", page.size, "white")
                     background.paste(page, mask=page.getchannel("A"))
                     page = background
@@ -182,6 +187,17 @@ def _convert_tiff_to_pdf(
 
     output.seek(0)
     return output, _converted_pdf_filename(original_filename), "application/pdf"
+
+
+def _is_bilevel_image(image) -> bool:
+    if image.mode == "1":
+        return True
+    if image.mode != "L":
+        return False
+    histogram = image.histogram()
+    total = sum(histogram) or 1
+    black_or_white = sum(histogram[:16]) + sum(histogram[240:])
+    return black_or_white / total >= 0.995
 
 
 def _prepare_upload_file_for_storage(
@@ -932,6 +948,249 @@ class DiscardDocumentImportBatch:
             },
         ).execute()
         return self.batch
+
+
+@dataclass(frozen=True)
+class DocumentBoxScanOptimizationResult:
+    candidates: int = 0
+    optimized: int = 0
+    skipped: int = 0
+    errors: int = 0
+    bytes_before: int = 0
+    bytes_after: int = 0
+
+    @property
+    def saved_bytes(self) -> int:
+        return max(self.bytes_before - self.bytes_after, 0)
+
+
+@dataclass(frozen=True)
+class OptimizeDocumentBoxScans:
+    tenant: Tenant
+    document_space: DocumentSpace
+    include_children: bool = True
+    actor: get_user_model() | None = None
+    dpi: int = 300
+    min_savings_ratio: float = 0.05
+
+    def execute(self) -> DocumentBoxScanOptimizationResult:
+        if self.document_space.tenant_id != self.tenant.id:
+            raise ValueError("Document space belongs to a different tenant.")
+
+        result = DocumentBoxScanOptimizationResult()
+        for document in self._documents():
+            document_file = (
+                document.files.filter(
+                    file_kind=DocumentFile.Kind.ORIGINAL,
+                    content_type="application/pdf",
+                )
+                .order_by("-version", "-created_at", "-id")
+                .first()
+            )
+            if document_file is None:
+                continue
+            result = self._optimize_one(document_file, result)
+
+        RecordAuditEvent(
+            tenant=self.tenant,
+            actor=self.actor,
+            event_type="document_box.scan_optimization.completed",
+            object_type="documents.DocumentSpace",
+            object_id=str(self.document_space.id),
+            data={
+                "space_path": self.document_space.path,
+                "include_children": self.include_children,
+                "candidates": result.candidates,
+                "optimized": result.optimized,
+                "skipped": result.skipped,
+                "errors": result.errors,
+                "bytes_before": result.bytes_before,
+                "bytes_after": result.bytes_after,
+                "saved_bytes": result.saved_bytes,
+            },
+        ).execute()
+        return result
+
+    def _documents(self):
+        documents = Document.objects.filter(
+            tenant=self.tenant,
+            status=Document.Status.ACTIVE,
+        ).prefetch_related("files")
+        if self.include_children:
+            return documents.filter(
+                Q(space=self.document_space)
+                | Q(space__path__startswith=f"{self.document_space.path.rstrip('/')}/")
+            )
+        return documents.filter(space=self.document_space)
+
+    def _optimize_one(
+        self,
+        document_file: DocumentFile,
+        result: DocumentBoxScanOptimizationResult,
+    ) -> DocumentBoxScanOptimizationResult:
+        result = DocumentBoxScanOptimizationResult(
+            candidates=result.candidates + 1,
+            optimized=result.optimized,
+            skipped=result.skipped,
+            errors=result.errors,
+            bytes_before=result.bytes_before + document_file.byte_size,
+            bytes_after=result.bytes_after + document_file.byte_size,
+        )
+        try:
+            optimized_pdf = _optimize_scanned_pdf_bytes(document_file, dpi=self.dpi)
+        except Exception:
+            return DocumentBoxScanOptimizationResult(
+                candidates=result.candidates,
+                optimized=result.optimized,
+                skipped=result.skipped,
+                errors=result.errors + 1,
+                bytes_before=result.bytes_before,
+                bytes_after=result.bytes_after,
+            )
+
+        if optimized_pdf is None:
+            return DocumentBoxScanOptimizationResult(
+                candidates=result.candidates,
+                optimized=result.optimized,
+                skipped=result.skipped + 1,
+                errors=result.errors,
+                bytes_before=result.bytes_before,
+                bytes_after=result.bytes_after,
+            )
+
+        if len(optimized_pdf) >= document_file.byte_size * (1 - self.min_savings_ratio):
+            return DocumentBoxScanOptimizationResult(
+                candidates=result.candidates,
+                optimized=result.optimized,
+                skipped=result.skipped + 1,
+                errors=result.errors,
+                bytes_before=result.bytes_before,
+                bytes_after=result.bytes_after,
+            )
+
+        self._replace_storage(document_file, optimized_pdf)
+        return DocumentBoxScanOptimizationResult(
+            candidates=result.candidates,
+            optimized=result.optimized + 1,
+            skipped=result.skipped,
+            errors=result.errors,
+            bytes_before=result.bytes_before,
+            bytes_after=(
+                result.bytes_after - document_file.byte_size + len(optimized_pdf)
+            ),
+        )
+
+    def _replace_storage(
+        self,
+        document_file: DocumentFile,
+        optimized_pdf: bytes,
+    ) -> None:
+        old_storage_key = document_file.storage_key
+        new_storage_key = f"{old_storage_key}.optimized-{uuid.uuid4().hex}.pdf"
+        saved_storage_key = default_storage.save(
+            new_storage_key,
+            ContentFile(optimized_pdf),
+        )
+        viewer_settings = dict(document_file.viewer_settings or {})
+        viewer_settings["scan_optimized_at"] = timezone.now().isoformat()
+        viewer_settings["scan_optimized_from_bytes"] = document_file.byte_size
+        viewer_settings["scan_optimized_to_bytes"] = len(optimized_pdf)
+        sha256 = hashlib.sha256(optimized_pdf).hexdigest()
+        DocumentFile.objects.filter(id=document_file.id).update(
+            storage_key=saved_storage_key,
+            byte_size=len(optimized_pdf),
+            sha256=sha256,
+            viewer_settings=viewer_settings,
+        )
+        RecordAuditEvent(
+            tenant=document_file.tenant,
+            actor=self.actor,
+            event_type="document_file.scan_optimized",
+            object_type="documents.DocumentFile",
+            object_id=str(document_file.id),
+            data={
+                "document_id": document_file.document_id,
+                "old_storage_key": old_storage_key,
+                "new_storage_key": saved_storage_key,
+                "bytes_before": document_file.byte_size,
+                "bytes_after": len(optimized_pdf),
+                "sha256": sha256,
+            },
+        ).execute()
+        transaction.on_commit(lambda: default_storage.delete(old_storage_key))
+
+
+def _optimize_scanned_pdf_bytes(
+    document_file: DocumentFile,
+    *,
+    dpi: int,
+) -> bytes | None:
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        return None
+
+    with default_storage.open(document_file.storage_key, "rb") as stored_file:
+        pdf_bytes = stored_file.read()
+
+    pdf = pdfium.PdfDocument(pdf_bytes)
+    pages = []
+    try:
+        if len(pdf) == 0:
+            return None
+        for page_index in range(len(pdf)):
+            page = pdf[page_index]
+            try:
+                if _pdf_page_has_embedded_text(page):
+                    return None
+                bitmap = page.render(scale=dpi / 72)
+                image = bitmap.to_pil().convert("L")
+                if not _is_scanned_bilevel_render(image):
+                    return None
+                pages.append(
+                    image.point(lambda value: 255 if value > 180 else 0, "1").copy()
+                )
+            finally:
+                page.close()
+    finally:
+        pdf.close()
+
+    if not pages:
+        return None
+
+    output = SpooledTemporaryFile(max_size=10 * 1024 * 1024)  # noqa: SIM115
+    try:
+        first_page, *remaining_pages = pages
+        first_page.save(
+            output,
+            format="PDF",
+            save_all=True,
+            append_images=remaining_pages,
+            resolution=dpi,
+        )
+        output.seek(0)
+        return output.read()
+    finally:
+        output.close()
+
+
+def _pdf_page_has_embedded_text(page) -> bool:
+    with suppress(Exception):
+        text_page = page.get_textpage()
+        try:
+            char_count = text_page.count_chars()
+            return bool(text_page.get_text_range(0, char_count).strip())
+        finally:
+            text_page.close()
+    return False
+
+
+def _is_scanned_bilevel_render(image) -> bool:
+    histogram = image.histogram()
+    total = sum(histogram) or 1
+    blackish = sum(histogram[:48])
+    whiteish = sum(histogram[208:])
+    return (blackish + whiteish) / total >= 0.97
 
 
 @dataclass(frozen=True)

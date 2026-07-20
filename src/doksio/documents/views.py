@@ -42,6 +42,7 @@ from doksio.accounts.services import (
 from doksio.audit.models import AuditEvent
 from doksio.audit.services import RecordAuditEvent
 from doksio.documents.forms import (
+    DocumentBoxScanOptimizationForm,
     DocumentCommentForm,
     DocumentCoreMetadataForm,
     DocumentDeleteForm,
@@ -133,6 +134,8 @@ DOCUMENT_LOG_EVENT_LABELS = {
     "document_import_batch.created": "Stapelimport angelegt",
     "document_import_batch.discarded": "Stapelimport verworfen",
     "document_import_batch.finalized": "Stapelimport abgeschlossen",
+    "document_box.scan_optimization.completed": "Scan-Optimierung abgeschlossen",
+    "document_file.scan_optimized": "Scan-PDF optimiert",
     "export_run.created": "Exportlauf erzeugt",
     "export_run.downloaded": "Export heruntergeladen",
     "workflow_instance.started": "Workflow gestartet",
@@ -2430,6 +2433,50 @@ def tenant_settings_smtp(
             "form": form,
             "smtp_settings": smtp_settings,
             "active_settings_section": "smtp",
+        },
+    )
+
+
+def tenant_settings_maintenance(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    if request.method == "POST":
+        form = DocumentBoxScanOptimizationForm(request.POST, tenant=tenant)
+        if form.is_valid():
+            from doksio.documents.tasks import optimize_document_box_scans
+
+            document_space = form.cleaned_data["space"]
+            optimize_document_box_scans.delay(
+                document_space.id,
+                include_children=form.cleaned_data["include_children"],
+                actor_id=request.user.id,
+            )
+            messages.success(
+                request,
+                (
+                    "Scan-Optimierung wurde gestartet. "
+                    "Das Ergebnis landet nach Abschluss im Audit-Log."
+                ),
+            )
+            return redirect("documents:settings_maintenance", tenant_slug=tenant.slug)
+    else:
+        form = DocumentBoxScanOptimizationForm(tenant=tenant)
+
+    return render(
+        request,
+        "documents/settings_maintenance.html",
+        {
+            "tenant": tenant,
+            "form": form,
+            "active_settings_section": "maintenance",
         },
     )
 

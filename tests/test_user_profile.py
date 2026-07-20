@@ -187,8 +187,9 @@ def test_profile_view_saves_notifications(client):
     response = client.post(
         reverse("accounts:profile_notifications", kwargs={"tenant_slug": tenant.slug}),
         {
-            "notifications_enabled": "on",
-            "workflow_notifications_enabled": "",
+            "notification_workflow_started_in_app": "on",
+            "notification_workflow_task_created_email": "on",
+            "notification_document_comment_mention_in_app": "on",
         },
     )
 
@@ -196,7 +197,14 @@ def test_profile_view_saves_notifications(client):
     assert response.status_code == 302
     assert profile.notifications_enabled is True
     assert profile.workflow_notifications_enabled is False
-    assert profile.mention_notifications_enabled is False
+    assert profile.mention_notifications_enabled is True
+    assert profile.notification_preferences["workflow_started"]["in_app"] is True
+    assert profile.notification_preferences["workflow_task_created"]["in_app"] is False
+    assert profile.notification_preferences["workflow_task_created"]["email"] is True
+    assert (
+        profile.notification_preferences["document_comment_mention"]["in_app"] is True
+    )
+    assert profile.notification_preferences["import_failed"]["in_app"] is False
 
 
 @pytest.mark.django_db
@@ -210,8 +218,22 @@ def test_profile_notifications_view_renders_workflow_notification_setting(client
 
     content = response.content.decode()
     assert response.status_code == 200
-    assert "Neue Workflow-Aufgaben" in content
-    assert "wenn dir eine neue Workflow-Aufgabe zugeordnet wird" in content
+    assert "In-App" in content
+    assert "E-Mail" in content
+    assert "Workflow gestartet" in content
+    assert "Neue Workflow-Aufgabe" in content
+    assert "Wenn dir ein Workflow-Schritt zugeordnet wird" in content
+    assert "Importfehler" in content
+
+
+@pytest.mark.django_db
+def test_profile_notification_defaults_enable_mention_email():
+    _tenant, user = _create_tenant_user()
+    profile = UserProfile.objects.create(user=user)
+
+    form = UserProfileForm(profile=profile)
+
+    assert form.fields["notification_document_comment_mention_email"].initial is True
 
 
 @pytest.mark.django_db

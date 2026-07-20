@@ -113,6 +113,52 @@ def _create_notifications_for_task(task: WorkflowTask) -> None:
         ).execute()
 
 
+def _candidate_recipients_for_workflow_started(instance: WorkflowInstance):
+    user_model = get_user_model()
+    memberships = TenantMembership.objects.filter(
+        tenant=instance.tenant,
+        is_active=True,
+        user__is_active=True,
+    ).filter(
+        Q(role__permissions__code=TenantPermissions.WORKFLOWS_MANAGE)
+        | Q(roles__permissions__code=TenantPermissions.WORKFLOWS_MANAGE)
+    )
+    return user_model.objects.filter(
+        id__in=memberships.values("user_id"),
+        is_active=True,
+    ).distinct()
+
+
+def _create_notifications_for_workflow_started(instance: WorkflowInstance) -> None:
+    from doksio.documents.policies import filter_documents_for_user
+
+    link_url = reverse(
+        "documents:detail",
+        kwargs={
+            "tenant_slug": instance.tenant.slug,
+            "document_id": instance.document_id,
+        },
+    )
+    for recipient in _candidate_recipients_for_workflow_started(instance):
+        can_see_document = filter_documents_for_user(
+            Document.objects.filter(id=instance.document_id),
+            recipient,
+            instance.tenant,
+        ).exists()
+        if not can_see_document:
+            continue
+
+        CreateNotification(
+            tenant=instance.tenant,
+            recipient=recipient,
+            notification_type=Notification.Type.WORKFLOW_STARTED,
+            title="Workflow gestartet",
+            body=f"{instance.template.name} für {instance.document.title}",
+            link_url=link_url,
+            document=instance.document,
+        ).execute()
+
+
 def workflow_template_matches_document(
     template: WorkflowTemplate,
     document: Document,
@@ -371,6 +417,7 @@ class StartWorkflowForDocument:
             instance.save(update_fields=["status", "completed_at", "updated_at"])
         else:
             _create_task_for_step(instance=instance, step=first_step)
+        _create_notifications_for_workflow_started(instance)
 
         RecordAuditEvent(
             tenant=self.document.tenant,

@@ -37,6 +37,9 @@
             <a class="list-group-item list-group-item-action disabled" href="#">Exporte</a>
             <a class="list-group-item list-group-item-action disabled" href="#">Sicherheit</a>
             <a class="list-group-item list-group-item-action disabled" href="#">Audit</a>
+            <a class="list-group-item list-group-item-action {% if active_settings_section == 'maintenance' %}active{% endif %}" href="{% url 'documents:settings_maintenance' tenant.slug %}">
+              Wartung
+            </a>
           </div>
         </aside>
         <section class="col-lg-9">

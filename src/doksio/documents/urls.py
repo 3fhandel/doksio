@@ -156,6 +156,11 @@ urlpatterns = [
         name="settings_smtp",
     ),
     path(
+        "t/<slug:tenant_slug>/settings/maintenance/",
+        views.tenant_settings_maintenance,
+        name="settings_maintenance",
+    ),
+    path(
         "t/<slug:tenant_slug>/settings/import/new/",
         views.tenant_settings_import_source_create,
         name="settings_import_source_create",

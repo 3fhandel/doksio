@@ -8,7 +8,7 @@ from django.contrib.auth import get_user_model
 from django.test import override_settings
 from django.urls import reverse
 
-from doksio.accounts.models import TenantMembership
+from doksio.accounts.models import Notification, TenantMembership
 from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
 from doksio.documents.models import Document, DocumentFile, DocumentTagAssignment
@@ -125,7 +125,14 @@ def test_import_document_creates_document_job_and_default_tags():
 @pytest.mark.django_db
 def test_import_document_rejects_duplicate_file_by_checksum():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    admin = get_user_model().objects.create_user(username="admin")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=admin,
+        role=roles["admin"],
+    )
     source = ImportSource.objects.create(
         tenant=tenant,
         document_space=space,
@@ -157,6 +164,12 @@ def test_import_document_rejects_duplicate_file_by_checksum():
 
     assert Document.objects.count() == 1
     assert ImportJob.objects.filter(status=ImportJob.Status.FAILED).count() == 1
+    notification = Notification.objects.get(
+        recipient=admin,
+        notification_type=Notification.Type.IMPORT_FAILED,
+    )
+    assert notification.title == "Importfehler"
+    assert "rechnung-kopie.pdf" in notification.body
     duplicate_event = AuditEvent.objects.get(
         event_type="document_duplicate.detected"
     )

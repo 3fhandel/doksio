@@ -16,8 +16,13 @@ from typing import BinaryIO
 
 from django.contrib.auth import get_user_model
 from django.core.mail import EmailMultiAlternatives, get_connection
+from django.db.models import Q
+from django.urls import reverse
 from django.utils import timezone
 
+from doksio.accounts.models import Notification, TenantMembership
+from doksio.accounts.permissions import TenantPermissions
+from doksio.accounts.services import CreateNotification
 from doksio.audit.services import RecordAuditEvent
 from doksio.documents.models import Document, DocumentSpace
 from doksio.documents.services import (
@@ -219,7 +224,42 @@ class ImportDocument:
                     "error": str(exc),
                 },
             ).execute()
+            _create_import_failed_notifications(import_job)
             raise
+
+
+def _create_import_failed_notifications(import_job: ImportJob) -> None:
+    link_url = reverse(
+        "documents:audit_log",
+        kwargs={"tenant_slug": import_job.tenant.slug},
+    )
+    memberships = TenantMembership.objects.filter(
+        tenant=import_job.tenant,
+        is_active=True,
+        user__is_active=True,
+    ).filter(
+        Q(role__permissions__code=TenantPermissions.AUDIT_VIEW)
+        | Q(roles__permissions__code=TenantPermissions.AUDIT_VIEW)
+        | Q(role__permissions__code=TenantPermissions.DOCUMENT_SPACES_MANAGE)
+        | Q(roles__permissions__code=TenantPermissions.DOCUMENT_SPACES_MANAGE)
+    )
+    recipients = get_user_model().objects.filter(
+        id__in=memberships.values("user_id"),
+        is_active=True,
+    ).distinct()
+    source_name = import_job.source.name if import_job.source else "Manueller Import"
+    for recipient in recipients:
+        CreateNotification(
+            tenant=import_job.tenant,
+            recipient=recipient,
+            notification_type=Notification.Type.IMPORT_FAILED,
+            title="Importfehler",
+            body=(
+                f"{import_job.original_filename} aus {source_name} konnte nicht "
+                "importiert werden."
+            ),
+            link_url=link_url,
+        ).execute()
 
 
 @dataclass(frozen=True)

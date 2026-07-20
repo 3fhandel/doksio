@@ -16,6 +16,7 @@ from doksio.accounts.forms import (
     SystemLoginForm,
     TenantLoginForm,
     UserProfileForm,
+    notification_preferences_from_form,
 )
 from doksio.accounts.models import Notification, UserProfile
 from doksio.accounts.oidc import (
@@ -345,20 +346,24 @@ def profile_notifications(request: HttpRequest, tenant_slug: str) -> HttpRespons
 
         form = UserProfileForm(request.POST, profile=user_profile)
         if form.is_valid():
-            user_profile.notifications_enabled = form.cleaned_data[
-                "notifications_enabled"
-            ]
-            user_profile.workflow_notifications_enabled = form.cleaned_data[
-                "workflow_notifications_enabled"
-            ]
-            user_profile.mention_notifications_enabled = form.cleaned_data[
-                "mention_notifications_enabled"
-            ]
+            notification_preferences = notification_preferences_from_form(form)
+            user_profile.notifications_enabled = any(
+                channels["in_app"]
+                for channels in notification_preferences.values()
+            )
+            user_profile.workflow_notifications_enabled = notification_preferences[
+                Notification.Type.WORKFLOW_TASK_CREATED
+            ]["in_app"]
+            user_profile.mention_notifications_enabled = notification_preferences[
+                Notification.Type.DOCUMENT_COMMENT_MENTION
+            ]["in_app"]
+            user_profile.notification_preferences = notification_preferences
             user_profile.save(
                 update_fields=[
                     "notifications_enabled",
                     "workflow_notifications_enabled",
                     "mention_notifications_enabled",
+                    "notification_preferences",
                     "updated_at",
                 ]
             )

@@ -28,6 +28,7 @@ from doksio.documents.services import (
     CreateDocumentFromUpload,
     CreateDocumentMetadataField,
     CreateDocumentSpace,
+    OptimizeDocumentBoxScans,
     SetDocumentTags,
     UpdateDocumentMetadata,
 )
@@ -52,6 +53,30 @@ def _single_page_tiff_bytes() -> bytes:
     output = BytesIO()
     image = Image.new("1", (32, 32), 1)
     image.save(output, format="TIFF")
+    return output.getvalue()
+
+
+def _large_bilevel_tiff_bytes() -> bytes:
+    from PIL import Image, ImageDraw
+
+    output = BytesIO()
+    image = Image.new("1", (1200, 1600), 1)
+    draw = ImageDraw.Draw(image)
+    for y_position in range(120, 1450, 80):
+        draw.line((80, y_position, 1120, y_position), fill=0, width=2)
+    image.save(output, format="TIFF", compression="group4")
+    return output.getvalue()
+
+
+def _bloated_scanned_pdf_bytes() -> bytes:
+    from PIL import Image, ImageDraw
+
+    output = BytesIO()
+    image = Image.new("1", (1200, 1600), 1)
+    draw = ImageDraw.Draw(image)
+    for y_position in range(120, 1450, 80):
+        draw.line((80, y_position, 1120, y_position), fill=0, width=2)
+    image.convert("RGB").save(output, format="PDF", resolution=300)
     return output.getvalue()
 
 
@@ -1620,6 +1645,84 @@ def test_add_document_comment_respects_disabled_mention_notifications():
 
 
 @pytest.mark.django_db
+def test_add_document_comment_can_send_mention_email_without_in_app_notification(
+    monkeypatch,
+    django_capture_on_commit_callbacks,
+):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    author = get_user_model().objects.create_user(username="alice")
+    mentioned_user = get_user_model().objects.create_user(
+        username="bob",
+        email="bob@example.test",
+    )
+    UserProfile.objects.create(
+        user=mentioned_user,
+        notification_preferences={
+            "workflow_started": {"in_app": False, "email": False},
+            "workflow_task_created": {"in_app": False, "email": False},
+            "document_comment_mention": {"in_app": False, "email": True},
+            "import_failed": {"in_app": False, "email": False},
+        },
+    )
+    TenantSmtpSettings.objects.create(
+        tenant=tenant,
+        host="smtp.example.test",
+        port=587,
+        security=TenantSmtpSettings.Security.STARTTLS,
+        username="mailer@example.test",
+        password="secret",
+        from_email="doksio@example.test",
+        from_name="Doksio",
+        is_active=True,
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=author,
+        role=roles["member"],
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=mentioned_user,
+        role=roles["member"],
+    )
+    document, _document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Invoice 4711",
+        space=space,
+        file_obj=BytesIO(b"invoice content"),
+        original_filename="invoice.pdf",
+        content_type="application/pdf",
+        created_by=author,
+    ).execute()
+    sent_messages = []
+
+    def fake_send(message):
+        sent_messages.append(message)
+        return 1
+
+    monkeypatch.setattr(
+        "doksio.accounts.services.EmailMultiAlternatives.send",
+        fake_send,
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        comment = AddDocumentComment(
+            document=document,
+            body="Bitte @bob prüfen.",
+            actor=author,
+        ).execute()
+
+    assert list(comment.mentioned_users.all()) == [mentioned_user]
+    assert not Notification.objects.filter(recipient=mentioned_user).exists()
+    assert len(sent_messages) == 1
+    assert sent_messages[0].to == ["bob@example.test"]
+    assert "Du wurdest erwähnt" in sent_messages[0].subject
+    assert "Invoice 4711" not in sent_messages[0].body
+
+
+@pytest.mark.django_db
 def test_set_document_tags_creates_and_replaces_assignments():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
@@ -2881,6 +2984,79 @@ def test_document_detail_uses_converted_pdf_for_tiff(client, monkeypatch):
 
 
 @pytest.mark.django_db
+def test_tiff_import_keeps_bilevel_scans_compact(monkeypatch):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    monkeypatch.setattr(
+        "doksio.documents.thumbnails._render_thumbnail_bytes",
+        lambda _document_file: b"thumbnail-bytes",
+    )
+
+    _document, original_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="TIFF Scan",
+        space=space,
+        file_obj=BytesIO(_large_bilevel_tiff_bytes()),
+        original_filename="scan.tiff",
+        content_type="image/tiff",
+        auto_start_ocr=False,
+    ).execute()
+
+    with default_storage.open(original_file.storage_key, "rb") as stored_file:
+        stored_pdf = stored_file.read()
+
+    assert original_file.content_type == "application/pdf"
+    assert original_file.byte_size < 10_000
+    assert b"CCITTFaxDecode" in stored_pdf
+    assert b"DCTDecode" not in stored_pdf
+
+
+@pytest.mark.django_db
+def test_optimize_document_box_scans_replaces_bloated_scan_pdf(
+    monkeypatch,
+    django_capture_on_commit_callbacks,
+):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    monkeypatch.setattr(
+        "doksio.documents.thumbnails._render_thumbnail_bytes",
+        lambda _document_file: b"thumbnail-bytes",
+    )
+    _document, document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Scan PDF",
+        space=space,
+        file_obj=BytesIO(_bloated_scanned_pdf_bytes()),
+        original_filename="scan.pdf",
+        content_type="application/pdf",
+        auto_start_ocr=False,
+    ).execute()
+    old_storage_key = document_file.storage_key
+    old_byte_size = document_file.byte_size
+
+    with django_capture_on_commit_callbacks(execute=True):
+        result = OptimizeDocumentBoxScans(
+            tenant=tenant,
+            document_space=space,
+        ).execute()
+
+    document_file.refresh_from_db()
+    assert result.candidates == 1
+    assert result.optimized == 1
+    assert document_file.byte_size < old_byte_size
+    assert document_file.storage_key != old_storage_key
+    assert not default_storage.exists(old_storage_key)
+    assert AuditEvent.objects.filter(
+        event_type="document_file.scan_optimized",
+        object_id=str(document_file.id),
+    ).exists()
+    assert AuditEvent.objects.filter(
+        event_type="document_box.scan_optimization.completed",
+        object_id=str(space.id),
+    ).exists()
+
+
+@pytest.mark.django_db
 def test_document_list_shows_einvoice_signal_in_document_row(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
@@ -2948,6 +3124,73 @@ def test_tenant_admin_can_create_document_box_from_settings(client):
     box = DocumentSpace.objects.get(tenant=tenant)
     assert box.path == "/rechnungen"
     assert box.review_assist_enabled is False
+
+
+@pytest.mark.django_db
+def test_tenant_admin_can_start_scan_optimization_from_maintenance(
+    client,
+    monkeypatch,
+):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    space = CreateDocumentSpace(
+        tenant=tenant,
+        name="Rechnungen",
+        slug="rechnungen",
+    ).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    scheduled_jobs = []
+
+    def fake_delay(document_space_id, **kwargs):
+        scheduled_jobs.append((document_space_id, kwargs))
+
+    monkeypatch.setattr(
+        "doksio.documents.tasks.optimize_document_box_scans.delay",
+        fake_delay,
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:settings_maintenance",
+            kwargs={"tenant_slug": tenant.slug},
+        ),
+        {
+            "space": str(space.id),
+            "include_children": "on",
+        },
+    )
+
+    assert response.status_code == 302
+    assert scheduled_jobs == [
+        (
+            space.id,
+            {
+                "include_children": True,
+                "actor_id": user.id,
+            },
+        )
+    ]
+
+    get_response = client.get(
+        reverse(
+            "documents:settings_maintenance",
+            kwargs={"tenant_slug": tenant.slug},
+        )
+    )
+    content = get_response.content.decode()
+    assert get_response.status_code == 200
+    assert "Wartung" in content
+    assert "Scan-Speicher" in content
+    assert "Scan-Speicher optimieren" in content
 
 
 @pytest.mark.django_db

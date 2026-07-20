@@ -5,11 +5,13 @@ from django.contrib.auth.forms import AuthenticationForm, SetPasswordForm
 from django.contrib.auth.password_validation import validate_password
 
 from doksio.accounts.models import (
+    NOTIFICATION_TYPE_LABELS,
     TenantMembership,
     TenantPermission,
     TenantRole,
     UserProfile,
     default_keyboard_shortcuts,
+    default_notification_preferences,
 )
 from doksio.documents.models import DocumentSpace
 from doksio.tenancy.models import Tenant
@@ -38,6 +40,21 @@ SPECIAL_KEYS = {
     "esc": "Escape",
     "space": "Space",
 }
+
+NOTIFICATION_CHANNELS = [
+    ("in_app", "In-App"),
+    ("email", "E-Mail"),
+]
+
+NOTIFICATION_EVENTS = [
+    ("workflow_started", NOTIFICATION_TYPE_LABELS["workflow_started"]),
+    ("workflow_task_created", NOTIFICATION_TYPE_LABELS["workflow_task_created"]),
+    (
+        "document_comment_mention",
+        NOTIFICATION_TYPE_LABELS["document_comment_mention"],
+    ),
+    ("import_failed", NOTIFICATION_TYPE_LABELS["import_failed"]),
+]
 
 
 def normalize_keyboard_shortcut(value: str) -> str:
@@ -266,6 +283,21 @@ class UserProfileForm(forms.Form):
             self.initial["mention_notifications_enabled"] = (
                 profile.mention_notifications_enabled
             )
+        preferences = notification_preferences_for_profile(profile)
+        for event_key, event_label in NOTIFICATION_EVENTS:
+            for channel_key, channel_label in NOTIFICATION_CHANNELS:
+                field_name = notification_preference_field_name(
+                    event_key,
+                    channel_key,
+                )
+                self.fields[field_name] = forms.BooleanField(
+                    label=f"{event_label}: {channel_label}",
+                    required=False,
+                    initial=preferences[event_key][channel_key],
+                    widget=forms.CheckboxInput(
+                        attrs={"class": "form-check-input"},
+                    ),
+                )
 
     def clean(self) -> dict:
         cleaned_data = super().clean()
@@ -335,6 +367,56 @@ class UserProfileForm(forms.Form):
             for action, _label in KEYBOARD_SHORTCUT_ACTIONS
             if self.cleaned_data.get(f"shortcut_{action}", "")
         }
+
+
+def notification_preference_field_name(event_key: str, channel_key: str) -> str:
+    return f"notification_{event_key}_{channel_key}"
+
+
+def notification_preferences_for_profile(profile: UserProfile) -> dict:
+    preferences = {
+        event_key: dict(channels)
+        for event_key, channels in default_notification_preferences().items()
+    }
+    for event_key, channels in (profile.notification_preferences or {}).items():
+        if event_key not in preferences or not isinstance(channels, dict):
+            continue
+        preferences[event_key].update(
+            {
+                "in_app": bool(
+                    channels.get("in_app", preferences[event_key]["in_app"])
+                ),
+                "email": bool(channels.get("email", preferences[event_key]["email"])),
+            }
+        )
+    preferences["workflow_task_created"]["in_app"] = (
+        preferences["workflow_task_created"]["in_app"]
+        and profile.workflow_notifications_enabled
+    )
+    preferences["workflow_started"]["in_app"] = (
+        preferences["workflow_started"]["in_app"]
+        and profile.workflow_notifications_enabled
+    )
+    preferences["document_comment_mention"]["in_app"] = (
+        preferences["document_comment_mention"]["in_app"]
+        and profile.mention_notifications_enabled
+    )
+    if not profile.notifications_enabled:
+        for channels in preferences.values():
+            channels["in_app"] = False
+    return preferences
+
+
+def notification_preferences_from_form(form: UserProfileForm) -> dict:
+    preferences = default_notification_preferences()
+    for event_key, _event_label in NOTIFICATION_EVENTS:
+        for channel_key, _channel_label in NOTIFICATION_CHANNELS:
+            preferences[event_key][channel_key] = bool(
+                form.cleaned_data.get(
+                    notification_preference_field_name(event_key, channel_key)
+                )
+            )
+    return preferences
 
 
 class TenantMembershipCreateForm(forms.Form):

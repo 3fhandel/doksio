@@ -18,6 +18,7 @@ from doksio.accounts.models import (
     TenantPermission,
     TenantRole,
     UserProfile,
+    default_notification_preferences,
 )
 from doksio.accounts.permissions import DEFAULT_ROLE_PERMISSIONS, PERMISSION_DEFINITIONS
 from doksio.audit.services import RecordAuditEvent
@@ -44,6 +45,84 @@ def _tenant_smtp_connection(smtp_settings: TenantSmtpSettings):
         use_tls=smtp_settings.security == TenantSmtpSettings.Security.STARTTLS,
         use_ssl=smtp_settings.security == TenantSmtpSettings.Security.SSL,
     )
+
+
+def _notification_preferences(profile: UserProfile | None) -> dict:
+    preferences = default_notification_preferences()
+    if profile is not None:
+        for event_key, channels in (profile.notification_preferences or {}).items():
+            if event_key not in preferences or not isinstance(channels, dict):
+                continue
+            preferences[event_key] = {
+                **preferences[event_key],
+                "in_app": bool(
+                    channels.get("in_app", preferences[event_key]["in_app"])
+                ),
+                "email": bool(channels.get("email", preferences[event_key]["email"])),
+            }
+        preferences[Notification.Type.WORKFLOW_TASK_CREATED]["in_app"] = (
+            preferences[Notification.Type.WORKFLOW_TASK_CREATED]["in_app"]
+            and profile.workflow_notifications_enabled
+        )
+        preferences[Notification.Type.WORKFLOW_STARTED]["in_app"] = (
+            preferences[Notification.Type.WORKFLOW_STARTED]["in_app"]
+            and profile.workflow_notifications_enabled
+        )
+        preferences[Notification.Type.DOCUMENT_COMMENT_MENTION]["in_app"] = (
+            preferences[Notification.Type.DOCUMENT_COMMENT_MENTION]["in_app"]
+            and profile.mention_notifications_enabled
+        )
+        if not profile.notifications_enabled:
+            for channels in preferences.values():
+                channels["in_app"] = False
+    return preferences
+
+
+def _notification_link_url(link_url: str) -> str:
+    if not link_url:
+        return ""
+    if link_url.startswith(("http://", "https://")):
+        return link_url
+    return build_public_url(link_url)
+
+
+def _send_notification_email(
+    *,
+    tenant: Tenant,
+    recipient,
+    notification_type: str,
+    title: str,
+    body: str,
+    link_url: str,
+) -> None:
+    if not recipient.email:
+        return
+    smtp_settings = TenantSmtpSettings.objects.filter(
+        tenant=tenant,
+        is_active=True,
+    ).first()
+    if smtp_settings is None:
+        return
+
+    context = {
+        "tenant": tenant,
+        "recipient": recipient,
+        "notification_type": notification_type,
+        "title": title,
+        "body": body,
+        "link_url": _notification_link_url(link_url),
+    }
+    message = EmailMultiAlternatives(
+        subject=render_to_string(
+            "accounts/notification_email_subject.txt",
+            context,
+        ).strip(),
+        body=render_to_string("accounts/notification_email.txt", context),
+        from_email=_tenant_smtp_from_email(smtp_settings),
+        to=[recipient.email],
+        connection=_tenant_smtp_connection(smtp_settings),
+    )
+    message.send()
 
 
 @dataclass(frozen=True)
@@ -525,34 +604,40 @@ class CreateNotification:
     @transaction.atomic
     def execute(self) -> Notification | None:
         profile = UserProfile.objects.filter(user=self.recipient).first()
-        if profile is not None and not profile.notifications_enabled:
-            return None
-        if (
-            profile is not None
-            and self.notification_type == Notification.Type.WORKFLOW_TASK_CREATED
-            and not profile.workflow_notifications_enabled
-        ):
-            return None
-        if (
-            profile is not None
-            and self.notification_type == Notification.Type.DOCUMENT_COMMENT_MENTION
-            and not profile.mention_notifications_enabled
-        ):
-            return None
-
-        notification, _created = Notification.objects.get_or_create(
-            tenant=self.tenant,
-            recipient=self.recipient,
-            notification_type=self.notification_type,
-            workflow_task=self.workflow_task,
-            document_comment=self.document_comment,
-            defaults={
-                "title": self.title,
-                "body": self.body,
-                "link_url": self.link_url,
-                "document": self.document,
-            },
+        preferences = _notification_preferences(profile)
+        channels = preferences.get(
+            self.notification_type,
+            {"in_app": True, "email": False},
         )
+
+        notification = None
+        created = False
+        if channels["in_app"]:
+            notification, created = Notification.objects.get_or_create(
+                tenant=self.tenant,
+                recipient=self.recipient,
+                notification_type=self.notification_type,
+                workflow_task=self.workflow_task,
+                document_comment=self.document_comment,
+                document=self.document,
+                title=self.title,
+                body=self.body,
+                link_url=self.link_url,
+                defaults={
+                },
+            )
+
+        if channels["email"] and (created or notification is None):
+            transaction.on_commit(
+                lambda: _send_notification_email(
+                    tenant=self.tenant,
+                    recipient=self.recipient,
+                    notification_type=self.notification_type,
+                    title=self.title,
+                    body=self.body,
+                    link_url=self.link_url,
+                )
+            )
         return notification
 
 

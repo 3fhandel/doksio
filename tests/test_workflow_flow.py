@@ -716,7 +716,10 @@ def test_workflow_task_creation_creates_in_app_notification_for_visible_member()
 
     StartWorkflowForDocument(template=template, document=document).execute()
 
-    notification = Notification.objects.get(recipient=member)
+    notification = Notification.objects.get(
+        recipient=member,
+        notification_type=Notification.Type.WORKFLOW_TASK_CREATED,
+    )
     assert notification.tenant == tenant
     assert notification.document == document
     assert notification.workflow_task.title == "Sachlich prüfen"
@@ -724,7 +727,39 @@ def test_workflow_task_creation_creates_in_app_notification_for_visible_member()
     assert notification.title == "Neue Workflow-Aufgabe"
     assert "Sachlich prüfen" in notification.body
     assert str(document.id) in notification.link_url
-    assert not Notification.objects.filter(recipient=admin).exists()
+    assert not Notification.objects.filter(
+        recipient=admin,
+        notification_type=Notification.Type.WORKFLOW_TASK_CREATED,
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_workflow_start_creates_notification_for_workflow_user():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    admin = get_user_model().objects.create_user(username="admin")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=admin,
+        role=roles["admin"],
+    )
+    document = _create_document(tenant, space)
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Freigabe",
+        slug="freigabe-start-notification",
+    ).execute()
+
+    StartWorkflowForDocument(template=template, document=document).execute()
+
+    notification = Notification.objects.get(
+        recipient=admin,
+        notification_type=Notification.Type.WORKFLOW_STARTED,
+    )
+    assert notification.title == "Workflow gestartet"
+    assert "Freigabe" in notification.body
+    assert notification.document == document
 
 
 @pytest.mark.django_db

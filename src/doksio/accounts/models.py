@@ -19,6 +19,23 @@ def default_keyboard_shortcuts() -> dict[str, str]:
     }
 
 
+def default_notification_preferences() -> dict[str, dict[str, bool]]:
+    return {
+        "workflow_started": {"in_app": True, "email": False},
+        "workflow_task_created": {"in_app": True, "email": False},
+        "document_comment_mention": {"in_app": True, "email": True},
+        "import_failed": {"in_app": True, "email": False},
+    }
+
+
+NOTIFICATION_TYPE_LABELS = {
+    "workflow_started": "Workflow gestartet",
+    "workflow_task_created": "Neue Workflow-Aufgabe",
+    "document_comment_mention": "Ich wurde erwähnt",
+    "import_failed": "Importfehler",
+}
+
+
 class UserProfile(models.Model):
     """Personal settings for a platform user."""
 
@@ -33,6 +50,10 @@ class UserProfile(models.Model):
     notifications_enabled = models.BooleanField(default=True)
     workflow_notifications_enabled = models.BooleanField(default=True)
     mention_notifications_enabled = models.BooleanField(default=True)
+    notification_preferences = models.JSONField(
+        default=default_notification_preferences,
+        blank=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -47,11 +68,13 @@ class Notification(models.Model):
     """In-app notification for a tenant user."""
 
     class Type(models.TextChoices):
+        WORKFLOW_STARTED = "workflow_started", "Workflow gestartet"
         WORKFLOW_TASK_CREATED = "workflow_task_created", "Workflow-Aufgabe erstellt"
         DOCUMENT_COMMENT_MENTION = (
             "document_comment_mention",
             "Kommentar-Erwähnung",
         )
+        IMPORT_FAILED = "import_failed", "Importfehler"
 
     tenant = models.ForeignKey(
         "tenancy.Tenant",

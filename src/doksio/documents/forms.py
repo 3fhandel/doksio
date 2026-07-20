@@ -130,6 +130,28 @@ class DocumentImportBatchItemForm(forms.Form):
     )
 
 
+class DocumentBoxScanOptimizationForm(forms.Form):
+    def __init__(self, *args, tenant: Tenant, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["space"].queryset = DocumentSpace.objects.filter(
+            tenant=tenant,
+            is_active=True,
+            deleted_at__isnull=True,
+        ).order_by("path")
+
+    space = forms.ModelChoiceField(
+        label="Dokumentenbox",
+        queryset=DocumentSpace.objects.none(),
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    include_children = forms.BooleanField(
+        label="Kindboxen einschließen",
+        required=False,
+        initial=True,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+
+
 class DocumentCoreMetadataForm(forms.Form):
     def __init__(
         self,
