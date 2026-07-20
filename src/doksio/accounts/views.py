@@ -287,11 +287,12 @@ def profile_account(request: HttpRequest, tenant_slug: str) -> HttpResponse:
             request.user.last_name = form.cleaned_data["last_name"]
             request.user.email = form.cleaned_data["email"]
             user_update_fields = ["first_name", "last_name", "email"]
-            if form.cleaned_data.get("new_password1"):
-                request.user.set_password(form.cleaned_data["new_password1"])
+            new_password = form.cleaned_data.get("new_password1")
+            if new_password:
+                request.user.set_password(new_password)
                 user_update_fields.append("password")
             request.user.save(update_fields=user_update_fields)
-            if form.cleaned_data.get("new_password1"):
+            if new_password:
                 update_session_auth_hash(request, request.user)
 
             user_profile.display_name = form.cleaned_data["display_name"]

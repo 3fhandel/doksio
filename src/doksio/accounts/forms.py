@@ -229,6 +229,11 @@ class UserProfileForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.profile = profile
         self.user = profile.user
+        self.is_identity_provider_managed = bool(profile.oidc_subject)
+        if self.is_identity_provider_managed:
+            self.fields.pop("current_password")
+            self.fields.pop("new_password1")
+            self.fields.pop("new_password2")
         shortcuts = {
             **default_keyboard_shortcuts(),
             **(profile.keyboard_shortcuts or {}),
@@ -261,6 +266,9 @@ class UserProfileForm(forms.Form):
 
     def clean(self) -> dict:
         cleaned_data = super().clean()
+        if self.is_identity_provider_managed:
+            return self._clean_keyboard_shortcuts(cleaned_data)
+
         current_password = cleaned_data.get("current_password", "")
         new_password1 = cleaned_data.get("new_password1", "")
         new_password2 = cleaned_data.get("new_password2", "")
@@ -294,6 +302,9 @@ class UserProfileForm(forms.Form):
                 except forms.ValidationError as error:
                     self.add_error("new_password1", error)
 
+        return self._clean_keyboard_shortcuts(cleaned_data)
+
+    def _clean_keyboard_shortcuts(self, cleaned_data: dict) -> dict:
         seen_shortcuts = {}
         for action, label in KEYBOARD_SHORTCUT_ACTIONS:
             field_name = f"shortcut_{action}"

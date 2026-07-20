@@ -103,6 +103,24 @@ def test_profile_account_view_renders_account_fields(client):
 
 
 @pytest.mark.django_db
+def test_identity_provider_profile_hides_password_change(client):
+    tenant, user = _create_tenant_user()
+    UserProfile.objects.create(user=user, oidc_subject="authentik-user-1")
+    client.force_login(user)
+
+    response = client.get(
+        reverse("accounts:profile_account", kwargs={"tenant_slug": tenant.slug})
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "Login über Identity Provider" in content
+    assert "lokale Passwortänderung in Doksio ist deshalb deaktiviert" in content
+    assert "Passwort ändern" not in content
+    assert "Aktuelles Passwort" not in content
+
+
+@pytest.mark.django_db
 def test_profile_view_changes_password(client):
     tenant, user = _create_tenant_user()
     client.force_login(user)
@@ -123,6 +141,33 @@ def test_profile_view_changes_password(client):
     user.refresh_from_db()
     assert response.status_code == 302
     assert user.check_password("Stronger-local-pass-42") is True
+
+
+@pytest.mark.django_db
+def test_identity_provider_profile_does_not_change_local_password(client):
+    tenant, user = _create_tenant_user()
+    UserProfile.objects.create(user=user, oidc_subject="authentik-user-1")
+    client.force_login(user)
+
+    response = client.post(
+        reverse("accounts:profile_account", kwargs={"tenant_slug": tenant.slug}),
+        {
+            "display_name": "Alice OIDC",
+            "first_name": "Alice",
+            "last_name": "OIDC",
+            "email": "alice@example.test",
+            "current_password": "secret",
+            "new_password1": "Stronger-local-pass-42",
+            "new_password2": "Stronger-local-pass-42",
+        },
+    )
+
+    user.refresh_from_db()
+    profile = UserProfile.objects.get(user=user)
+    assert response.status_code == 302
+    assert user.check_password("secret") is True
+    assert user.check_password("Stronger-local-pass-42") is False
+    assert profile.display_name == "Alice OIDC"
 
 
 @pytest.mark.django_db

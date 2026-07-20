@@ -12,10 +12,29 @@
       <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
         <div>
           <h2 class="h5 mb-1">Account</h2>
-          <p class="text-secondary mb-0">Name, E-Mail und lokales Passwort.</p>
+          <p class="text-secondary mb-0">
+            {% if form.is_identity_provider_managed %}
+              Name und E-Mail werden ergänzend in Doksio geführt.
+            {% else %}
+              Name, E-Mail und lokales Passwort.
+            {% endif %}
+          </p>
         </div>
         <span class="badge text-bg-light">{{ user|display_user }}</span>
       </div>
+
+      {% if form.is_identity_provider_managed %}
+        <div class="alert alert-info d-flex align-items-start gap-2 mb-3">
+          {% include "includes/icons.html" with icon="shield" %}
+          <div>
+            <strong>Login über Identity Provider</strong>
+            <div>
+              Dieser Account wird über einen Identity Provider angemeldet und verwaltet.
+              Eine lokale Passwortänderung in Doksio ist deshalb deaktiviert.
+            </div>
+          </div>
+        </div>
+      {% endif %}
 
       <div class="row g-3">
         <div class="col-md-6">
@@ -41,27 +60,29 @@
       </div>
     </div>
 
-    <div class="profile-section">
-      <h3 class="h6 mb-3">Passwort ändern</h3>
-      <div class="row g-3">
-        <div class="col-md-4">
-          <label class="form-label" for="{{ form.current_password.id_for_label }}">{{ form.current_password.label }}</label>
-          {{ form.current_password }}
-          {{ form.current_password.errors }}
+    {% if not form.is_identity_provider_managed %}
+      <div class="profile-section">
+        <h3 class="h6 mb-3">Passwort ändern</h3>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label" for="{{ form.current_password.id_for_label }}">{{ form.current_password.label }}</label>
+            {{ form.current_password }}
+            {{ form.current_password.errors }}
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="{{ form.new_password1.id_for_label }}">{{ form.new_password1.label }}</label>
+            {{ form.new_password1 }}
+            {{ form.new_password1.errors }}
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="{{ form.new_password2.id_for_label }}">{{ form.new_password2.label }}</label>
+            {{ form.new_password2 }}
+            {{ form.new_password2.errors }}
+          </div>
         </div>
-        <div class="col-md-4">
-          <label class="form-label" for="{{ form.new_password1.id_for_label }}">{{ form.new_password1.label }}</label>
-          {{ form.new_password1 }}
-          {{ form.new_password1.errors }}
-        </div>
-        <div class="col-md-4">
-          <label class="form-label" for="{{ form.new_password2.id_for_label }}">{{ form.new_password2.label }}</label>
-          {{ form.new_password2 }}
-          {{ form.new_password2.errors }}
-        </div>
+        <div class="form-text mt-2">Leer lassen, wenn das Passwort unverändert bleiben soll.</div>
       </div>
-      <div class="form-text mt-2">Leer lassen, wenn das Passwort unverändert bleiben soll.</div>
-    </div>
+    {% endif %}
 
     <div class="profile-actions">
       <button class="btn btn-primary" type="submit">Account speichern</button>
