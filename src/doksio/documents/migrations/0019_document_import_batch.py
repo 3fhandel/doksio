@@ -28,7 +28,11 @@ class Migration(migrations.Migration):
                 (
                     "status",
                     models.CharField(
-                        choices=[("open", "Offen"), ("completed", "Abgeschlossen")],
+                        choices=[
+                            ("open", "Offen"),
+                            ("completed", "Abgeschlossen"),
+                            ("discarded", "Verworfen"),
+                        ],
                         default="open",
                         max_length=30,
                     ),

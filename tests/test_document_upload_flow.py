@@ -602,6 +602,106 @@ def test_document_import_batch_detail_finalizes_documents(client):
 
 
 @pytest.mark.django_db
+def test_document_import_batch_list_shows_open_batches(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    batch = DocumentImportBatch.objects.create(
+        tenant=tenant,
+        title="Offener Stapel",
+        created_by=user,
+    )
+    DocumentImportBatchItem.objects.create(
+        tenant=tenant,
+        batch=batch,
+        source_storage_key="tests/import-batches/open.pdf",
+        original_filename="open.pdf",
+        content_type="application/pdf",
+        byte_size=4,
+    )
+    client.force_login(user)
+
+    response = client.get(
+        reverse("documents:import_batch_list", kwargs={"tenant_slug": tenant.slug}),
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "Offener Stapel" in content
+    assert "Wieder aufnehmen" in content
+    assert reverse(
+        "documents:import_batch_detail",
+        kwargs={"tenant_slug": tenant.slug, "batch_id": batch.id},
+    ) in content
+
+
+@pytest.mark.django_db
+def test_document_import_batch_discard_deletes_staged_files(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    client.force_login(user)
+    batch = DocumentImportBatch.objects.create(
+        tenant=tenant,
+        title="Weg damit",
+        created_by=user,
+    )
+    storage_key = "tests/import-batches/discard.pdf"
+    default_storage.delete(storage_key)
+    storage_key = default_storage.save(
+        storage_key,
+        SimpleUploadedFile("discard.pdf", b"discard"),
+    )
+    item = DocumentImportBatchItem.objects.create(
+        tenant=tenant,
+        batch=batch,
+        source_storage_key=storage_key,
+        original_filename="discard.pdf",
+        content_type="application/pdf",
+        byte_size=7,
+    )
+
+    response = client.post(
+        reverse(
+            "documents:import_batch_discard",
+            kwargs={"tenant_slug": tenant.slug, "batch_id": batch.id},
+        ),
+    )
+
+    assert response.status_code == 302
+    assert response.url == reverse(
+        "documents:import_batch_list",
+        kwargs={"tenant_slug": tenant.slug},
+    )
+    batch.refresh_from_db()
+    item.refresh_from_db()
+    assert batch.status == DocumentImportBatch.Status.DISCARDED
+    assert item.status == DocumentImportBatchItem.Status.SKIPPED
+    assert not default_storage.exists(storage_key)
+    assert AuditEvent.objects.filter(
+        tenant=tenant,
+        event_type="document_import_batch.discarded",
+        object_id=str(batch.id),
+    ).exists()
+
+
+@pytest.mark.django_db
 def test_document_upload_view_renders_dropzone_and_multiple_input(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()

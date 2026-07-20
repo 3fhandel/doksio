@@ -16,7 +16,7 @@
 
       <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
         <div>
-          <a class="text-decoration-none" href="{% url 'documents:import_batch_upload' tenant.slug %}">&larr; Neuer Stapelimport</a>
+          <a class="text-decoration-none" href="{% url 'documents:import_batch_list' tenant.slug %}">&larr; Stapelimporte</a>
           <h1 class="h3 mt-1 mb-1">{{ batch.title }}</h1>
           <div class="text-secondary">
             {{ batch.items.count }} Dateien · Status {{ batch.get_status_display }}
@@ -112,12 +112,15 @@
           </table>
         </div>
         {% if batch.status == "open" %}
-          <div class="d-flex justify-content-end gap-2 border-top p-3">
-            <button class="btn btn-outline-secondary" type="submit" name="action" value="save">Zuordnung speichern</button>
-            <button class="btn btn-primary" type="submit" name="action" value="finalize">
-              {% include "includes/icons.html" with icon="package" %}
-              <span class="ms-1">Import abschließen</span>
-            </button>
+          <div class="d-flex justify-content-between gap-2 border-top p-3">
+            <button class="btn btn-outline-danger" type="submit" formaction="{% url 'documents:import_batch_discard' tenant.slug batch.id %}" onclick="return confirm('Diesen Stapelimport verwerfen und alle noch nicht importierten Staging-Dateien löschen?');">Stapel verwerfen</button>
+            <div class="d-flex gap-2">
+              <button class="btn btn-outline-secondary" type="submit" name="action" value="save">Zuordnung speichern</button>
+              <button class="btn btn-primary" type="submit" name="action" value="finalize">
+                {% include "includes/icons.html" with icon="package" %}
+                <span class="ms-1">Import abschließen</span>
+              </button>
+            </div>
           </div>
         {% endif %}
       </form>

@@ -18,6 +18,11 @@ urlpatterns = [
         name="upload",
     ),
     path(
+        "t/<slug:tenant_slug>/documents/import-batches/",
+        views.document_import_batch_list,
+        name="import_batch_list",
+    ),
+    path(
         "t/<slug:tenant_slug>/documents/import-batches/new/",
         views.document_import_batch_upload,
         name="import_batch_upload",
@@ -26,6 +31,11 @@ urlpatterns = [
         "t/<slug:tenant_slug>/documents/import-batches/<int:batch_id>/",
         views.document_import_batch_detail,
         name="import_batch_detail",
+    ),
+    path(
+        "t/<slug:tenant_slug>/documents/import-batches/<int:batch_id>/discard/",
+        views.document_import_batch_discard,
+        name="import_batch_discard",
     ),
     path(
         "t/<slug:tenant_slug>/documents/<int:document_id>/",

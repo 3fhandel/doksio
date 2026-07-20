@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% load doksio_extras %}
+
+{% block title %}Stapelimporte | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container-fluid px-4">
+      {% if messages %}
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+        <div>
+          <h1 class="h3 mb-1">Stapelimporte</h1>
+          <div class="text-secondary">Offene Stapel wieder aufnehmen oder neue Stapel anlegen.</div>
+        </div>
+        <a class="btn btn-primary" href="{% url 'documents:import_batch_upload' tenant.slug %}">
+          {% include "includes/icons.html" with icon="package" %}
+          <span class="ms-1">Neuer Stapel</span>
+        </a>
+      </div>
+
+      <section class="app-card p-0">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Stapel</th>
+                <th>Status</th>
+                <th>Dateien</th>
+                <th>Fortschritt</th>
+                <th>Angelegt</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for batch in page_obj %}
+                <tr>
+                  <td>
+                    <div class="fw-medium">{{ batch.title }}</div>
+                    <div class="small text-secondary">
+                      {% if batch.created_by %}{{ batch.created_by|display_user }}{% else %}System{% endif %}
+                    </div>
+                  </td>
+                  <td>
+                    {% if batch.status == "open" %}
+                      <span class="badge text-bg-primary">{{ batch.get_status_display }}</span>
+                    {% elif batch.status == "completed" %}
+                      <span class="badge text-bg-success">{{ batch.get_status_display }}</span>
+                    {% else %}
+                      <span class="badge text-bg-secondary">{{ batch.get_status_display }}</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ batch.items_count }}</td>
+                  <td class="small">
+                    {% if batch.status == "open" %}
+                      {{ batch.staged_count }} offen{% if batch.error_count %} · {{ batch.error_count }} Fehler{% endif %}
+                    {% else %}
+                      {{ batch.imported_count }} importiert
+                    {% endif %}
+                  </td>
+                  <td class="small text-secondary">{{ batch.created_at|date:"d.m.Y H:i" }}</td>
+                  <td class="text-end">
+                    <a class="btn btn-sm btn-outline-secondary" href="{% url 'documents:import_batch_detail' tenant.slug batch.id %}">
+                      {% if batch.status == "open" %}Wieder aufnehmen{% else %}Anzeigen{% endif %}
+                    </a>
+                  </td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="6" class="text-center text-secondary py-4">Noch keine Stapelimporte vorhanden.</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {% include "includes/pagination.html" with page_obj=page_obj page_param="page" label="Stapelimportseiten" %}
+    </div>
+  </main>
+{% endblock %}

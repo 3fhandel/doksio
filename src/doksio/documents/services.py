@@ -891,6 +891,50 @@ class FinalizeDocumentImportBatch:
 
 
 @dataclass(frozen=True)
+class DiscardDocumentImportBatch:
+    batch: DocumentImportBatch
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> DocumentImportBatch:
+        if self.batch.status != DocumentImportBatch.Status.OPEN:
+            raise ValueError("Nur offene Stapelimporte können verworfen werden.")
+
+        staged_items = list(self.batch.items.exclude(
+            status__in=[
+                DocumentImportBatchItem.Status.IMPORTED,
+                DocumentImportBatchItem.Status.DUPLICATE,
+            ],
+        ))
+        deleted_files = 0
+        for item in staged_items:
+            if item.source_storage_key:
+                with suppress(Exception):
+                    default_storage.delete(item.source_storage_key)
+                    deleted_files += 1
+            item.status = DocumentImportBatchItem.Status.SKIPPED
+            item.message = "Stapel wurde verworfen."
+            item.save(update_fields=["status", "message", "updated_at"])
+
+        self.batch.status = DocumentImportBatch.Status.DISCARDED
+        self.batch.completed_at = timezone.now()
+        self.batch.save(update_fields=["status", "completed_at", "updated_at"])
+
+        RecordAuditEvent(
+            tenant=self.batch.tenant,
+            actor=self.actor,
+            event_type="document_import_batch.discarded",
+            object_type="documents.DocumentImportBatch",
+            object_id=str(self.batch.id),
+            data={
+                "deleted_files": deleted_files,
+                "items_count": len(staged_items),
+            },
+        ).execute()
+        return self.batch
+
+
+@dataclass(frozen=True)
 class CreateDocumentFromUpload:
     tenant: Tenant
     title: str

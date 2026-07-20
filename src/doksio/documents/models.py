@@ -438,6 +438,7 @@ class DocumentImportBatch(models.Model):
     class Status(models.TextChoices):
         OPEN = "open", "Offen"
         COMPLETED = "completed", "Abgeschlossen"
+        DISCARDED = "discarded", "Verworfen"
 
     tenant = models.ForeignKey(
         "tenancy.Tenant",

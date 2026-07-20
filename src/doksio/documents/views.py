@@ -88,6 +88,7 @@ from doksio.documents.services import (
     CreateDocumentSpace,
     DeleteDocument,
     DeleteDocumentSpace,
+    DiscardDocumentImportBatch,
     DuplicateDocumentError,
     EmptyDocumentSpace,
     FinalizeDocumentImportBatch,
@@ -128,6 +129,7 @@ DOCUMENT_LOG_EVENT_LABELS = {
     "document.shared": "Dokument geteilt",
     "document.exported": "Dokument exportiert",
     "document_import_batch.created": "Stapelimport angelegt",
+    "document_import_batch.discarded": "Stapelimport verworfen",
     "document_import_batch.finalized": "Stapelimport abgeschlossen",
     "export_run.created": "Exportlauf erzeugt",
     "export_run.downloaded": "Export heruntergeladen",
@@ -1205,6 +1207,59 @@ def document_upload(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     )
 
 
+def document_import_batch_list(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None:
+        raise PermissionDenied
+    if not can_batch_import_documents(request.user, tenant):
+        raise PermissionDenied
+
+    batches = (
+        DocumentImportBatch.objects.filter(tenant=tenant)
+        .select_related("created_by")
+        .annotate(
+            items_count=Count("items", distinct=True),
+            staged_count=Count(
+                "items",
+                filter=Q(items__status=DocumentImportBatchItem.Status.STAGED),
+                distinct=True,
+            ),
+            error_count=Count(
+                "items",
+                filter=Q(items__status=DocumentImportBatchItem.Status.ERROR),
+                distinct=True,
+            ),
+            imported_count=Count(
+                "items",
+                filter=Q(items__status=DocumentImportBatchItem.Status.IMPORTED),
+                distinct=True,
+            ),
+        )
+        .order_by("-created_at", "-id")
+    )
+    page_obj = paginate_queryset(
+        request,
+        batches,
+        page_param="page",
+        per_page=25,
+    )
+    return render(
+        request,
+        "documents/document_import_batch_list.html",
+        {
+            "tenant": tenant,
+            "page_obj": page_obj,
+            "can_manage_settings": can_administer_tenant(request.user, tenant),
+        },
+    )
+
+
 def document_import_batch_upload(
     request: HttpRequest,
     tenant_slug: str,
@@ -1252,6 +1307,36 @@ def document_import_batch_upload(
             "can_manage_settings": can_administer_tenant(request.user, tenant),
         },
     )
+
+
+def document_import_batch_discard(
+    request: HttpRequest,
+    tenant_slug: str,
+    batch_id: int,
+) -> HttpResponse:
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None:
+        raise PermissionDenied
+    if not can_batch_import_documents(request.user, tenant):
+        raise PermissionDenied
+
+    batch = get_object_or_404(DocumentImportBatch, id=batch_id, tenant=tenant)
+    try:
+        DiscardDocumentImportBatch(batch=batch, actor=request.user).execute()
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect(
+            "documents:import_batch_detail",
+            tenant_slug=tenant.slug,
+            batch_id=batch.id,
+        )
+    messages.success(request, "Stapelimport wurde verworfen.")
+    return redirect("documents:import_batch_list", tenant_slug=tenant.slug)
 
 
 def _batch_item_forms(
@@ -1308,6 +1393,13 @@ def document_import_batch_detail(
     item_forms = _batch_item_forms(request=request, tenant=tenant, batch=batch)
 
     if request.method == "POST":
+        if batch.status != DocumentImportBatch.Status.OPEN:
+            messages.error(request, "Dieser Stapelimport ist nicht mehr offen.")
+            return redirect(
+                "documents:import_batch_detail",
+                tenant_slug=tenant.slug,
+                batch_id=batch.id,
+            )
         action = request.POST.get("action", "save")
         forms_are_valid = all(form.is_valid() for _item, form in item_forms)
         if forms_are_valid:

@@ -160,7 +160,7 @@
                   </a>
                 {% endif %}
                 {% if can_batch_import_documents %}
-                  <a class="app-sidebar-link {% if url_name == 'import_batch_upload' or url_name == 'import_batch_detail' %}active{% endif %}" href="{% url 'documents:import_batch_upload' tenant.slug %}">
+                  <a class="app-sidebar-link {% if url_name == 'import_batch_list' or url_name == 'import_batch_upload' or url_name == 'import_batch_detail' %}active{% endif %}" href="{% url 'documents:import_batch_list' tenant.slug %}">
                     {% include "includes/icons.html" with icon="package" %}
                     <span>Stapelimport</span>
                   </a>
