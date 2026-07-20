@@ -46,6 +46,11 @@ def user_profile(request):
                 tenant,
                 TenantPermissions.DOCUMENTS_EXPORT,
             )
+            context["can_batch_import_documents"] = has_tenant_permission(
+                request.user,
+                tenant,
+                TenantPermissions.DOCUMENTS_BATCH_IMPORT,
+            )
             unread_notifications = Notification.objects.filter(
                 tenant=tenant,
                 recipient=request.user,

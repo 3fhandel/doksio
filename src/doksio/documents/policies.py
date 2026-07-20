@@ -193,6 +193,17 @@ def can_upload_document(user: AbstractBaseUser | AnonymousUser, tenant: Tenant) 
     )
 
 
+def can_batch_import_documents(
+    user: AbstractBaseUser | AnonymousUser,
+    tenant: Tenant,
+) -> bool:
+    return has_tenant_permission(
+        user,
+        tenant,
+        TenantPermissions.DOCUMENTS_BATCH_IMPORT,
+    )
+
+
 def can_view_document(
     user: AbstractBaseUser | AnonymousUser,
     document: Document,

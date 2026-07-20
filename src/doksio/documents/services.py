@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import mimetypes
+import uuid
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from fnmatch import fnmatch
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
 from typing import BinaryIO
@@ -24,6 +28,8 @@ from doksio.documents.models import (
     Document,
     DocumentComment,
     DocumentFile,
+    DocumentImportBatch,
+    DocumentImportBatchItem,
     DocumentMetadataField,
     DocumentSpace,
     DocumentTag,
@@ -44,6 +50,56 @@ class DuplicateDocumentError(ValueError):
         super().__init__(
             f"Diese Datei existiert bereits als Dokument {self.existing_document.id}."
         )
+
+
+def _suggest_upload_space(
+    *,
+    tenant: Tenant,
+    original_filename: str,
+) -> tuple[DocumentSpace | None, str, object | None]:
+    from doksio.ingestion.models import ImportSource
+
+    sources = ImportSource.objects.filter(
+        tenant=tenant,
+        source_type=ImportSource.SourceType.UPLOAD,
+        is_active=True,
+    )
+    strategy_order = {
+        ImportSource.TargetStrategy.RULES: 0,
+        ImportSource.TargetStrategy.INTELLIGENT: 1,
+        ImportSource.TargetStrategy.FIXED: 2,
+    }
+    filename = original_filename.rsplit("/", 1)[-1]
+    for source in sorted(
+        sources,
+        key=lambda source: (
+            strategy_order.get(source.target_strategy, 99),
+            source.name.lower(),
+            source.id,
+        ),
+    ):
+        if source.target_strategy == ImportSource.TargetStrategy.RULES:
+            for rule in (source.settings or {}).get("routing_rules", []):
+                pattern = rule.get("pattern", "")
+                document_space_id = rule.get("document_space_id")
+                if (
+                    not pattern
+                    or not document_space_id
+                    or not fnmatch(filename, pattern)
+                ):
+                    continue
+                return (
+                    DocumentSpace.objects.filter(
+                        id=document_space_id,
+                        tenant=tenant,
+                        is_active=True,
+                    ).first(),
+                    f"Regel {pattern}",
+                    source,
+                )
+        if source.document_space_id:
+            return source.document_space, source.get_target_strategy_display(), source
+    return None, "", None
 
 
 def _iter_file_chunks(file_obj: BinaryIO, chunk_size: int = 1024 * 1024):
@@ -140,6 +196,38 @@ def _prepare_upload_file_for_storage(
             original_filename=original_filename,
         )
     return file_obj, original_filename, content_type
+
+
+def _content_type_for_upload(file_obj: BinaryIO, original_filename: str) -> str:
+    content_type = getattr(file_obj, "content_type", "") or ""
+    if content_type and content_type != "application/octet-stream":
+        return content_type
+    guessed_content_type, _encoding = mimetypes.guess_type(original_filename)
+    return guessed_content_type or content_type or "application/octet-stream"
+
+
+def _staged_upload_storage_key(tenant: Tenant, batch_id: int, filename: str) -> str:
+    suffix = Path(filename.rsplit("/", 1)[-1]).suffix.lower()
+    return f"tenants/{tenant.id}/import-batches/{batch_id}/{uuid.uuid4().hex}{suffix}"
+
+
+def _save_staged_upload(
+    *,
+    tenant: Tenant,
+    batch: DocumentImportBatch,
+    uploaded_file: BinaryIO,
+) -> tuple[str, int]:
+    storage_key = _staged_upload_storage_key(
+        tenant,
+        batch.id,
+        getattr(uploaded_file, "name", "") or "document",
+    )
+    with default_storage.open(storage_key, "wb") as stored_file:
+        byte_size = 0
+        for chunk in _iter_file_chunks(uploaded_file):
+            byte_size += len(chunk)
+            stored_file.write(chunk)
+    return storage_key, byte_size
 
 
 def _build_space_path(parent: DocumentSpace | None, slug: str) -> str:
@@ -620,6 +708,186 @@ class EnsureDefaultDocumentSpaces:
             "personnel": personnel,
             "contracts": contracts,
         }
+
+
+@dataclass(frozen=True)
+class CreateDocumentImportBatch:
+    tenant: Tenant
+    uploaded_files: list[BinaryIO]
+    created_by: get_user_model() | None = None
+    title: str = ""
+
+    @transaction.atomic
+    def execute(self) -> DocumentImportBatch:
+        if not self.uploaded_files:
+            raise ValueError("Mindestens eine Datei ist erforderlich.")
+
+        batch = DocumentImportBatch.objects.create(
+            tenant=self.tenant,
+            title=self.title
+            or f"Stapelimport {timezone.localtime(timezone.now()):%d.%m.%Y %H:%M}",
+            created_by=self.created_by,
+        )
+
+        for uploaded_file in self.uploaded_files:
+            original_filename = getattr(uploaded_file, "name", "") or "document"
+            content_type = _content_type_for_upload(uploaded_file, original_filename)
+            suggested_space, reason, _source = _suggest_upload_space(
+                tenant=self.tenant,
+                original_filename=original_filename,
+            )
+            storage_key, byte_size = _save_staged_upload(
+                tenant=self.tenant,
+                batch=batch,
+                uploaded_file=uploaded_file,
+            )
+            DocumentImportBatchItem.objects.create(
+                tenant=self.tenant,
+                batch=batch,
+                source_storage_key=storage_key,
+                original_filename=original_filename,
+                content_type=content_type,
+                byte_size=byte_size,
+                suggested_space=suggested_space,
+                target_space=suggested_space,
+                suggestion_reason=reason,
+            )
+
+        RecordAuditEvent(
+            tenant=self.tenant,
+            actor=self.created_by,
+            event_type="document_import_batch.created",
+            object_type="documents.DocumentImportBatch",
+            object_id=str(batch.id),
+            data={
+                "items_count": len(self.uploaded_files),
+            },
+        ).execute()
+        return batch
+
+
+@dataclass(frozen=True)
+class FinalizeDocumentImportBatch:
+    batch: DocumentImportBatch
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> dict[str, int]:
+        counts = {
+            "imported": 0,
+            "duplicates": 0,
+            "skipped": 0,
+            "errors": 0,
+        }
+        if self.batch.status == DocumentImportBatch.Status.COMPLETED:
+            return counts
+
+        from doksio.ingestion.models import ImportSource
+        from doksio.ingestion.services import ocr_title_policy_from_source
+
+        upload_source = (
+            ImportSource.objects.filter(
+                tenant=self.batch.tenant,
+                source_type=ImportSource.SourceType.UPLOAD,
+                is_active=True,
+            )
+            .order_by("name", "id")
+            .first()
+        )
+        items = self.batch.items.select_related("target_space").filter(
+            status__in=[
+                DocumentImportBatchItem.Status.STAGED,
+                DocumentImportBatchItem.Status.ERROR,
+            ],
+        )
+        for item in items:
+            if item.target_space_id is None:
+                item.status = DocumentImportBatchItem.Status.ERROR
+                item.message = "Bitte eine Dokumentenbox auswählen."
+                item.save(update_fields=["status", "message", "updated_at"])
+                counts["errors"] += 1
+                continue
+
+            try:
+                with default_storage.open(item.source_storage_key, "rb") as stored_file:
+                    document, _document_file = CreateDocumentFromUpload(
+                        tenant=self.batch.tenant,
+                        title="",
+                        space=item.target_space,
+                        file_obj=stored_file,
+                        original_filename=item.original_filename,
+                        content_type=item.content_type,
+                        created_by=self.actor,
+                        auto_start_ocr=(
+                            upload_source.auto_start_ocr
+                            if upload_source is not None
+                            else None
+                        ),
+                        ocr_title_policy=ocr_title_policy_from_source(upload_source),
+                        auto_start_workflows=(
+                            upload_source.start_workflows
+                            if upload_source is not None
+                            else True
+                        ),
+                    ).execute()
+            except DuplicateDocumentError as exc:
+                item.status = DocumentImportBatchItem.Status.DUPLICATE
+                item.imported_document = exc.existing_document
+                item.message = "Diese Datei existiert bereits."
+                item.save(
+                    update_fields=[
+                        "status",
+                        "imported_document",
+                        "message",
+                        "updated_at",
+                    ],
+                )
+                counts["duplicates"] += 1
+                self._delete_staged_file(item)
+            except Exception as exc:
+                item.status = DocumentImportBatchItem.Status.ERROR
+                item.message = str(exc)
+                item.save(update_fields=["status", "message", "updated_at"])
+                counts["errors"] += 1
+            else:
+                item.status = DocumentImportBatchItem.Status.IMPORTED
+                item.imported_document = document
+                item.message = "Dokument wurde importiert."
+                item.save(
+                    update_fields=[
+                        "status",
+                        "imported_document",
+                        "message",
+                        "updated_at",
+                    ],
+                )
+                counts["imported"] += 1
+                self._delete_staged_file(item)
+
+        remaining_open_items = self.batch.items.filter(
+            status__in=[
+                DocumentImportBatchItem.Status.STAGED,
+                DocumentImportBatchItem.Status.ERROR,
+            ],
+        ).exists()
+        if not remaining_open_items:
+            self.batch.status = DocumentImportBatch.Status.COMPLETED
+            self.batch.completed_at = timezone.now()
+            self.batch.save(update_fields=["status", "completed_at", "updated_at"])
+
+        RecordAuditEvent(
+            tenant=self.batch.tenant,
+            actor=self.actor,
+            event_type="document_import_batch.finalized",
+            object_type="documents.DocumentImportBatch",
+            object_id=str(self.batch.id),
+            data=counts,
+        ).execute()
+        return counts
+
+    def _delete_staged_file(self, item: DocumentImportBatchItem) -> None:
+        with suppress(Exception):
+            default_storage.delete(item.source_storage_key)
 
 
 @dataclass(frozen=True)

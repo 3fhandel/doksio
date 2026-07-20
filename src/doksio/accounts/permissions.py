@@ -15,6 +15,7 @@ class PermissionDefinition:
 class TenantPermissions:
     DOCUMENTS_VIEW = "documents.view"
     DOCUMENTS_UPLOAD = "documents.upload"
+    DOCUMENTS_BATCH_IMPORT = "documents.batch_import"
     DOCUMENTS_DOWNLOAD = "documents.download"
     DOCUMENTS_DELETE = "documents.delete"
     DOCUMENTS_EXPORT = "documents.export"
@@ -40,6 +41,16 @@ PERMISSION_DEFINITIONS = [
         label="Dokumente hochladen",
         category="Dokumente",
         sort_order=20,
+    ),
+    PermissionDefinition(
+        code=TenantPermissions.DOCUMENTS_BATCH_IMPORT,
+        label="Stapelimporte durchführen",
+        category="Dokumente",
+        sort_order=25,
+        description=(
+            "Mehrere Dokumente in einem Import-Stapel hochladen, prüfen "
+            "und Dokumentenboxen zuordnen."
+        ),
     ),
     PermissionDefinition(
         code=TenantPermissions.DOCUMENTS_DOWNLOAD,
@@ -117,6 +128,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     "admin": {
         TenantPermissions.DOCUMENTS_VIEW,
         TenantPermissions.DOCUMENTS_UPLOAD,
+        TenantPermissions.DOCUMENTS_BATCH_IMPORT,
         TenantPermissions.DOCUMENTS_DOWNLOAD,
         TenantPermissions.DOCUMENTS_DELETE,
         TenantPermissions.DOCUMENTS_EXPORT,
@@ -132,6 +144,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     "member": {
         TenantPermissions.DOCUMENTS_VIEW,
         TenantPermissions.DOCUMENTS_UPLOAD,
+        TenantPermissions.DOCUMENTS_BATCH_IMPORT,
         TenantPermissions.DOCUMENTS_DOWNLOAD,
         TenantPermissions.WORKFLOWS_USE,
     },

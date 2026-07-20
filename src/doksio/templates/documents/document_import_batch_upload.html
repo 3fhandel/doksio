@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Stapelimport | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container">
+      <div class="row justify-content-center">
+        <div class="col-lg-8">
+          <div class="mb-4">
+            <h1 class="h3 mb-1">Stapelimport</h1>
+            <p class="text-secondary mb-0">Mehrere Dokumente hochladen und danach je Datei einer Dokumentenbox zuordnen.</p>
+          </div>
+
+          <form class="app-card p-4" method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+              <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            <div class="mb-3">
+              <label class="form-label" for="{{ form.title.id_for_label }}">Name des Stapels</label>
+              {{ form.title }}
+              {% if form.title.help_text %}
+                <div class="form-text">{{ form.title.help_text }}</div>
+              {% endif %}
+              {{ form.title.errors }}
+            </div>
+
+            <div class="mb-4">
+              <label class="form-label" for="{{ form.file.id_for_label }}">Dateien</label>
+              <div class="upload-dropzone" data-upload-dropzone>
+                <div class="upload-dropzone-icon">
+                  {% include "includes/icons.html" with icon="upload" %}
+                </div>
+                <div>
+                  <div class="fw-semibold">Dateien hier ablegen</div>
+                  <div class="text-secondary small">Auch große Stapel sind möglich. Die Zuordnung erfolgt im nächsten Schritt.</div>
+                </div>
+                {{ form.file }}
+              </div>
+              <div class="upload-file-list" data-upload-file-list aria-live="polite"></div>
+              {{ form.file.errors }}
+            </div>
+
+            <button class="btn btn-primary" type="submit">
+              {% include "includes/icons.html" with icon="package" %}
+              <span class="ms-1">Stapel anlegen</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </main>
+{% endblock %}
+
+{% block extra_body %}
+  {{ block.super }}
+  <script src="{% static 'js/document-upload.js' %}?v=1"></script>
+{% endblock %}

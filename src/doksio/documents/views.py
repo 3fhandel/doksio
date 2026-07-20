@@ -43,6 +43,8 @@ from doksio.documents.forms import (
     DocumentCommentForm,
     DocumentCoreMetadataForm,
     DocumentDeleteForm,
+    DocumentImportBatchItemForm,
+    DocumentImportBatchUploadForm,
     DocumentMetadataFieldForm,
     DocumentMetadataForm,
     DocumentShareAttachmentForm,
@@ -58,11 +60,14 @@ from doksio.documents.metadata import effective_metadata_fields
 from doksio.documents.models import (
     Document,
     DocumentFile,
+    DocumentImportBatch,
+    DocumentImportBatchItem,
     DocumentMetadataField,
     DocumentSpace,
 )
 from doksio.documents.policies import (
     can_administer_tenant,
+    can_batch_import_documents,
     can_delete_document,
     can_download_document_file,
     can_manage_document_spaces,
@@ -78,12 +83,14 @@ from doksio.documents.services import (
     AddDocumentComment,
     AddDocumentMetadataChoice,
     CreateDocumentFromUpload,
+    CreateDocumentImportBatch,
     CreateDocumentMetadataField,
     CreateDocumentSpace,
     DeleteDocument,
     DeleteDocumentSpace,
     DuplicateDocumentError,
     EmptyDocumentSpace,
+    FinalizeDocumentImportBatch,
     SetDocumentTags,
     UpdateDocumentCoreMetadata,
     UpdateDocumentMetadata,
@@ -120,6 +127,8 @@ DOCUMENT_LOG_EVENT_LABELS = {
     "document.deleted": "Dokument gelöscht",
     "document.shared": "Dokument geteilt",
     "document.exported": "Dokument exportiert",
+    "document_import_batch.created": "Stapelimport angelegt",
+    "document_import_batch.finalized": "Stapelimport abgeschlossen",
     "export_run.created": "Exportlauf erzeugt",
     "export_run.downloaded": "Export heruntergeladen",
     "workflow_instance.started": "Workflow gestartet",
@@ -1191,6 +1200,188 @@ def document_upload(request: HttpRequest, tenant_slug: str) -> HttpResponse:
         {
             "tenant": tenant,
             "form": form,
+            "can_manage_settings": can_administer_tenant(request.user, tenant),
+        },
+    )
+
+
+def document_import_batch_upload(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None:
+        raise PermissionDenied
+    if not can_batch_import_documents(request.user, tenant):
+        raise PermissionDenied
+
+    if request.method == "POST":
+        form = DocumentImportBatchUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            batch = CreateDocumentImportBatch(
+                tenant=tenant,
+                title=form.cleaned_data["title"],
+                uploaded_files=form.cleaned_data["file"],
+                created_by=request.user,
+            ).execute()
+            messages.success(
+                request,
+                (
+                    f"{batch.items.count()} Datei"
+                    f"{'en' if batch.items.count() != 1 else ''} "
+                    "wurden in den Stapel übernommen."
+                ),
+            )
+            return redirect(
+                "documents:import_batch_detail",
+                tenant_slug=tenant.slug,
+                batch_id=batch.id,
+            )
+    else:
+        form = DocumentImportBatchUploadForm()
+
+    return render(
+        request,
+        "documents/document_import_batch_upload.html",
+        {
+            "tenant": tenant,
+            "form": form,
+            "can_manage_settings": can_administer_tenant(request.user, tenant),
+        },
+    )
+
+
+def _batch_item_forms(
+    *,
+    request: HttpRequest,
+    tenant,
+    batch: DocumentImportBatch,
+) -> list[tuple[DocumentImportBatchItem, DocumentImportBatchItemForm]]:
+    forms = []
+    for item in batch.items.select_related(
+        "suggested_space",
+        "target_space",
+        "imported_document",
+    ):
+        initial = {
+            "target_space": item.target_space_id or item.suggested_space_id,
+            "skip": item.status == DocumentImportBatchItem.Status.SKIPPED,
+        }
+        forms.append(
+            (
+                item,
+                DocumentImportBatchItemForm(
+                    request.POST or None,
+                    prefix=f"item-{item.id}",
+                    item=item,
+                    tenant=tenant,
+                    user=request.user,
+                    initial=initial,
+                ),
+            )
+        )
+    return forms
+
+
+def document_import_batch_detail(
+    request: HttpRequest,
+    tenant_slug: str,
+    batch_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None:
+        raise PermissionDenied
+    if not can_batch_import_documents(request.user, tenant):
+        raise PermissionDenied
+
+    batch = get_object_or_404(
+        DocumentImportBatch.objects.select_related("created_by"),
+        id=batch_id,
+        tenant=tenant,
+    )
+    item_forms = _batch_item_forms(request=request, tenant=tenant, batch=batch)
+
+    if request.method == "POST":
+        action = request.POST.get("action", "save")
+        forms_are_valid = all(form.is_valid() for _item, form in item_forms)
+        if forms_are_valid:
+            for item, form in item_forms:
+                if item.status not in {
+                    DocumentImportBatchItem.Status.STAGED,
+                    DocumentImportBatchItem.Status.ERROR,
+                    DocumentImportBatchItem.Status.SKIPPED,
+                }:
+                    continue
+                if form.cleaned_data["skip"]:
+                    item.status = DocumentImportBatchItem.Status.SKIPPED
+                    item.message = "Manuell übersprungen."
+                    item.save(update_fields=["status", "message", "updated_at"])
+                    continue
+                item.target_space = form.cleaned_data["target_space"]
+                if item.status == DocumentImportBatchItem.Status.SKIPPED:
+                    item.status = DocumentImportBatchItem.Status.STAGED
+                    item.message = ""
+                item.save(
+                    update_fields=[
+                        "target_space",
+                        "status",
+                        "message",
+                        "updated_at",
+                    ],
+                )
+
+            if action == "finalize":
+                counts = FinalizeDocumentImportBatch(
+                    batch=batch,
+                    actor=request.user,
+                ).execute()
+                if counts["errors"]:
+                    messages.warning(
+                        request,
+                        (
+                            f"{counts['imported']} importiert, "
+                            f"{counts['duplicates']} Dubletten, "
+                            f"{counts['errors']} Fehler."
+                        ),
+                    )
+                else:
+                    messages.success(
+                        request,
+                        (
+                            f"{counts['imported']} Dokumente importiert. "
+                            f"{counts['duplicates']} Dubletten übersprungen."
+                        ),
+                    )
+                return redirect(
+                    "documents:import_batch_detail",
+                    tenant_slug=tenant.slug,
+                    batch_id=batch.id,
+                )
+
+            messages.success(request, "Stapel wurde aktualisiert.")
+            return redirect(
+                "documents:import_batch_detail",
+                tenant_slug=tenant.slug,
+                batch_id=batch.id,
+            )
+
+    item_forms = _batch_item_forms(request=request, tenant=tenant, batch=batch)
+    status_counts = batch.items.values("status").annotate(total=Count("id"))
+    counts_by_status = {row["status"]: row["total"] for row in status_counts}
+    return render(
+        request,
+        "documents/document_import_batch_detail.html",
+        {
+            "tenant": tenant,
+            "batch": batch,
+            "item_forms": item_forms,
+            "counts_by_status": counts_by_status,
             "can_manage_settings": can_administer_tenant(request.user, tenant),
         },
     )

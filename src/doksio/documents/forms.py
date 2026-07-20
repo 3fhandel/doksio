@@ -6,7 +6,11 @@ from django.utils.text import slugify
 
 from doksio.accounts.permissions import TenantPermissions
 from doksio.documents.metadata import metadata_field_slug_is_available
-from doksio.documents.models import DocumentMetadataField, DocumentSpace
+from doksio.documents.models import (
+    DocumentImportBatchItem,
+    DocumentMetadataField,
+    DocumentSpace,
+)
 from doksio.documents.policies import filter_document_spaces_for_user
 from doksio.tenancy.models import Tenant
 
@@ -70,6 +74,59 @@ class DocumentUploadForm(forms.Form):
         widget=MultipleFileInput(
             attrs={"class": "form-control", "multiple": True},
         ),
+    )
+
+
+class DocumentImportBatchUploadForm(forms.Form):
+    title = forms.CharField(
+        label="Name des Stapels",
+        max_length=255,
+        required=False,
+        help_text="Optional. Ohne Eingabe vergibt Doksio einen Namen automatisch.",
+        widget=forms.TextInput(attrs={"class": "form-control"}),
+    )
+    file = MultipleFileField(
+        label="Dateien",
+        widget=MultipleFileInput(
+            attrs={"class": "form-control", "multiple": True},
+        ),
+    )
+
+
+class DocumentImportBatchItemForm(forms.Form):
+    def __init__(
+        self,
+        *args,
+        item: DocumentImportBatchItem,
+        tenant: Tenant,
+        user: AbstractBaseUser | AnonymousUser,
+        **kwargs,
+    ) -> None:
+        self.item = item
+        super().__init__(*args, **kwargs)
+        spaces = filter_document_spaces_for_user(
+            DocumentSpace.objects.filter(
+                tenant=tenant,
+                is_active=True,
+                deleted_at__isnull=True,
+            ),
+            user,
+            tenant,
+            TenantPermissions.DOCUMENTS_UPLOAD,
+        ).order_by("path")
+        self.fields["target_space"].queryset = spaces
+
+    target_space = forms.ModelChoiceField(
+        label="Dokumentenbox",
+        queryset=DocumentSpace.objects.none(),
+        required=False,
+        empty_label="Bitte wählen",
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
+    )
+    skip = forms.BooleanField(
+        label="Überspringen",
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
 
 

@@ -430,3 +430,108 @@ class DocumentFile(models.Model):
     def latest_ocr_job(self):
         jobs = self.ocr_jobs.all()
         return jobs[0] if jobs else None
+
+
+class DocumentImportBatch(models.Model):
+    """Staging area for multi-file imports before documents are created."""
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Offen"
+        COMPLETED = "completed", "Abgeschlossen"
+
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="document_import_batches",
+    )
+    title = models.CharField(max_length=255)
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.OPEN,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="created_document_import_batches",
+    )
+    completed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["tenant", "status", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return self.title
+
+
+class DocumentImportBatchItem(models.Model):
+    """Single staged file in a document import batch."""
+
+    class Status(models.TextChoices):
+        STAGED = "staged", "Bereit"
+        IMPORTED = "imported", "Importiert"
+        DUPLICATE = "duplicate", "Dublette"
+        SKIPPED = "skipped", "Übersprungen"
+        ERROR = "error", "Fehler"
+
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="document_import_batch_items",
+    )
+    batch = models.ForeignKey(
+        DocumentImportBatch,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    source_storage_key = models.CharField(max_length=500)
+    original_filename = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=120)
+    byte_size = models.PositiveBigIntegerField(default=0)
+    suggested_space = models.ForeignKey(
+        DocumentSpace,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="suggested_import_batch_items",
+    )
+    target_space = models.ForeignKey(
+        DocumentSpace,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="targeted_import_batch_items",
+    )
+    suggestion_reason = models.CharField(max_length=255, blank=True)
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.STAGED,
+    )
+    message = models.TextField(blank=True)
+    imported_document = models.ForeignKey(
+        Document,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="import_batch_items",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["id"]
+        indexes = [
+            models.Index(fields=["tenant", "batch", "status"]),
+            models.Index(fields=["tenant", "status", "created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return self.original_filename

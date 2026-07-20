@@ -18,6 +18,8 @@ from doksio.documents.models import (
     Document,
     DocumentComment,
     DocumentFile,
+    DocumentImportBatch,
+    DocumentImportBatchItem,
     DocumentMetadataField,
     DocumentSpace,
 )
@@ -440,6 +442,163 @@ def test_document_upload_view_creates_multiple_documents(client):
         "invoice-2",
     ]
     assert DocumentFile.objects.filter(document__tenant=tenant).count() == 2
+
+
+@pytest.mark.django_db
+def test_document_batch_import_permission_defaults():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+
+    assert roles["admin"].permissions.filter(code="documents.batch_import").exists()
+    assert roles["member"].permissions.filter(code="documents.batch_import").exists()
+    assert not roles["viewer"].permissions.filter(
+        code="documents.batch_import",
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_document_import_batch_upload_creates_staged_items_with_suggestions(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    inbox = CreateDocumentSpace(tenant=tenant, name="Posteingang").execute()
+    invoices = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    ImportSource.objects.create(
+        tenant=tenant,
+        document_space=inbox,
+        name="Upload-Regeln",
+        source_type=ImportSource.SourceType.UPLOAD,
+        target_strategy=ImportSource.TargetStrategy.RULES,
+        settings={
+            "routing_rules": [
+                {
+                    "pattern": "rechnung-*",
+                    "document_space_id": invoices.id,
+                },
+            ],
+        },
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse("documents:import_batch_upload", kwargs={"tenant_slug": tenant.slug}),
+        {
+            "title": "Teststapel",
+            "file": [
+                SimpleUploadedFile(
+                    "rechnung-1.pdf",
+                    b"%PDF-1.4\nfirst",
+                    content_type="application/pdf",
+                ),
+                SimpleUploadedFile(
+                    "vertrag.pdf",
+                    b"%PDF-1.4\nsecond",
+                    content_type="application/pdf",
+                ),
+            ],
+        },
+    )
+
+    batch = DocumentImportBatch.objects.get(tenant=tenant)
+    assert response.status_code == 302
+    assert response.url == reverse(
+        "documents:import_batch_detail",
+        kwargs={"tenant_slug": tenant.slug, "batch_id": batch.id},
+    )
+    assert batch.title == "Teststapel"
+    assert batch.items.count() == 2
+    suggested_item = batch.items.get(original_filename="rechnung-1.pdf")
+    fallback_item = batch.items.get(original_filename="vertrag.pdf")
+    assert suggested_item.suggested_space == invoices
+    assert suggested_item.target_space == invoices
+    assert fallback_item.suggested_space == inbox
+    assert default_storage.exists(suggested_item.source_storage_key)
+
+
+@pytest.mark.django_db
+def test_document_import_batch_detail_finalizes_documents(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    invoices = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    personnel = CreateDocumentSpace(tenant=tenant, name="Personal").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    client.force_login(user)
+    batch = DocumentImportBatch.objects.create(
+        tenant=tenant,
+        title="Teststapel",
+        created_by=user,
+    )
+    first_storage_key = "tests/import-batches/first.pdf"
+    second_storage_key = "tests/import-batches/second.pdf"
+    default_storage.delete(first_storage_key)
+    default_storage.delete(second_storage_key)
+    first_storage_key = default_storage.save(
+        first_storage_key,
+        SimpleUploadedFile("first.pdf", b"first"),
+    )
+    second_storage_key = default_storage.save(
+        second_storage_key,
+        SimpleUploadedFile("second.pdf", b"second"),
+    )
+    first_item = DocumentImportBatchItem.objects.create(
+        tenant=tenant,
+        batch=batch,
+        source_storage_key=first_storage_key,
+        original_filename="first.pdf",
+        content_type="application/pdf",
+        byte_size=5,
+        target_space=invoices,
+    )
+    second_item = DocumentImportBatchItem.objects.create(
+        tenant=tenant,
+        batch=batch,
+        source_storage_key=second_storage_key,
+        original_filename="second.pdf",
+        content_type="application/pdf",
+        byte_size=6,
+        target_space=invoices,
+    )
+
+    response = client.post(
+        reverse(
+            "documents:import_batch_detail",
+            kwargs={"tenant_slug": tenant.slug, "batch_id": batch.id},
+        ),
+        {
+            "action": "finalize",
+            f"item-{first_item.id}-target_space": str(invoices.id),
+            f"item-{second_item.id}-target_space": str(personnel.id),
+        },
+    )
+
+    assert response.status_code == 302
+    batch.refresh_from_db()
+    first_item.refresh_from_db()
+    second_item.refresh_from_db()
+    assert batch.status == DocumentImportBatch.Status.COMPLETED
+    assert first_item.status == DocumentImportBatchItem.Status.IMPORTED
+    assert first_item.imported_document.space == invoices
+    assert second_item.status == DocumentImportBatchItem.Status.IMPORTED
+    assert second_item.imported_document.space == personnel
+    assert Document.objects.filter(tenant=tenant).count() == 2
+    assert not default_storage.exists(first_storage_key)
+    assert not default_storage.exists(second_storage_key)
 
 
 @pytest.mark.django_db
