@@ -98,6 +98,11 @@ urlpatterns = [
         name="settings_document_box_edit",
     ),
     path(
+        "t/<slug:tenant_slug>/settings/document-boxes/<int:box_id>/empty/",
+        views.tenant_settings_document_box_empty,
+        name="settings_document_box_empty",
+    ),
+    path(
         "t/<slug:tenant_slug>/settings/document-boxes/<int:box_id>/delete/",
         views.tenant_settings_document_box_delete,
         name="settings_document_box_delete",
@@ -121,6 +126,11 @@ urlpatterns = [
         "t/<slug:tenant_slug>/settings/import/new/",
         views.tenant_settings_import_source_create,
         name="settings_import_source_create",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/import/regex-test/",
+        views.tenant_settings_import_regex_test,
+        name="settings_import_regex_test",
     ),
     path(
         "t/<slug:tenant_slug>/settings/import/<int:source_id>/edit/",

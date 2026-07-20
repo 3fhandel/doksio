@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
@@ -29,8 +30,10 @@ from doksio.documents.services import (
     UpdateDocumentMetadata,
 )
 from doksio.einvoices.zugferd import extract_einvoice_from_pdf
+from doksio.exports.models import ExportRun, ExportRunItem
 from doksio.ingestion.models import ImportSource, TenantSmtpSettings
 from doksio.ocr.models import OcrJob
+from doksio.search.models import DocumentSearchIndex
 from doksio.tenancy.models import Tenant
 from doksio.tenancy.services import BootstrapDemoTenant
 from doksio.workflows.models import WorkflowInstance, WorkflowTask, WorkflowTemplate
@@ -2675,6 +2678,155 @@ def test_tenant_admin_can_delete_document_box_and_delete_documents(client):
     assert document.deleted_reason == "Falsche Dokumentenbox"
     assert AuditEvent.objects.filter(event_type="document.deleted").exists()
     assert AuditEvent.objects.filter(event_type="document_space.deleted").exists()
+
+
+@pytest.mark.django_db
+def test_tenant_admin_can_hard_empty_document_box(
+    client,
+    django_capture_on_commit_callbacks,
+):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    source = CreateDocumentSpace(
+        tenant=tenant,
+        name="Testbox",
+        slug="testbox",
+    ).execute()
+    child = CreateDocumentSpace(
+        tenant=tenant,
+        parent=source,
+        name="Kindbox",
+        slug="kindbox",
+    ).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    client.force_login(user)
+    document, document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Testdokument",
+        space=source,
+        file_obj=BytesIO(b"test content"),
+        original_filename="test.pdf",
+        content_type="application/pdf",
+        created_by=user,
+        auto_start_ocr=False,
+    ).execute()
+    child_document, _child_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Kinddokument",
+        space=child,
+        file_obj=BytesIO(b"child content"),
+        original_filename="child.pdf",
+        content_type="application/pdf",
+        created_by=user,
+        auto_start_ocr=False,
+    ).execute()
+    storage_key = document_file.storage_key
+    OcrJob.objects.create(
+        tenant=tenant,
+        document_file=document_file,
+        status=OcrJob.Status.SUCCEEDED,
+        extracted_text="Test OCR",
+    )
+    DocumentSearchIndex.objects.create(
+        tenant=tenant,
+        document=document,
+        title=document.title,
+        combined_text="Test OCR",
+    )
+    export_run = ExportRun.objects.create(
+        tenant=tenant,
+        created_by=user,
+    )
+    ExportRunItem.objects.create(
+        tenant=tenant,
+        export_run=export_run,
+        document=document,
+        document_file=document_file,
+        status=ExportRunItem.Status.EXPORTED,
+    )
+    assert default_storage.exists(storage_key)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        response = client.post(
+            reverse(
+                "documents:settings_document_box_empty",
+                kwargs={"tenant_slug": tenant.slug, "box_id": source.id},
+            ),
+            {"confirm_name": "Testbox"},
+        )
+
+    source.refresh_from_db()
+    child.refresh_from_db()
+    child_document.refresh_from_db()
+    assert response.status_code == 302
+    assert source.deleted_at is None
+    assert source.is_active is True
+    assert child.deleted_at is None
+    assert child_document.space == child
+    assert not Document.objects.filter(id=document.id).exists()
+    assert not DocumentFile.objects.filter(id=document_file.id).exists()
+    assert not OcrJob.objects.filter(document_file_id=document_file.id).exists()
+    assert not DocumentSearchIndex.objects.filter(document_id=document.id).exists()
+    assert not ExportRunItem.objects.filter(document_id=document.id).exists()
+    assert not default_storage.exists(storage_key)
+    assert AuditEvent.objects.filter(
+        event_type="document_space.emptied",
+        object_id=str(source.id),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_document_box_hard_empty_requires_exact_box_name(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    source = CreateDocumentSpace(
+        tenant=tenant,
+        name="Testbox",
+        slug="testbox",
+    ).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    client.force_login(user)
+    document, document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Testdokument",
+        space=source,
+        file_obj=BytesIO(b"test content"),
+        original_filename="test.pdf",
+        content_type="application/pdf",
+        created_by=user,
+        auto_start_ocr=False,
+    ).execute()
+    storage_key = document_file.storage_key
+
+    response = client.post(
+        reverse(
+            "documents:settings_document_box_empty",
+            kwargs={"tenant_slug": tenant.slug, "box_id": source.id},
+        ),
+        {"confirm_name": "Falsch"},
+    )
+
+    assert response.status_code == 200
+    assert Document.objects.filter(id=document.id).exists()
+    assert DocumentFile.objects.filter(id=document_file.id).exists()
+    assert default_storage.exists(storage_key)
+    assert not AuditEvent.objects.filter(event_type="document_space.emptied").exists()
 
 
 @pytest.mark.django_db

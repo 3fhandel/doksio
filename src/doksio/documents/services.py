@@ -1122,6 +1122,82 @@ class DeleteDocumentSpace:
 
 
 @dataclass(frozen=True)
+class EmptyDocumentSpace:
+    document_space: DocumentSpace
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> int:
+        DocumentSpace.objects.select_for_update().get(
+            id=self.document_space.id,
+            tenant=self.document_space.tenant,
+            deleted_at__isnull=True,
+        )
+        documents = Document.objects.select_for_update().filter(
+            tenant=self.document_space.tenant,
+            space=self.document_space,
+        )
+        document_ids = list(documents.values_list("id", flat=True))
+        if not document_ids:
+            RecordAuditEvent(
+                tenant=self.document_space.tenant,
+                actor=self.actor,
+                event_type="document_space.emptied",
+                object_type="documents.DocumentSpace",
+                object_id=str(self.document_space.id),
+                data={
+                    "document_space_id": self.document_space.id,
+                    "document_space_path": self.document_space.path,
+                    "document_count": 0,
+                    "hard_delete": True,
+                },
+            ).execute()
+            return 0
+
+        files = DocumentFile.objects.filter(document_id__in=document_ids)
+        file_ids = list(files.values_list("id", flat=True))
+        storage_keys = list(files.values_list("storage_key", flat=True))
+
+        from doksio.exports.models import ExportRunItem
+
+        ExportRunItem.objects.filter(
+            Q(document_id__in=document_ids) | Q(document_file_id__in=file_ids),
+        ).delete()
+
+        DocumentFile.objects.filter(
+            id__in=file_ids,
+            derivative_of__isnull=False,
+        ).delete()
+        DocumentFile.objects.filter(id__in=file_ids).delete()
+        deleted_count, _deleted_by_model = documents.delete()
+
+        RecordAuditEvent(
+            tenant=self.document_space.tenant,
+            actor=self.actor,
+            event_type="document_space.emptied",
+            object_type="documents.DocumentSpace",
+            object_id=str(self.document_space.id),
+            data={
+                "document_space_id": self.document_space.id,
+                "document_space_path": self.document_space.path,
+                "document_ids": document_ids,
+                "document_count": len(document_ids),
+                "storage_key_count": len(storage_keys),
+                "hard_delete": True,
+                "deleted_model_count": deleted_count,
+            },
+        ).execute()
+        transaction.on_commit(lambda: _delete_storage_keys(storage_keys))
+        return len(document_ids)
+
+
+def _delete_storage_keys(storage_keys: list[str]) -> None:
+    for storage_key in storage_keys:
+        if storage_key:
+            default_storage.delete(storage_key)
+
+
+@dataclass(frozen=True)
 class AddDocumentComment:
     document: Document
     body: str

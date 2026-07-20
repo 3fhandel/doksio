@@ -51,6 +51,9 @@
                   <a class="btn btn-outline-primary" href="{% url 'documents:settings_document_box_edit' tenant.slug box.id %}">
                     Bearbeiten
                   </a>
+                  <a class="btn btn-outline-warning" href="{% url 'documents:settings_document_box_empty' tenant.slug box.id %}">
+                    Leeren
+                  </a>
                   <a class="btn btn-outline-danger" href="{% url 'documents:settings_document_box_delete' tenant.slug box.id %}">
                     Löschen
                   </a>

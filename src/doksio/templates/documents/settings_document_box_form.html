@@ -5,6 +5,9 @@
     <h2 class="h4 mb-0">{{ form_title }}</h2>
     <div class="d-flex gap-2">
       {% if document_space %}
+        <a class="btn btn-outline-warning" href="{% url 'documents:settings_document_box_empty' tenant.slug document_space.id %}">
+          Leeren
+        </a>
         <a class="btn btn-outline-danger" href="{% url 'documents:settings_document_box_delete' tenant.slug document_space.id %}">
           Löschen
         </a>

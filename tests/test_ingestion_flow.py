@@ -648,6 +648,108 @@ def test_import_source_form_highlights_missing_required_fields(client):
 
 
 @pytest.mark.django_db
+def test_tenant_admin_can_test_import_ocr_title_regex(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:settings_import_regex_test",
+            kwargs={"tenant_slug": tenant.slug},
+        ),
+        data={
+            "regex_search": r"Rechnung Nr\. (?P<number>\d+)",
+            "regex_replace": r"Rechnung \g<number>",
+            "sample_text": "Lieferant\nRechnung Nr. 4711\nVielen Dank",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "matched": True,
+        "title": "Rechnung 4711",
+        "match": "Rechnung Nr. 4711",
+    }
+
+
+@pytest.mark.django_db
+def test_import_ocr_title_regex_test_reports_no_match(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:settings_import_regex_test",
+            kwargs={"tenant_slug": tenant.slug},
+        ),
+        data={
+            "regex_search": r"Rechnung Nr\. (\d+)",
+            "regex_replace": r"Rechnung \1",
+            "sample_text": "Angebot 42",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "matched": False, "title": ""}
+
+
+@pytest.mark.django_db
+def test_import_ocr_title_regex_test_reports_invalid_regex(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:settings_import_regex_test",
+            kwargs={"tenant_slug": tenant.slug},
+        ),
+        data={
+            "regex_search": r"Rechnung Nr\. (",
+            "regex_replace": r"Rechnung \1",
+            "sample_text": "Rechnung Nr. 4711",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["ok"] is False
+    assert "RegEx-Fehler" in response.json()["error"]
+
+
+@pytest.mark.django_db
 def test_tenant_admin_can_create_import_source_with_routing_rules(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     fallback_space = CreateDocumentSpace(tenant=tenant, name="Posteingang").execute()

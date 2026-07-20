@@ -300,6 +300,31 @@ class DocumentSpaceDeleteForm(forms.Form):
         return cleaned_data
 
 
+class DocumentSpaceEmptyForm(forms.Form):
+    confirm_name = forms.CharField(
+        label="Name der Dokumentenbox",
+        help_text="Zur Bestätigung exakt den Namen der Dokumentenbox eingeben.",
+        widget=forms.TextInput(attrs={"class": "form-control", "autocomplete": "off"}),
+    )
+
+    def __init__(
+        self,
+        *args,
+        document_space: DocumentSpace,
+        **kwargs,
+    ) -> None:
+        self.document_space = document_space
+        super().__init__(*args, **kwargs)
+
+    def clean_confirm_name(self) -> str:
+        confirm_name = self.cleaned_data["confirm_name"].strip()
+        if confirm_name != self.document_space.name:
+            raise forms.ValidationError(
+                "Der eingegebene Name stimmt nicht mit der Dokumentenbox überein."
+            )
+        return confirm_name
+
+
 class DocumentMetadataFieldForm(forms.Form):
     name = forms.CharField(
         label="Name",
@@ -391,7 +416,8 @@ class DocumentMetadataFieldForm(forms.Form):
             exclude_field=self.metadata_field,
         ):
             raise forms.ValidationError(
-                "Dieser Metadaten-Slug ist bereits in einer Eltern- oder Kindbox vergeben."
+                "Dieser Metadaten-Slug ist bereits in einer Eltern- oder Kindbox "
+                "vergeben."
             )
         return slug
 

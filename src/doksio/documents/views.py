@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 import shlex
 from urllib.parse import quote, urlencode
 
@@ -8,7 +10,13 @@ from django.core.exceptions import PermissionDenied
 from django.core.files.storage import default_storage
 from django.core.mail import EmailMessage, get_connection
 from django.db.models import Case, Count, IntegerField, Q, Value, When
-from django.http import FileResponse, HttpRequest, HttpResponse
+from django.http import (
+    FileResponse,
+    HttpRequest,
+    HttpResponse,
+    HttpResponseNotAllowed,
+    JsonResponse,
+)
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -39,6 +47,7 @@ from doksio.documents.forms import (
     DocumentMetadataForm,
     DocumentShareAttachmentForm,
     DocumentSpaceDeleteForm,
+    DocumentSpaceEmptyForm,
     DocumentSpaceForm,
     DocumentSpaceUpdateForm,
     DocumentTagForm,
@@ -74,6 +83,7 @@ from doksio.documents.services import (
     DeleteDocument,
     DeleteDocumentSpace,
     DuplicateDocumentError,
+    EmptyDocumentSpace,
     SetDocumentTags,
     UpdateDocumentCoreMetadata,
     UpdateDocumentMetadata,
@@ -86,7 +96,7 @@ from doksio.ingestion.services import (
     ResolveManualUploadDocumentSpace,
     ocr_title_policy_from_source,
 )
-from doksio.ocr.services import StartOcrForDocumentFile
+from doksio.ocr.services import StartOcrForDocumentFile, title_from_ocr_policy
 from doksio.pagination import paginate_queryset
 from doksio.project.url_helpers import build_public_url
 from doksio.tenancy.services import get_default_tenant_for_user, get_tenant_for_user
@@ -1799,6 +1809,68 @@ def tenant_settings_document_box_edit(
     )
 
 
+def tenant_settings_document_box_empty(
+    request: HttpRequest,
+    tenant_slug: str,
+    box_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    document_space = get_object_or_404(
+        DocumentSpace,
+        id=box_id,
+        tenant=tenant,
+        deleted_at__isnull=True,
+    )
+    document_count = Document.objects.filter(
+        tenant=tenant,
+        space=document_space,
+    ).count()
+
+    if request.method == "POST":
+        form = DocumentSpaceEmptyForm(
+            request.POST,
+            document_space=document_space,
+        )
+        if form.is_valid():
+            deleted_count = EmptyDocumentSpace(
+                document_space=document_space,
+                actor=request.user,
+            ).execute()
+            message = (
+                "Dokumentenbox wurde geleert. "
+                f"{deleted_count} Dokumente wurden hart gelöscht."
+            )
+            messages.success(
+                request,
+                message,
+            )
+            return redirect(
+                "documents:settings_document_box_edit",
+                tenant_slug=tenant.slug,
+                box_id=document_space.id,
+            )
+    else:
+        form = DocumentSpaceEmptyForm(document_space=document_space)
+
+    return render(
+        request,
+        "documents/settings_document_box_empty.html",
+        {
+            "tenant": tenant,
+            "document_space": document_space,
+            "document_count": document_count,
+            "form": form,
+            "active_settings_section": "document_boxes",
+        },
+    )
+
+
 def tenant_settings_document_box_delete(
     request: HttpRequest,
     tenant_slug: str,
@@ -1999,6 +2071,70 @@ def tenant_settings_import_source_create(
             "active_settings_section": "import",
             "http_import_url": "",
         },
+    )
+
+
+def tenant_settings_import_regex_test(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> JsonResponse:
+    if not request.user.is_authenticated:
+        raise PermissionDenied
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse(
+            {"ok": False, "error": "Ungültige Testdaten."},
+            status=400,
+        )
+
+    pattern = str(payload.get("regex_search", "")).strip()
+    replacement = str(payload.get("regex_replace", ""))
+    sample_text = str(payload.get("sample_text", ""))
+    if not pattern:
+        return JsonResponse(
+            {"ok": False, "error": "Bitte ein Suchmuster angeben."},
+            status=400,
+        )
+    if not sample_text.strip():
+        return JsonResponse(
+            {"ok": False, "error": "Bitte OCR-Beispieltext einfügen."},
+            status=400,
+        )
+
+    try:
+        compiled_pattern = re.compile(pattern, flags=re.MULTILINE)
+        match = compiled_pattern.search(sample_text)
+        title = title_from_ocr_policy(
+            sample_text,
+            {
+                "strategy": "regex",
+                "regex_search": pattern,
+                "regex_replace": replacement,
+            },
+        )
+    except re.error as error:
+        return JsonResponse(
+            {"ok": False, "error": f"RegEx-Fehler: {error}"},
+            status=400,
+        )
+
+    if match is None:
+        return JsonResponse({"ok": True, "matched": False, "title": ""})
+    return JsonResponse(
+        {
+            "ok": True,
+            "matched": True,
+            "title": title or "",
+            "match": match.group(0),
+        }
     )
 
 
