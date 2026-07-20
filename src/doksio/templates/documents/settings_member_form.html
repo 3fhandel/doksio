@@ -57,6 +57,9 @@
           <div class="col-md-6">
             <label class="form-label" for="{{ form.email.id_for_label }}">E-Mail</label>
             {{ form.email }}
+            {% if form.email.help_text %}
+              <div class="form-text">{{ form.email.help_text }}</div>
+            {% endif %}
             {{ form.email.errors }}
           </div>
         {% endif %}

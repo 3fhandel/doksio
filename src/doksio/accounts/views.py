@@ -283,10 +283,8 @@ def profile_account(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     if request.method == "POST":
         form = UserProfileForm(request.POST, profile=user_profile)
         if form.is_valid():
-            request.user.first_name = form.cleaned_data["first_name"]
-            request.user.last_name = form.cleaned_data["last_name"]
             request.user.email = form.cleaned_data["email"]
-            user_update_fields = ["first_name", "last_name", "email"]
+            user_update_fields = ["email"]
             new_password = form.cleaned_data.get("new_password1")
             if new_password:
                 request.user.set_password(new_password)

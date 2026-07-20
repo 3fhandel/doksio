@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from django import forms
-from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm, SetPasswordForm
 from django.contrib.auth.password_validation import validate_password
 
@@ -164,18 +163,6 @@ class UserProfileForm(forms.Form):
         required=False,
         widget=forms.TextInput(attrs={"class": "form-control"}),
     )
-    first_name = forms.CharField(
-        label="Vorname",
-        max_length=150,
-        required=False,
-        widget=forms.TextInput(attrs={"class": "form-control"}),
-    )
-    last_name = forms.CharField(
-        label="Nachname",
-        max_length=150,
-        required=False,
-        widget=forms.TextInput(attrs={"class": "form-control"}),
-    )
     email = forms.EmailField(
         label="E-Mail-Adresse",
         required=False,
@@ -231,6 +218,16 @@ class UserProfileForm(forms.Form):
         self.user = profile.user
         self.is_identity_provider_managed = bool(profile.oidc_subject)
         if self.is_identity_provider_managed:
+            self.initial["display_name"] = profile.display_name
+            self.initial["email"] = self.user.email
+            self.fields["display_name"].disabled = True
+            self.fields["display_name"].help_text = (
+                "Der Anzeigename wird über den Identity Provider verwaltet."
+            )
+            self.fields["email"].disabled = True
+            self.fields["email"].help_text = (
+                "Die E-Mail-Adresse wird über den Identity Provider verwaltet."
+            )
             self.fields.pop("current_password")
             self.fields.pop("new_password1")
             self.fields.pop("new_password2")
@@ -256,8 +253,6 @@ class UserProfileForm(forms.Form):
             )
         if not self.is_bound:
             self.initial["display_name"] = profile.display_name
-            self.initial["first_name"] = self.user.first_name
-            self.initial["last_name"] = self.user.last_name
             self.initial["email"] = self.user.email
             self.initial["notifications_enabled"] = profile.notifications_enabled
             self.initial["mention_notifications_enabled"] = (
@@ -343,6 +338,10 @@ class TenantMembershipCreateForm(forms.Form):
     email = forms.EmailField(
         label="E-Mail",
         required=False,
+        help_text=(
+            "Wichtig für OIDC: Neue Benutzer werden beim ersten Login anhand "
+            "dieser E-Mail-Adresse zugeordnet."
+        ),
         widget=forms.EmailInput(attrs={"class": "form-control"}),
     )
     display_name = forms.CharField(
@@ -366,7 +365,10 @@ class TenantMembershipCreateForm(forms.Form):
     password = forms.CharField(
         label="Passwort",
         required=False,
-        help_text="Erforderlich, wenn der Benutzer neu angelegt wird.",
+        help_text=(
+            "Optional. Leer lassen, wenn der Benutzer sich über einen "
+            "Identity Provider anmelden soll."
+        ),
         widget=forms.PasswordInput(attrs={"class": "form-control"}),
     )
     roles = forms.ModelMultipleChoiceField(
@@ -386,17 +388,6 @@ class TenantMembershipCreateForm(forms.Form):
 
     def clean(self) -> dict:
         cleaned_data = super().clean()
-        username = cleaned_data.get("username")
-        password = cleaned_data.get("password")
-        if (
-            username
-            and not get_user_model().objects.filter(username=username).exists()
-            and not password
-        ):
-            self.add_error(
-                "password",
-                "Für neue Benutzer muss ein Passwort vergeben werden.",
-            )
         roles = list(cleaned_data.get("roles") or [])
         legacy_role_id = self.data.get("role")
         if not roles and legacy_role_id:

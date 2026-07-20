@@ -133,7 +133,10 @@ class AddTenantMember:
             },
         )
         if user_created:
-            user.set_password(self.password)
+            if self.password:
+                user.set_password(self.password)
+            else:
+                user.set_unusable_password()
             user.save(update_fields=["password"])
         else:
             update_fields = []

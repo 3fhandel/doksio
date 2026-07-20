@@ -41,6 +41,15 @@ from doksio.workflows.services import (
 )
 
 
+def _single_page_tiff_bytes() -> bytes:
+    from PIL import Image
+
+    output = BytesIO()
+    image = Image.new("1", (32, 32), 1)
+    image.save(output, format="TIFF")
+    return output.getvalue()
+
+
 def _zugferd_pdf_bytes() -> bytes:
     return b"""%PDF-1.4
 <?xml version="1.0" encoding="UTF-8"?>
@@ -242,7 +251,7 @@ def test_create_document_from_upload_creates_thumbnail_derivative(monkeypatch):
 
 
 @pytest.mark.django_db
-def test_create_document_from_upload_creates_image_preview_derivative(monkeypatch):
+def test_create_document_from_upload_converts_tiff_to_pdf_original(monkeypatch):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
 
@@ -250,29 +259,28 @@ def test_create_document_from_upload_creates_image_preview_derivative(monkeypatc
         "doksio.documents.thumbnails._render_thumbnail_bytes",
         lambda _document_file: b"thumbnail-bytes",
     )
-    monkeypatch.setattr(
-        "doksio.documents.thumbnails._render_image_preview",
-        lambda _document_file: b"preview-bytes",
-    )
 
     document, document_file = CreateDocumentFromUpload(
         tenant=tenant,
         title="Scan",
         space=space,
-        file_obj=BytesIO(b"tiff content"),
+        file_obj=BytesIO(_single_page_tiff_bytes()),
         original_filename="scan.tiff",
         content_type="image/tiff",
         auto_start_ocr=False,
     ).execute()
 
-    preview = DocumentFile.objects.get(
+    thumbnail = DocumentFile.objects.get(
         document=document,
-        file_kind=DocumentFile.Kind.PREVIEW,
+        file_kind=DocumentFile.Kind.THUMBNAIL,
     )
-    assert preview.derivative_of == document_file
-    assert preview.content_type == "image/jpeg"
-    assert preview.original_filename == "scan-preview.jpg"
-    assert preview.byte_size == len(b"preview-bytes")
+    assert document_file.file_kind == DocumentFile.Kind.ORIGINAL
+    assert document_file.content_type == "application/pdf"
+    assert document_file.original_filename == "scan.pdf"
+    assert document_file.byte_size > 0
+    assert document_file.sha256
+    assert thumbnail.derivative_of == document_file
+    assert not DocumentFile.objects.filter(content_type="image/tiff").exists()
 
 
 @pytest.mark.django_db
@@ -2365,7 +2373,7 @@ def test_document_list_uses_thumbnail_in_document_row(client, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_document_detail_uses_preview_derivative_for_tiff(client, monkeypatch):
+def test_document_detail_uses_converted_pdf_for_tiff(client, monkeypatch):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
@@ -2382,23 +2390,15 @@ def test_document_detail_uses_preview_derivative_for_tiff(client, monkeypatch):
         "doksio.documents.thumbnails._render_thumbnail_bytes",
         lambda _document_file: b"thumbnail-bytes",
     )
-    monkeypatch.setattr(
-        "doksio.documents.thumbnails._render_image_preview",
-        lambda _document_file: b"preview-bytes",
-    )
     document, original_file = CreateDocumentFromUpload(
         tenant=tenant,
         title="TIFF Scan",
         space=space,
-        file_obj=BytesIO(b"tiff content"),
+        file_obj=BytesIO(_single_page_tiff_bytes()),
         original_filename="scan.tiff",
         content_type="image/tiff",
         auto_start_ocr=False,
     ).execute()
-    preview = DocumentFile.objects.get(
-        document=document,
-        file_kind=DocumentFile.Kind.PREVIEW,
-    )
     client.force_login(user)
 
     response = client.get(
@@ -2410,17 +2410,15 @@ def test_document_detail_uses_preview_derivative_for_tiff(client, monkeypatch):
 
     content = response.content.decode()
     assert response.status_code == 200
-    assert "data-image-preview" in content
-    preview_url = reverse(
-        "documents:download",
-        kwargs={"tenant_slug": tenant.slug, "file_id": preview.id},
-    )
+    assert original_file.content_type == "application/pdf"
+    assert original_file.original_filename == "scan.pdf"
+    assert "data-pdf-preview" in content
+    assert "data-image-preview" not in content
     original_url = reverse(
         "documents:download",
         kwargs={"tenant_slug": tenant.slug, "file_id": original_file.id},
     )
-    assert f'src="{preview_url}?inline=1"' in content
-    assert f'src="{original_url}?inline=1"' not in content
+    assert original_url in content
 
 
 @pytest.mark.django_db

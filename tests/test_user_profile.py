@@ -71,8 +71,6 @@ def test_profile_view_saves_account_data(client):
         reverse("accounts:profile_account", kwargs={"tenant_slug": tenant.slug}),
         {
             "display_name": "Alice Beispiel",
-            "first_name": "Alice",
-            "last_name": "Beispiel",
             "email": "alice@example.test",
         },
     )
@@ -81,8 +79,6 @@ def test_profile_view_saves_account_data(client):
     profile = UserProfile.objects.get(user=user)
     assert response.status_code == 302
     assert profile.display_name == "Alice Beispiel"
-    assert user.first_name == "Alice"
-    assert user.last_name == "Beispiel"
     assert user.email == "alice@example.test"
 
 
@@ -98,6 +94,8 @@ def test_profile_account_view_renders_account_fields(client):
     content = response.content.decode()
     assert response.status_code == 200
     assert "Anzeigename" in content
+    assert "Vorname" not in content
+    assert "Nachname" not in content
     assert "Passwort ändern" in content
     assert "Dashboard öffnen" not in content
 
@@ -116,6 +114,8 @@ def test_identity_provider_profile_hides_password_change(client):
     assert response.status_code == 200
     assert "Login über Identity Provider" in content
     assert "lokale Passwortänderung in Doksio ist deshalb deaktiviert" in content
+    assert "Der Anzeigename wird über den Identity Provider verwaltet" in content
+    assert "Die E-Mail-Adresse wird über den Identity Provider verwaltet" in content
     assert "Passwort ändern" not in content
     assert "Aktuelles Passwort" not in content
 
@@ -129,8 +129,6 @@ def test_profile_view_changes_password(client):
         reverse("accounts:profile_account", kwargs={"tenant_slug": tenant.slug}),
         {
             "display_name": "",
-            "first_name": "",
-            "last_name": "",
             "email": "",
             "current_password": "secret",
             "new_password1": "Stronger-local-pass-42",
@@ -146,16 +144,20 @@ def test_profile_view_changes_password(client):
 @pytest.mark.django_db
 def test_identity_provider_profile_does_not_change_local_password(client):
     tenant, user = _create_tenant_user()
-    UserProfile.objects.create(user=user, oidc_subject="authentik-user-1")
+    user.email = "alice@example.test"
+    user.save(update_fields=["email"])
+    UserProfile.objects.create(
+        user=user,
+        display_name="Alice IdP",
+        oidc_subject="authentik-user-1",
+    )
     client.force_login(user)
 
     response = client.post(
         reverse("accounts:profile_account", kwargs={"tenant_slug": tenant.slug}),
         {
-            "display_name": "Alice OIDC",
-            "first_name": "Alice",
-            "last_name": "OIDC",
-            "email": "alice@example.test",
+            "display_name": "Manipulierter Name",
+            "email": "changed@example.test",
             "current_password": "secret",
             "new_password1": "Stronger-local-pass-42",
             "new_password2": "Stronger-local-pass-42",
@@ -165,9 +167,10 @@ def test_identity_provider_profile_does_not_change_local_password(client):
     user.refresh_from_db()
     profile = UserProfile.objects.get(user=user)
     assert response.status_code == 302
+    assert user.email == "alice@example.test"
     assert user.check_password("secret") is True
     assert user.check_password("Stronger-local-pass-42") is False
-    assert profile.display_name == "Alice OIDC"
+    assert profile.display_name == "Alice IdP"
 
 
 @pytest.mark.django_db

@@ -13,7 +13,7 @@ from django.urls import reverse
 from doksio.accounts.models import TenantMembership
 from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
-from doksio.documents.models import Document, DocumentFile
+from doksio.documents.models import Document
 from doksio.documents.services import CreateDocumentFromUpload, CreateDocumentSpace
 from doksio.ocr.models import OcrJob
 from doksio.ocr.services import (
@@ -26,6 +26,15 @@ from doksio.ocr.services import (
     title_from_ocr_policy,
 )
 from doksio.tenancy.models import Tenant
+
+
+def _single_page_tiff_bytes() -> bytes:
+    from PIL import Image
+
+    output = BytesIO()
+    image = Image.new("1", (32, 32), 1)
+    image.save(output, format="TIFF")
+    return output.getvalue()
 
 
 class StaticOcrProvider:
@@ -535,39 +544,32 @@ def test_create_document_from_upload_skips_automatic_ocr_for_unsupported_files()
 
 
 @pytest.mark.django_db
-def test_start_ocr_for_tiff_uses_jpeg_preview_derivative(monkeypatch):
+def test_start_ocr_for_tiff_uses_converted_pdf_original(monkeypatch):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Scans").execute()
     monkeypatch.setattr(
         "doksio.documents.thumbnails._render_thumbnail_bytes",
         lambda _document_file: b"thumbnail-bytes",
     )
-    monkeypatch.setattr(
-        "doksio.documents.thumbnails._render_image_preview",
-        lambda _document_file: b"preview-jpeg-bytes",
-    )
     monkeypatch.setattr("doksio.ocr.tasks.run_ocr_job.delay", lambda _job_id: None)
     _document, original_file = CreateDocumentFromUpload(
         tenant=tenant,
         title="Scan",
         space=space,
-        file_obj=BytesIO(b"tiff content"),
+        file_obj=BytesIO(_single_page_tiff_bytes()),
         original_filename="scan.tif",
         content_type="image/tiff",
         auto_start_ocr=False,
     ).execute()
-    preview_file = DocumentFile.objects.get(
-        document=original_file.document,
-        file_kind=DocumentFile.Kind.PREVIEW,
-    )
 
     job = StartOcrForDocumentFile(
         document_file=original_file,
         run_inline=False,
     ).execute()
 
-    assert job.document_file == preview_file
-    assert job.document_file.content_type == "image/jpeg"
+    assert original_file.content_type == "application/pdf"
+    assert original_file.original_filename == "scan.pdf"
+    assert job.document_file == original_file
 
 
 @pytest.mark.django_db

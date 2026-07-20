@@ -73,6 +73,24 @@ def test_add_tenant_user_creates_non_system_user_with_multiple_roles():
 
 
 @pytest.mark.django_db
+def test_add_tenant_user_without_password_creates_oidc_ready_dummy_user():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+
+    membership = AddTenantMember(
+        tenant=tenant,
+        username="alice",
+        email="alice@example.test",
+        roles=[roles["viewer"]],
+    ).execute()
+
+    user = get_user_model().objects.get(username="alice")
+    assert membership.user == user
+    assert user.email == "alice@example.test"
+    assert user.has_usable_password() is False
+
+
+@pytest.mark.django_db
 def test_update_tenant_membership_changes_role_status_and_writes_audit_event():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
@@ -157,6 +175,68 @@ def test_tenant_admin_can_add_member_from_settings(client):
     assert target_user.first_name == "Alice"
     assert target_user.last_name == "Beispiel"
     assert UserProfile.objects.get(user=target_user).display_name == "Alice Anzeige"
+
+
+@pytest.mark.django_db
+def test_tenant_admin_can_create_member_without_password_from_settings(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    admin_user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=admin_user,
+        role=roles["admin"],
+    )
+    client.force_login(admin_user)
+
+    response = client.post(
+        reverse(
+            "documents:settings_member_create",
+            kwargs={"tenant_slug": tenant.slug},
+        ),
+        {
+            "username": "alice",
+            "email": "alice@example.test",
+            "roles": [roles["viewer"].id],
+        },
+    )
+
+    user = get_user_model().objects.get(username="alice")
+    assert response.status_code == 302
+    assert user.email == "alice@example.test"
+    assert user.has_usable_password() is False
+    assert TenantMembership.objects.filter(tenant=tenant, user=user).exists()
+
+
+@pytest.mark.django_db
+def test_tenant_member_create_form_explains_email_oidc_matching(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    admin_user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=admin_user,
+        role=roles["admin"],
+    )
+    client.force_login(admin_user)
+
+    response = client.get(
+        reverse(
+            "documents:settings_member_create",
+            kwargs={"tenant_slug": tenant.slug},
+        )
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "Neue Benutzer werden beim ersten Login anhand" in content
+    assert "Identity Provider anmelden soll" in content
 
 
 @pytest.mark.django_db

@@ -4,6 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from tempfile import SpooledTemporaryFile
 from typing import BinaryIO
 
@@ -71,6 +72,74 @@ def _buffer_and_hash_file(
 def _fallback_title_from_filename(original_filename: str) -> str:
     title = original_filename.rsplit("/", 1)[-1].rsplit(".", 1)[0].strip()
     return title or original_filename or "Unbenanntes Dokument"
+
+
+def _normalized_content_type(content_type: str) -> str:
+    return content_type.split(";", 1)[0].strip().lower()
+
+
+def _converted_pdf_filename(original_filename: str) -> str:
+    path = Path(original_filename.rsplit("/", 1)[-1])
+    stem = path.stem.strip()
+    return f"{stem or 'document'}.pdf"
+
+
+def _convert_tiff_to_pdf(
+    *,
+    file_obj: BinaryIO,
+    original_filename: str,
+) -> tuple[SpooledTemporaryFile, str, str]:
+    try:
+        from PIL import Image, ImageOps, ImageSequence
+    except ImportError as exc:
+        raise ValueError("TIFF-Konvertierung ist nicht verfügbar.") from exc
+
+    output = SpooledTemporaryFile(max_size=10 * 1024 * 1024)  # noqa: SIM115
+    try:
+        with Image.open(file_obj) as image:
+            pages = []
+            for frame in ImageSequence.Iterator(image):
+                page = ImageOps.exif_transpose(frame)
+                page.load()
+                if page.mode == "RGBA":
+                    background = Image.new("RGB", page.size, "white")
+                    background.paste(page, mask=page.getchannel("A"))
+                    page = background
+                elif page.mode != "RGB":
+                    page = page.convert("RGB")
+                pages.append(page.copy())
+
+            if not pages:
+                raise ValueError("TIFF enthält keine Seiten.")
+
+            first_page, *remaining_pages = pages
+            first_page.save(
+                output,
+                format="PDF",
+                save_all=True,
+                append_images=remaining_pages,
+                resolution=300,
+            )
+    except Exception as exc:
+        output.close()
+        raise ValueError("TIFF konnte nicht in PDF konvertiert werden.") from exc
+
+    output.seek(0)
+    return output, _converted_pdf_filename(original_filename), "application/pdf"
+
+
+def _prepare_upload_file_for_storage(
+    *,
+    file_obj: BinaryIO,
+    original_filename: str,
+    content_type: str,
+) -> tuple[BinaryIO, str, str]:
+    if _normalized_content_type(content_type) == "image/tiff":
+        return _convert_tiff_to_pdf(
+            file_obj=file_obj,
+            original_filename=original_filename,
+        )
+    return file_obj, original_filename, content_type
 
 
 def _build_space_path(parent: DocumentSpace | None, slug: str) -> str:
@@ -572,46 +641,67 @@ class CreateDocumentFromUpload:
         if self.space.tenant_id != self.tenant.id:
             raise ValueError("Document space belongs to a different tenant.")
 
-        with SpooledTemporaryFile(max_size=10 * 1024 * 1024) as buffered_file:
-            sha256, byte_size = _buffer_and_hash_file(self.file_obj, buffered_file)
-            existing_file = (
-                DocumentFile.objects.select_related("document", "document__space")
-                .filter(
-                    tenant=self.tenant,
-                    file_kind=DocumentFile.Kind.ORIGINAL,
-                    sha256=sha256,
-                    byte_size=byte_size,
-                )
-                .order_by("created_at", "id")
-                .first()
+        prepared_file, prepared_filename, prepared_content_type = (
+            _prepare_upload_file_for_storage(
+                file_obj=self.file_obj,
+                original_filename=self.original_filename,
+                content_type=self.content_type,
             )
-            if existing_file is not None:
-                RecordAuditEvent(
-                    tenant=self.tenant,
-                    actor=self.created_by,
-                    event_type="document_duplicate.detected",
-                    object_type="documents.DocumentFile",
-                    object_id=str(existing_file.id),
-                    data={
-                        "existing_document_id": existing_file.document_id,
-                        "existing_document_title": existing_file.document.title,
-                        "existing_space_path": existing_file.document.space.path,
-                        "sha256": sha256,
-                        "byte_size": byte_size,
-                        "original_filename": self.original_filename,
-                    },
-                ).execute()
-                raise DuplicateDocumentError(existing_file)
+        )
+        try:
+            with SpooledTemporaryFile(max_size=10 * 1024 * 1024) as buffered_file:
+                sha256, byte_size = _buffer_and_hash_file(prepared_file, buffered_file)
+                existing_file = (
+                    DocumentFile.objects.select_related("document", "document__space")
+                    .filter(
+                        tenant=self.tenant,
+                        file_kind=DocumentFile.Kind.ORIGINAL,
+                        sha256=sha256,
+                        byte_size=byte_size,
+                    )
+                    .order_by("created_at", "id")
+                    .first()
+                )
+                if existing_file is not None:
+                    RecordAuditEvent(
+                        tenant=self.tenant,
+                        actor=self.created_by,
+                        event_type="document_duplicate.detected",
+                        object_type="documents.DocumentFile",
+                        object_id=str(existing_file.id),
+                        data={
+                            "existing_document_id": existing_file.document_id,
+                            "existing_document_title": existing_file.document.title,
+                            "existing_space_path": existing_file.document.space.path,
+                            "sha256": sha256,
+                            "byte_size": byte_size,
+                            "original_filename": prepared_filename,
+                        },
+                    ).execute()
+                    raise DuplicateDocumentError(existing_file)
 
-            buffered_file.seek(0)
-            return self._create_document(buffered_file)
+                buffered_file.seek(0)
+                return self._create_document(
+                    buffered_file,
+                    original_filename=prepared_filename,
+                    content_type=prepared_content_type,
+                )
+        finally:
+            if prepared_file is not self.file_obj and hasattr(prepared_file, "close"):
+                prepared_file.close()
 
     @transaction.atomic
-    def _create_document(self, file_obj: BinaryIO) -> tuple[Document, DocumentFile]:
+    def _create_document(
+        self,
+        file_obj: BinaryIO,
+        *,
+        original_filename: str,
+        content_type: str,
+    ) -> tuple[Document, DocumentFile]:
         title = self.title.strip()
         title_source = Document.TitleSource.MANUAL
         if not title:
-            title = _fallback_title_from_filename(self.original_filename)
+            title = _fallback_title_from_filename(original_filename)
             title_source = Document.TitleSource.FILENAME
 
         document = Document.objects.create(
@@ -640,8 +730,8 @@ class CreateDocumentFromUpload:
             tenant=self.tenant,
             document=document,
             file_obj=file_obj,
-            original_filename=self.original_filename,
-            content_type=self.content_type,
+            original_filename=original_filename,
+            content_type=content_type,
             created_by=self.created_by,
         ).execute()
 

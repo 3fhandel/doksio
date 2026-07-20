@@ -14,9 +14,9 @@
           <h2 class="h5 mb-1">Account</h2>
           <p class="text-secondary mb-0">
             {% if form.is_identity_provider_managed %}
-              Name und E-Mail werden ergänzend in Doksio geführt.
+              Anzeigename und E-Mail werden aus dem Identity Provider übernommen.
             {% else %}
-              Name, E-Mail und lokales Passwort.
+              Anzeigename, E-Mail und lokales Passwort.
             {% endif %}
           </p>
         </div>
@@ -41,21 +41,17 @@
           <label class="form-label" for="{{ form.display_name.id_for_label }}">{{ form.display_name.label }}</label>
           {{ form.display_name }}
           {{ form.display_name.errors }}
+          {% if form.display_name.help_text %}
+            <div class="form-text">{{ form.display_name.help_text }}</div>
+          {% endif %}
         </div>
         <div class="col-md-6">
           <label class="form-label" for="{{ form.email.id_for_label }}">{{ form.email.label }}</label>
           {{ form.email }}
           {{ form.email.errors }}
-        </div>
-        <div class="col-md-6">
-          <label class="form-label" for="{{ form.first_name.id_for_label }}">{{ form.first_name.label }}</label>
-          {{ form.first_name }}
-          {{ form.first_name.errors }}
-        </div>
-        <div class="col-md-6">
-          <label class="form-label" for="{{ form.last_name.id_for_label }}">{{ form.last_name.label }}</label>
-          {{ form.last_name }}
-          {{ form.last_name.errors }}
+          {% if form.email.help_text %}
+            <div class="form-text">{{ form.email.help_text }}</div>
+          {% endif %}
         </div>
       </div>
     </div>
