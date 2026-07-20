@@ -9,6 +9,8 @@ function initPreview(root) {
     const nextButton = root.querySelector("[data-pdf-next]");
     const zoomOutButton = root.querySelector("[data-pdf-zoom-out]");
     const zoomInButton = root.querySelector("[data-pdf-zoom-in]");
+    const rotateLeftButton = root.querySelector("[data-viewer-rotate-left]");
+    const rotateRightButton = root.querySelector("[data-viewer-rotate-right]");
     const pdfUrl = root.dataset.pdfUrl;
 
     if (!canvas || !pdfUrl || !window.pdfjsLib) {
@@ -22,6 +24,7 @@ function initPreview(root) {
     let pdfDocument = null;
     let pageNumber = 1;
     let scale = 1.2;
+    let rotation = viewerRotation(root);
     let renderTask = null;
 
     function setStatus(message) {
@@ -49,7 +52,7 @@ function initPreview(root) {
       }
 
       const page = await pdfDocument.getPage(pageNumber);
-      const viewport = page.getViewport({ scale });
+      const viewport = page.getViewport({ scale, rotation });
       const outputScale = window.devicePixelRatio || 1;
 
       canvas.width = Math.floor(viewport.width * outputScale);
@@ -100,6 +103,23 @@ function initPreview(root) {
       renderPage();
     });
 
+    function rotateBy(delta) {
+      rotation = normalizeRotation(rotation + delta);
+      persistViewerRotation(root, rotation);
+      renderPage();
+    }
+
+    if (rotateLeftButton) {
+      rotateLeftButton.addEventListener("click", function () {
+        rotateBy(-90);
+      });
+    }
+    if (rotateRightButton) {
+      rotateRightButton.addEventListener("click", function () {
+        rotateBy(90);
+      });
+    }
+
     setStatus("Vorschau wird geladen ...");
     window.pdfjsLib.GlobalWorkerOptions.workerSrc = root.dataset.pdfWorkerUrl;
     window.pdfjsLib.getDocument({ url: pdfUrl, withCredentials: true }).promise
@@ -117,18 +137,22 @@ function initImagePreview(root) {
   initReviewAssist(root);
 
   const stage = root.querySelector("[data-image-stage]");
+  const frame = root.querySelector("[data-image-frame]");
   const image = root.querySelector("[data-image-preview-img]");
   const fitButton = root.querySelector("[data-image-fit]");
   const zoomOutButton = root.querySelector("[data-image-zoom-out]");
   const zoomInButton = root.querySelector("[data-image-zoom-in]");
+  const rotateLeftButton = root.querySelector("[data-viewer-rotate-left]");
+  const rotateRightButton = root.querySelector("[data-viewer-rotate-right]");
   const zoomLabel = root.querySelector("[data-image-zoom-label]");
 
-  if (!stage || !image) {
+  if (!stage || !frame || !image) {
     return;
   }
 
   let scale = 1;
   let isFitMode = true;
+  let rotation = viewerRotation(root);
 
   function naturalWidth() {
     return image.naturalWidth || 1;
@@ -136,6 +160,18 @@ function initImagePreview(root) {
 
   function naturalHeight() {
     return image.naturalHeight || 1;
+  }
+
+  function isSideways() {
+    return rotation === 90 || rotation === 270;
+  }
+
+  function visualWidth() {
+    return isSideways() ? naturalHeight() : naturalWidth();
+  }
+
+  function visualHeight() {
+    return isSideways() ? naturalWidth() : naturalHeight();
   }
 
   function calculateFitScale() {
@@ -151,8 +187,8 @@ function initImagePreview(root) {
     );
     return Math.min(
       1,
-      availableWidth / naturalWidth(),
-      availableHeight / naturalHeight()
+      availableWidth / visualWidth(),
+      availableHeight / visualHeight()
     );
   }
 
@@ -164,8 +200,13 @@ function initImagePreview(root) {
   }
 
   function applyScale() {
-    image.style.width = `${Math.max(Math.round(naturalWidth() * scale), 1)}px`;
-    image.style.height = "auto";
+    const imageWidth = Math.max(Math.round(naturalWidth() * scale), 1);
+    const imageHeight = Math.max(Math.round(naturalHeight() * scale), 1);
+    image.style.width = `${imageWidth}px`;
+    image.style.height = `${imageHeight}px`;
+    image.style.transform = `rotate(${rotation}deg)`;
+    frame.style.width = `${Math.max(Math.round(visualWidth() * scale), 1)}px`;
+    frame.style.height = `${Math.max(Math.round(visualHeight() * scale), 1)}px`;
     updateLabel();
   }
 
@@ -195,6 +236,27 @@ function initImagePreview(root) {
     });
   }
 
+  function rotateBy(delta) {
+    rotation = normalizeRotation(rotation + delta);
+    persistViewerRotation(root, rotation);
+    if (isFitMode) {
+      fitToView();
+    } else {
+      applyScale();
+    }
+  }
+
+  if (rotateLeftButton) {
+    rotateLeftButton.addEventListener("click", function () {
+      rotateBy(-90);
+    });
+  }
+  if (rotateRightButton) {
+    rotateRightButton.addEventListener("click", function () {
+      rotateBy(90);
+    });
+  }
+
   image.addEventListener("load", fitToView);
   window.addEventListener("resize", function () {
     if (isFitMode) {
@@ -205,6 +267,44 @@ function initImagePreview(root) {
   if (image.complete) {
     fitToView();
   }
+}
+
+function normalizeRotation(rotation) {
+  return ((rotation % 360) + 360) % 360;
+}
+
+function viewerRotation(root) {
+  const parsedRotation = Number.parseInt(root.dataset.viewerRotation || "0", 10);
+  if (![0, 90, 180, 270].includes(parsedRotation)) {
+    return 0;
+  }
+  return parsedRotation;
+}
+
+function csrfToken() {
+  const tokenInput = document.querySelector("[name=csrfmiddlewaretoken]");
+  if (tokenInput) {
+    return tokenInput.value;
+  }
+  const cookieMatch = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+  return cookieMatch ? decodeURIComponent(cookieMatch[1]) : "";
+}
+
+function persistViewerRotation(root, rotation) {
+  root.dataset.viewerRotation = String(rotation);
+  if (!root.dataset.viewerSettingsUrl) {
+    return;
+  }
+  fetch(root.dataset.viewerSettingsUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRFToken": csrfToken(),
+    },
+    body: JSON.stringify({ rotation }),
+  }).catch(function () {
+    root.dataset.viewerRotationSaveFailed = "true";
+  });
 }
 
 function initReviewAssist(root) {

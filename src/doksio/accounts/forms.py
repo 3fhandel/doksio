@@ -206,6 +206,11 @@ class UserProfileForm(forms.Form):
         required=False,
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
+    workflow_notifications_enabled = forms.BooleanField(
+        label="Neue Workflow-Aufgaben",
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
     mention_notifications_enabled = forms.BooleanField(
         label="Benachrichtigung, wenn ich erwähnt wurde",
         required=False,
@@ -255,6 +260,9 @@ class UserProfileForm(forms.Form):
             self.initial["display_name"] = profile.display_name
             self.initial["email"] = self.user.email
             self.initial["notifications_enabled"] = profile.notifications_enabled
+            self.initial["workflow_notifications_enabled"] = (
+                profile.workflow_notifications_enabled
+            )
             self.initial["mention_notifications_enabled"] = (
                 profile.mention_notifications_enabled
             )

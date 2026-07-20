@@ -723,6 +723,18 @@ def _document_original_file(document: Document) -> DocumentFile | None:
     )
 
 
+def _viewer_rotation(document_file: DocumentFile | None) -> int:
+    if document_file is None:
+        return 0
+    try:
+        rotation = int((document_file.viewer_settings or {}).get("rotation", 0))
+    except (TypeError, ValueError):
+        return 0
+    if rotation not in {0, 90, 180, 270}:
+        return 0
+    return rotation
+
+
 def _smtp_from_email(smtp_settings: TenantSmtpSettings) -> str:
     from_email = smtp_settings.from_email or smtp_settings.username
     if smtp_settings.from_name and from_email:
@@ -1386,6 +1398,7 @@ def document_detail(
 
     preview_file, preview_kind = _document_preview(document)
     preview_ocr_job = preview_file.latest_ocr_job if preview_file is not None else None
+    preview_rotation = _viewer_rotation(preview_file)
     workflow_instances = list(
         document.workflow_instances.select_related(
             "template",
@@ -1429,6 +1442,7 @@ def document_detail(
             "preview_file": preview_file,
             "preview_kind": preview_kind,
             "preview_ocr_job": preview_ocr_job,
+            "preview_rotation": preview_rotation,
             "comment_form": comment_form,
             "metadata_form": metadata_form,
             "share_attachment_form": share_attachment_form,
@@ -1607,6 +1621,45 @@ def document_file_download(
         filename=document_file.original_filename,
         content_type=document_file.content_type,
     )
+
+
+def document_file_viewer_settings(
+    request: HttpRequest,
+    tenant_slug: str,
+    file_id: int,
+) -> JsonResponse:
+    if request.method != "POST":
+        return JsonResponse({"error": "method_not_allowed"}, status=405)
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "authentication_required"}, status=403)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None:
+        raise PermissionDenied
+
+    document_file = get_object_or_404(
+        DocumentFile.objects.select_related("document", "document__space"),
+        id=file_id,
+        tenant=tenant,
+    )
+    if not can_view_document(request.user, document_file.document):
+        raise PermissionDenied
+
+    try:
+        payload = json.loads(request.body.decode() or "{}")
+        rotation = int(payload.get("rotation", 0))
+    except (TypeError, ValueError, json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "invalid_payload"}, status=400)
+
+    if rotation % 90 != 0:
+        return JsonResponse({"error": "invalid_rotation"}, status=400)
+
+    rotation = rotation % 360
+    viewer_settings = dict(document_file.viewer_settings or {})
+    viewer_settings["rotation"] = rotation
+    document_file.viewer_settings = viewer_settings
+    document_file.save(update_fields=["viewer_settings"])
+    return JsonResponse({"ok": True, "rotation": rotation})
 
 
 def audit_log(

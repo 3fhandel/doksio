@@ -179,6 +179,7 @@ def test_profile_view_saves_notifications(client):
     UserProfile.objects.create(
         user=user,
         notifications_enabled=True,
+        workflow_notifications_enabled=True,
         mention_notifications_enabled=True,
     )
     client.force_login(user)
@@ -187,13 +188,30 @@ def test_profile_view_saves_notifications(client):
         reverse("accounts:profile_notifications", kwargs={"tenant_slug": tenant.slug}),
         {
             "notifications_enabled": "on",
+            "workflow_notifications_enabled": "",
         },
     )
 
     profile = UserProfile.objects.get(user=user)
     assert response.status_code == 302
     assert profile.notifications_enabled is True
+    assert profile.workflow_notifications_enabled is False
     assert profile.mention_notifications_enabled is False
+
+
+@pytest.mark.django_db
+def test_profile_notifications_view_renders_workflow_notification_setting(client):
+    tenant, user = _create_tenant_user()
+    client.force_login(user)
+
+    response = client.get(
+        reverse("accounts:profile_notifications", kwargs={"tenant_slug": tenant.slug})
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "Neue Workflow-Aufgaben" in content
+    assert "wenn dir eine neue Workflow-Aufgabe zugeordnet wird" in content
 
 
 @pytest.mark.django_db

@@ -19,6 +19,16 @@
       </div>
       {{ form.notifications_enabled.errors }}
       <div class="form-check form-switch mt-3">
+        {{ form.workflow_notifications_enabled }}
+        <label class="form-check-label" for="{{ form.workflow_notifications_enabled.id_for_label }}">
+          {{ form.workflow_notifications_enabled.label }}
+        </label>
+      </div>
+      <div class="form-text">
+        Gilt für Benachrichtigungen, wenn dir eine neue Workflow-Aufgabe zugeordnet wird.
+      </div>
+      {{ form.workflow_notifications_enabled.errors }}
+      <div class="form-check form-switch mt-3">
         {{ form.mention_notifications_enabled }}
         <label class="form-check-label" for="{{ form.mention_notifications_enabled.id_for_label }}">
           {{ form.mention_notifications_enabled.label }}

@@ -1385,11 +1385,17 @@ body {
   padding: 1rem;
 }
 
+.document-preview-image-frame {
+  display: grid;
+  place-items: center;
+}
+
 .document-preview-image {
   display: block;
   width: auto;
   height: auto;
   max-width: none;
+  transform-origin: center;
   background: #fff;
   box-shadow: 0 0.5rem 1.5rem rgb(16 24 40 / 14%);
 }

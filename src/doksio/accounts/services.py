@@ -529,6 +529,12 @@ class CreateNotification:
             return None
         if (
             profile is not None
+            and self.notification_type == Notification.Type.WORKFLOW_TASK_CREATED
+            and not profile.workflow_notifications_enabled
+        ):
+            return None
+        if (
+            profile is not None
             and self.notification_type == Notification.Type.DOCUMENT_COMMENT_MENTION
             and not profile.mention_notifications_enabled
         ):

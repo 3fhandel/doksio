@@ -39,6 +39,7 @@ class UserProfileAdmin(admin.ModelAdmin):
         "user",
         "display_name",
         "notifications_enabled",
+        "workflow_notifications_enabled",
         "mention_notifications_enabled",
         "updated_at",
     ]

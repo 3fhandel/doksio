@@ -38,6 +38,11 @@ urlpatterns = [
         name="download",
     ),
     path(
+        "t/<slug:tenant_slug>/documents/files/<int:file_id>/viewer-settings/",
+        views.document_file_viewer_settings,
+        name="file_viewer_settings",
+    ),
+    path(
         "t/<slug:tenant_slug>/settings/",
         views.tenant_settings_overview,
         name="settings_overview",

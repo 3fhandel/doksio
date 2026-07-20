@@ -758,6 +758,41 @@ def test_workflow_task_notification_respects_disabled_user_notifications():
 
 
 @pytest.mark.django_db
+def test_workflow_task_notification_respects_disabled_workflow_notifications():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    member = get_user_model().objects.create_user(username="alice")
+    UserProfile.objects.create(
+        user=member,
+        notifications_enabled=True,
+        workflow_notifications_enabled=False,
+        mention_notifications_enabled=True,
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=member,
+        role=roles["member"],
+    )
+    document = _create_document(tenant, space)
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Freigabe",
+        slug="freigabe-workflow-notification-disabled",
+    ).execute()
+    CreateWorkflowStep(
+        template=template,
+        name="Sachlich prüfen",
+        step_type="task",
+        assigned_role=roles["member"],
+    ).execute()
+
+    StartWorkflowForDocument(template=template, document=document).execute()
+
+    assert not Notification.objects.filter(recipient=member).exists()
+
+
+@pytest.mark.django_db
 def test_task_list_shows_my_open_workflow_tasks_paginated(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()

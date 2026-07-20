@@ -68,7 +68,7 @@
       </div>
 
       <div class="document-workspace mb-3">
-        <section class="app-card document-preview"{% if preview_kind == "pdf" %} data-pdf-preview data-pdf-url="{% url 'documents:download' document.tenant.slug preview_file.id %}?inline=1" data-pdf-worker-url="{% static 'vendor/pdfjs/pdf.worker.min.js' %}"{% elif preview_kind == "image" %} data-image-preview{% endif %}>
+        <section class="app-card document-preview"{% if preview_file %} data-viewer-rotation="{{ preview_rotation }}" data-viewer-settings-url="{% url 'documents:file_viewer_settings' document.tenant.slug preview_file.id %}"{% endif %}{% if preview_kind == "pdf" %} data-pdf-preview data-pdf-url="{% url 'documents:download' document.tenant.slug preview_file.id %}?inline=1" data-pdf-worker-url="{% static 'vendor/pdfjs/pdf.worker.min.js' %}"{% elif preview_kind == "image" %} data-image-preview{% endif %}>
           <div class="d-flex align-items-center justify-content-between gap-3 p-2 px-3">
             <div>
               <h2 class="h5 mb-1">Vorschau</h2>
@@ -89,6 +89,10 @@
                   <button class="btn btn-outline-secondary" type="button" data-pdf-zoom-out>-</button>
                   <button class="btn btn-outline-secondary" type="button" data-pdf-zoom-in>+</button>
                 </div>
+                <div class="btn-group btn-group-sm" aria-label="Seite drehen">
+                  <button class="btn btn-outline-secondary" type="button" data-viewer-rotate-left title="Nach links drehen" aria-label="Nach links drehen">{% include "includes/icons.html" with icon="rotate-ccw" %}</button>
+                  <button class="btn btn-outline-secondary" type="button" data-viewer-rotate-right title="Nach rechts drehen" aria-label="Nach rechts drehen">{% include "includes/icons.html" with icon="rotate-cw" %}</button>
+                </div>
                 <span class="small text-secondary align-self-center">
                   Seite <span data-pdf-page-current>1</span>/<span data-pdf-page-total>?</span>
                 </span>
@@ -100,6 +104,10 @@
                   <button class="btn btn-outline-secondary" type="button" data-image-fit>Fit</button>
                   <button class="btn btn-outline-secondary" type="button" data-image-zoom-out>-</button>
                   <button class="btn btn-outline-secondary" type="button" data-image-zoom-in>+</button>
+                </div>
+                <div class="btn-group btn-group-sm" aria-label="Bild drehen">
+                  <button class="btn btn-outline-secondary" type="button" data-viewer-rotate-left title="Nach links drehen" aria-label="Nach links drehen">{% include "includes/icons.html" with icon="rotate-ccw" %}</button>
+                  <button class="btn btn-outline-secondary" type="button" data-viewer-rotate-right title="Nach rechts drehen" aria-label="Nach rechts drehen">{% include "includes/icons.html" with icon="rotate-cw" %}</button>
                 </div>
                 <span class="small text-secondary align-self-center" data-image-zoom-label>Fit</span>
               </div>
@@ -115,7 +123,9 @@
             </div>
           {% elif preview_kind == "image" %}
             <div class="document-preview-stage document-preview-stage-image" data-image-stage>
-              <img class="document-preview-image" src="{% url 'documents:download' document.tenant.slug preview_file.id %}?inline=1" alt="{{ preview_file.original_filename }}" data-image-preview-img>
+              <div class="document-preview-image-frame" data-image-frame>
+                <img class="document-preview-image" src="{% url 'documents:download' document.tenant.slug preview_file.id %}?inline=1" alt="{{ preview_file.original_filename }}" data-image-preview-img>
+              </div>
             </div>
           {% else %}
             <div class="document-preview-empty">
@@ -608,9 +618,9 @@
   <script src="{% static 'js/document-metadata.js' %}?v=1"></script>
   {% if preview_kind == "pdf" %}
     <script src="{% static 'vendor/pdfjs/pdf.min.js' %}?v=3.11.174"></script>
-    <script src="{% static 'js/document-preview.js' %}?v=10"></script>
+    <script src="{% static 'js/document-preview.js' %}?v=11"></script>
   {% elif preview_kind == "image" %}
-    <script src="{% static 'js/document-preview.js' %}?v=10"></script>
+    <script src="{% static 'js/document-preview.js' %}?v=11"></script>
   {% endif %}
   <script>
     document.querySelectorAll("[data-copy-document-link]").forEach((button) => {
