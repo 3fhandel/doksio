@@ -1,4 +1,5 @@
 {% extends "documents/settings_base.html" %}
+{% load static %}
 
 {% block settings_content %}
   <div class="d-flex align-items-center justify-content-between mb-4">
@@ -10,18 +11,14 @@
   </div>
 
   <section class="app-card p-4">
-    <form method="post">
+    <form method="post" data-workflow-step-form>
       {% csrf_token %}
+      {{ form.sort_order.as_hidden }}
       <div class="row g-3">
-        <div class="col-md-8">
+        <div class="col-12">
           <label class="form-label" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
           {{ form.name }}
           {{ form.name.errors }}
-        </div>
-        <div class="col-md-4">
-          <label class="form-label" for="{{ form.sort_order.id_for_label }}">{{ form.sort_order.label }}</label>
-          {{ form.sort_order }}
-          {{ form.sort_order.errors }}
         </div>
         <div class="col-md-6">
           <label class="form-label" for="{{ form.step_type.id_for_label }}">{{ form.step_type.label }}</label>
@@ -43,7 +40,7 @@
           {{ form.comment_policy }}
           {{ form.comment_policy.errors }}
         </div>
-        <div class="col-12">
+        <div class="col-12" data-step-type-section="complete_metadata">
           <label class="form-label">{{ form.required_metadata_fields.label }}</label>
           <div class="workflow-metadata-field-picker">
             {{ form.required_metadata_fields }}
@@ -53,8 +50,91 @@
           {% endif %}
           {{ form.required_metadata_fields.errors }}
         </div>
+        <div class="col-12" data-step-type-section="require_document_relation">
+          <div class="workflow-step-settings-group">
+            <div>
+              <h3 class="h6 mb-1">Dokumentverknüpfung</h3>
+              <p class="text-secondary small mb-0">Definiert, welche verknüpften Dokumente diesen Schritt erfüllen.</p>
+            </div>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label" for="{{ form.min_related_documents.id_for_label }}">{{ form.min_related_documents.label }}</label>
+                {{ form.min_related_documents }}
+                {% if form.min_related_documents.help_text %}
+                  <div class="form-text">{{ form.min_related_documents.help_text }}</div>
+                {% endif %}
+                {{ form.min_related_documents.errors }}
+              </div>
+              <div class="col-md-6 d-flex align-items-end">
+                <div class="form-check mb-2">
+                  {{ form.related_document_requires_completed_workflow }}
+                  <label class="form-check-label" for="{{ form.related_document_requires_completed_workflow.id_for_label }}">
+                    {{ form.related_document_requires_completed_workflow.label }}
+                  </label>
+                  {{ form.related_document_requires_completed_workflow.errors }}
+                </div>
+              </div>
+              <div class="col-12">
+                <label class="form-label">{{ form.required_related_document_spaces.label }}</label>
+                <div class="workflow-metadata-field-picker">
+                  {{ form.required_related_document_spaces }}
+                </div>
+                {% if form.required_related_document_spaces.help_text %}
+                  <div class="form-text">{{ form.required_related_document_spaces.help_text }}</div>
+                {% endif %}
+                {{ form.required_related_document_spaces.errors }}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12" data-step-type-section="require_document_relation">
+          <div class="workflow-step-settings-group">
+            <div>
+              <h3 class="h6 mb-1">Vorbelegung für Verknüpfungssuche</h3>
+              <p class="text-secondary small mb-0">Diese Werte setzen nur die Startfilter im Dokumenten-Picker.</p>
+            </div>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label" for="{{ form.relation_picker_default_document_space.id_for_label }}">{{ form.relation_picker_default_document_space.label }}</label>
+                {{ form.relation_picker_default_document_space }}
+                {% if form.relation_picker_default_document_space.help_text %}
+                  <div class="form-text">{{ form.relation_picker_default_document_space.help_text }}</div>
+                {% endif %}
+                {{ form.relation_picker_default_document_space.errors }}
+              </div>
+              <div class="col-md-6">
+                <label class="form-label" for="{{ form.relation_picker_default_workflow_status.id_for_label }}">{{ form.relation_picker_default_workflow_status.label }}</label>
+                {{ form.relation_picker_default_workflow_status }}
+                {{ form.relation_picker_default_workflow_status.errors }}
+              </div>
+              <div class="col-12">
+                <div class="form-check">
+                  {{ form.relation_picker_default_include_child_spaces }}
+                  <label class="form-check-label" for="{{ form.relation_picker_default_include_child_spaces.id_for_label }}">
+                    {{ form.relation_picker_default_include_child_spaces.label }}
+                  </label>
+                  {{ form.relation_picker_default_include_child_spaces.errors }}
+                </div>
+              </div>
+              <div class="col-12">
+                <div class="form-check">
+                  {{ form.relation_picker_filters_editable }}
+                  <label class="form-check-label" for="{{ form.relation_picker_filters_editable.id_for_label }}">
+                    {{ form.relation_picker_filters_editable.label }}
+                  </label>
+                  {{ form.relation_picker_filters_editable.errors }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       <button class="btn btn-primary mt-4" type="submit">{{ submit_label }}</button>
     </form>
   </section>
+{% endblock %}
+
+{% block extra_body %}
+  {{ block.super }}
+  <script src="{% static 'js/workflow-step-form.js' %}?v=1"></script>
 {% endblock %}

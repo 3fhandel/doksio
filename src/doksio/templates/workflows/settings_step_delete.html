@@ -1,0 +1,47 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <div>
+      <h2 class="h4 mb-1">Workflow-Schritt löschen</h2>
+      <p class="text-secondary mb-0">{{ template.name }} · {{ step.name }}</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{% url 'workflows:settings_template_edit' tenant.slug template.id %}">Zurück</a>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <section class="app-card p-4">
+    {% if can_delete %}
+      <div class="alert alert-danger">
+        <div class="fw-semibold">Dieser Workflow-Schritt wird endgültig gelöscht.</div>
+        <div>Die Reihenfolge der übrigen Schritte bleibt erhalten.</div>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label class="form-label" for="workflow-step-delete-confirmation">
+            Zur Bestätigung bitte den Schrittnamen eingeben:
+            <strong>{{ step.name }}</strong>
+          </label>
+          <input class="form-control" id="workflow-step-delete-confirmation" name="confirmation" autocomplete="off" required>
+        </div>
+        <button class="btn btn-danger" type="submit">Schritt endgültig löschen</button>
+      </form>
+    {% else %}
+      <div class="alert alert-warning">
+        <div class="fw-semibold">Dieser Schritt kann nicht gelöscht werden.</div>
+        <div>
+          Er ist bereits mit {{ task_count }} Aufgabe{% if task_count != 1 %}n{% endif %} und {{ current_instance_count }} laufenden Workflowposition{% if current_instance_count != 1 %}en{% endif %} verknüpft.
+        </div>
+      </div>
+      <a class="btn btn-outline-primary" href="{% url 'workflows:settings_step_edit' tenant.slug template.id step.id %}">
+        Schritt bearbeiten
+      </a>
+    {% endif %}
+  </section>
+{% endblock %}

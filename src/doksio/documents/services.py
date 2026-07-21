@@ -33,6 +33,7 @@ from doksio.documents.models import (
     DocumentImportBatch,
     DocumentImportBatchItem,
     DocumentMetadataField,
+    DocumentRelation,
     DocumentSpace,
     DocumentTag,
     DocumentTagAssignment,
@@ -671,6 +672,93 @@ class AddDocumentMetadataChoice:
             },
         ).execute()
         return self.metadata_field
+
+
+def _ordered_relation_documents(
+    first_document: Document,
+    second_document: Document,
+) -> tuple[Document, Document]:
+    if first_document.id < second_document.id:
+        return first_document, second_document
+    return second_document, first_document
+
+
+@dataclass(frozen=True)
+class AddDocumentRelation:
+    document: Document
+    related_document: Document
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> DocumentRelation:
+        if self.related_document.tenant_id != self.document.tenant_id:
+            raise ValueError("Related document belongs to a different tenant.")
+        if self.related_document.id == self.document.id:
+            raise ValueError("Document cannot be related to itself.")
+
+        first_document, second_document = _ordered_relation_documents(
+            self.document,
+            self.related_document,
+        )
+        relation, created = DocumentRelation.objects.get_or_create(
+            tenant=self.document.tenant,
+            first_document=first_document,
+            second_document=second_document,
+            defaults={
+                "created_by": self.actor,
+            },
+        )
+
+        RecordAuditEvent(
+            tenant=self.document.tenant,
+            actor=self.actor,
+            event_type=(
+                "document_relation.created" if created else "document_relation.exists"
+            ),
+            object_type="documents.DocumentRelation",
+            object_id=str(relation.id),
+            data={
+                "first_document_id": first_document.id,
+                "second_document_id": second_document.id,
+            },
+        ).execute()
+
+        from doksio.workflows.services import RefreshRelationWorkflowTasksForDocument
+
+        RefreshRelationWorkflowTasksForDocument(
+            document=self.document,
+            actor=self.actor,
+        ).execute()
+        RefreshRelationWorkflowTasksForDocument(
+            document=self.related_document,
+            actor=self.actor,
+        ).execute()
+        return relation
+
+
+@dataclass(frozen=True)
+class RemoveDocumentRelation:
+    relation: DocumentRelation
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> None:
+        tenant = self.relation.tenant
+        relation_id = self.relation.id
+        first_document_id = self.relation.first_document_id
+        second_document_id = self.relation.second_document_id
+        self.relation.delete()
+        RecordAuditEvent(
+            tenant=tenant,
+            actor=self.actor,
+            event_type="document_relation.removed",
+            object_type="documents.DocumentRelation",
+            object_id=str(relation_id),
+            data={
+                "first_document_id": first_document_id,
+                "second_document_id": second_document_id,
+            },
+        ).execute()
 
 
 @dataclass(frozen=True)

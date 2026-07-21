@@ -1299,6 +1299,96 @@ def test_tenant_admin_can_update_smtp_settings(client):
 
 
 @pytest.mark.django_db
+def test_tenant_admin_can_send_smtp_test_mail(client, monkeypatch):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    TenantSmtpSettings.objects.create(
+        tenant=tenant,
+        host="smtp.example.test",
+        port=587,
+        security=TenantSmtpSettings.Security.STARTTLS,
+        username="doksio@example.test",
+        password="smtp-secret",
+        from_email="doksio@example.test",
+        from_name="Doksio",
+        is_active=True,
+    )
+    sent_messages = []
+
+    def fake_send(message, fail_silently=False):
+        sent_messages.append(message)
+        return 1
+
+    monkeypatch.setattr("doksio.documents.views.EmailMessage.send", fake_send)
+    client.force_login(user)
+
+    response = client.post(
+        reverse("documents:settings_smtp", kwargs={"tenant_slug": tenant.slug}),
+        {
+            "action": "send_test",
+            "recipient": "admin@example.test",
+        },
+    )
+
+    assert response.status_code == 302
+    assert len(sent_messages) == 1
+    assert sent_messages[0].to == ["admin@example.test"]
+    assert sent_messages[0].subject == "Doksio SMTP-Test"
+    assert AuditEvent.objects.filter(
+        tenant=tenant,
+        event_type="smtp.test_sent",
+        data__recipient="admin@example.test",
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_tenant_admin_cannot_send_smtp_test_without_active_settings(
+    client,
+    monkeypatch,
+):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    sent_messages = []
+
+    def fake_send(message, fail_silently=False):
+        sent_messages.append(message)
+        return 1
+
+    monkeypatch.setattr("doksio.documents.views.EmailMessage.send", fake_send)
+    client.force_login(user)
+
+    response = client.post(
+        reverse("documents:settings_smtp", kwargs={"tenant_slug": tenant.slug}),
+        {
+            "action": "send_test",
+            "recipient": "admin@example.test",
+        },
+    )
+
+    assert response.status_code == 200
+    assert sent_messages == []
+    assert "kein aktiver SMTP-Versand" in response.content.decode()
+
+
+@pytest.mark.django_db
 @override_settings(DOKSIO_PUBLIC_BASE_URL="https://doksio.example.test")
 def test_tenant_admin_can_download_folder_import_script(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")

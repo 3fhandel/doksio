@@ -61,11 +61,21 @@ class WorkflowStep(models.Model):
         TASK = "task", "Aufgabe"
         APPROVAL = "approval", "Freigabe"
         COMPLETE_METADATA = "complete_metadata", "Daten vervollständigen"
+        REQUIRE_DOCUMENT_RELATION = (
+            "require_document_relation",
+            "Dokumentverknüpfung erforderlich",
+        )
 
     class CommentPolicy(models.TextChoices):
         DISABLED = "disabled", "Kein Kommentar"
         OPTIONAL = "optional", "Kommentar optional"
         REQUIRED = "required", "Kommentar erforderlich"
+
+    class RelationPickerWorkflowStatus(models.TextChoices):
+        ANY = "any", "Alle"
+        OPEN = "open", "Offener Workflow"
+        COMPLETED = "completed", "Workflows abgeschlossen"
+        NONE = "none", "Keine Workflows"
 
     tenant = models.ForeignKey(
         "tenancy.Tenant",
@@ -95,6 +105,27 @@ class WorkflowStep(models.Model):
         blank=True,
         related_name="required_by_workflow_steps",
     )
+    required_related_document_spaces = models.ManyToManyField(
+        "documents.DocumentSpace",
+        blank=True,
+        related_name="relation_required_by_workflow_steps",
+    )
+    min_related_documents = models.PositiveIntegerField(default=1)
+    related_document_requires_completed_workflow = models.BooleanField(default=False)
+    relation_picker_default_document_space = models.ForeignKey(
+        "documents.DocumentSpace",
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+    relation_picker_default_include_child_spaces = models.BooleanField(default=True)
+    relation_picker_default_workflow_status = models.CharField(
+        max_length=20,
+        choices=RelationPickerWorkflowStatus.choices,
+        default=RelationPickerWorkflowStatus.ANY,
+    )
+    relation_picker_filters_editable = models.BooleanField(default=True)
     instructions = models.TextField(blank=True)
     sort_order = models.PositiveIntegerField(default=100)
     comment_policy = models.CharField(

@@ -22,6 +22,7 @@ from doksio.documents.models import (
     DocumentImportBatch,
     DocumentImportBatchItem,
     DocumentMetadataField,
+    DocumentRelation,
     DocumentSpace,
 )
 from doksio.documents.services import (
@@ -41,7 +42,12 @@ from doksio.ocr.models import OcrJob
 from doksio.search.models import DocumentSearchIndex
 from doksio.tenancy.models import Tenant
 from doksio.tenancy.services import BootstrapDemoTenant
-from doksio.workflows.models import WorkflowInstance, WorkflowTask, WorkflowTemplate
+from doksio.workflows.models import (
+    WorkflowInstance,
+    WorkflowStep,
+    WorkflowTask,
+    WorkflowTemplate,
+)
 from doksio.workflows.services import (
     CreateWorkflowStep,
     CreateWorkflowTemplate,
@@ -1330,6 +1336,181 @@ def test_document_detail_offers_native_share_with_original_attachment(client):
     assert f'data-share-file-url="{expected_file_url}"' in content
     assert 'data-share-file-name="invoice.pdf"' in content
     assert 'data-share-file-type="application/pdf"' in content
+
+
+@pytest.mark.django_db
+def test_document_detail_can_link_related_document(client, monkeypatch):
+    monkeypatch.setattr(
+        "doksio.documents.thumbnails._render_thumbnail_bytes",
+        lambda _document_file: b"thumbnail-bytes",
+    )
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    warehouse_space = CreateDocumentSpace(tenant=tenant, name="Wareneingang").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    document, _document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Rechnung",
+        space=space,
+        file_obj=BytesIO(b"invoice"),
+        original_filename="rechnung.pdf",
+        content_type="application/pdf",
+    ).execute()
+    related_document, _related_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Beleg",
+        space=warehouse_space,
+        file_obj=BytesIO(b"delivery note"),
+        original_filename="beleg.pdf",
+        content_type="application/pdf",
+    ).execute()
+    unrelated_document, _unrelated_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Sonstiges",
+        space=space,
+        file_obj=BytesIO(b"other document"),
+        original_filename="sonstiges.pdf",
+        content_type="application/pdf",
+    ).execute()
+    workflow_template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Wareneingang",
+        slug="wareneingang",
+    ).execute()
+    CreateWorkflowStep(
+        template=workflow_template,
+        name="Prüfen",
+        step_type=WorkflowStep.StepType.TASK,
+    ).execute()
+    StartWorkflowForDocument(
+        template=workflow_template,
+        document=related_document,
+    ).execute()
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        ),
+        {
+            "action": "add_relation",
+            "target_document_id": related_document.id,
+        },
+    )
+
+    assert response.status_code == 302
+    relation = DocumentRelation.objects.get(tenant=tenant)
+    assert {relation.first_document_id, relation.second_document_id} == {
+        document.id,
+        related_document.id,
+    }
+    detail_response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        )
+    )
+    content = detail_response.content.decode()
+    assert "Verknüpfte Dokumente" in content
+    assert "Beleg" in content
+    assert "Dokument auswählen" in content
+    assert "Diese Dokumentverknüpfung wirklich lösen?" in content
+    thumbnail = related_document.files.get(file_kind=DocumentFile.Kind.THUMBNAIL)
+    assert (
+        reverse(
+            "documents:download",
+            kwargs={"tenant_slug": tenant.slug, "file_id": thumbnail.id},
+        )
+        + "?inline=1"
+    ) in content
+
+    picker_response = client.get(
+        reverse(
+            "documents:relation_picker_search",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        ),
+        {
+            "q": "",
+            "space": warehouse_space.id,
+            "workflow_status": "open",
+        },
+    )
+    assert picker_response.status_code == 200
+    results = picker_response.json()["results"]
+    assert [item["id"] for item in results] == [related_document.id]
+    assert results[0]["thumbnail_url"]
+    assert results[0]["workflow_open_count"] == 1
+    assert unrelated_document.id not in [item["id"] for item in results]
+
+
+@pytest.mark.django_db
+def test_document_detail_relation_task_prefills_picker_filters(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    invoice_space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    delivery_space = CreateDocumentSpace(tenant=tenant, name="Lieferscheine").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    document, _document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Rechnung",
+        space=invoice_space,
+        file_obj=BytesIO(b"invoice"),
+        original_filename="rechnung.pdf",
+        content_type="application/pdf",
+    ).execute()
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Rechnungsprüfung",
+        slug="rechnung",
+    ).execute()
+    CreateWorkflowStep(
+        template=template,
+        name="Lieferschein verknüpfen",
+        step_type=WorkflowStep.StepType.REQUIRE_DOCUMENT_RELATION,
+        assigned_role=roles["member"],
+        required_related_document_spaces=[delivery_space],
+        relation_picker_default_document_space=delivery_space,
+        relation_picker_default_workflow_status=(
+            WorkflowStep.RelationPickerWorkflowStatus.COMPLETED
+        ),
+        relation_picker_default_include_child_spaces=True,
+        relation_picker_filters_editable=False,
+    ).execute()
+    StartWorkflowForDocument(template=template, document=document).execute()
+    client.force_login(user)
+
+    response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        )
+    )
+    content = response.content.decode()
+
+    assert response.status_code == 200
+    assert "Dokumentverknüpfung erforderlich" in content
+    assert f'data-relation-default-space="{delivery_space.id}"' in content
+    assert 'data-relation-default-workflow-status="completed"' in content
+    assert 'data-relation-default-include-children="1"' in content
+    assert 'data-relation-filters-editable="0"' in content
 
 
 @pytest.mark.django_db

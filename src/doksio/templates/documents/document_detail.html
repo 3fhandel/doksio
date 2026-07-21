@@ -285,6 +285,32 @@
                               <div class="fw-semibold small">Alle Pflicht-Metadaten sind ausgefüllt.</div>
                             </div>
                           {% endif %}
+                          {% if task.step.step_type == "require_document_relation" %}
+                            {% if task.missing_related_documents_for_completion_count %}
+                              <div class="alert alert-warning py-2 px-3 mb-3">
+                                <div class="fw-semibold small mb-1">Dokumentverknüpfung erforderlich</div>
+                              <div class="small">
+                                {{ task.related_documents_for_completion_count }} von {{ task.step.min_related_documents }} verknüpft.
+                              </div>
+                              <button
+                                class="btn btn-sm btn-warning mt-2"
+                                type="button"
+                                data-bs-toggle="modal"
+                                data-bs-target="#documentRelationPickerModal"
+                                data-relation-default-space="{{ task.relation_picker_default_space_id }}"
+                                data-relation-default-workflow-status="{{ task.relation_picker_default_workflow_status }}"
+                                data-relation-default-include-children="{% if task.relation_picker_default_include_children %}1{% else %}0{% endif %}"
+                                data-relation-filters-editable="{% if task.relation_picker_filters_editable %}1{% else %}0{% endif %}"
+                              >
+                                Dokument verknüpfen
+                              </button>
+                            </div>
+                          {% else %}
+                              <div class="alert alert-success py-2 px-3 mb-3">
+                                <div class="fw-semibold small">Erforderliche Dokumentverknüpfung ist vorhanden.</div>
+                              </div>
+                            {% endif %}
+                          {% endif %}
                           {% if task.step.comment_policy != "disabled" %}
                             <label class="form-label" for="workflow-task-comment-{{ task.id }}">Kommentar</label>
                             <textarea class="form-control" id="workflow-task-comment-{{ task.id }}" name="comment" rows="2"></textarea>
@@ -404,6 +430,75 @@
                 {{ tag_form.tag_names.errors }}
                 <div class="form-text">{{ tag_form.tag_names.help_text }}</div>
                 <button class="btn btn-sm btn-outline-primary mt-3" type="submit">Tags speichern</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="app-card document-compact-card document-panel">
+            <h2 class="h6 mb-0">Verknüpfte Dokumente</h2>
+            <div class="document-panel-section">
+              {% if document_relations %}
+                <div class="document-condensed-list mb-3">
+                  {% for item in document_relations %}
+                    <div class="document-condensed-row document-condensed-row-block">
+                      <div class="document-relation-linked-row">
+                        {% with thumbnail=item.document|document_thumbnail_file %}
+                          <div class="document-row-thumbnail document-relation-thumbnail">
+                            {% if thumbnail %}
+                              <img src="{% url 'documents:download' document.tenant.slug thumbnail.id %}?inline=1" alt="Vorschau {{ item.document.title }}">
+                            {% else %}
+                              <div class="document-row-thumbnail-fallback">
+                                {% include "includes/icons.html" with icon="file" %}
+                                <span>{{ item.document|document_file_type }}</span>
+                              </div>
+                            {% endif %}
+                          </div>
+                        {% endwith %}
+                        <div class="document-relation-linked-main">
+                          <div>
+                            <a class="fw-medium text-decoration-none" href="{% url 'documents:detail' document.tenant.slug item.document.id %}">
+                              {{ item.document.title }}
+                            </a>
+                            <div class="small text-secondary">
+                              #{{ item.document.id }} · {{ item.document.space.path }}
+                            </div>
+                          </div>
+                        </div>
+                        <form method="post">
+                          {% csrf_token %}
+                          <input type="hidden" name="action" value="remove_relation">
+                          <input type="hidden" name="relation_id" value="{{ item.relation.id }}">
+                          <button
+                            class="btn btn-sm btn-outline-secondary"
+                            type="submit"
+                            onclick="return confirm('Diese Dokumentverknüpfung wirklich lösen?');"
+                          >
+                            Lösen
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <p class="text-secondary mb-3">Noch keine Dokumente verknüpft.</p>
+              {% endif %}
+
+              <form method="post" data-document-relation-form>
+                {% csrf_token %}
+                <input type="hidden" name="action" value="add_relation">
+                {{ relation_form.target_document_id }}
+                <label class="form-label">Dokument</label>
+                <div class="document-relation-picker">
+                  <div class="document-relation-selected" data-relation-selected>
+                    Noch kein Dokument ausgewählt.
+                  </div>
+                  <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#documentRelationPickerModal">
+                    Dokument auswählen
+                  </button>
+                </div>
+                {{ relation_form.target_document_id.errors }}
+                <button class="btn btn-sm btn-outline-primary mt-2" type="submit">Dokument verknüpfen</button>
               </form>
             </div>
           </section>
@@ -647,6 +742,54 @@
         </form>
       </div>
     </div>
+    <div class="modal fade" id="documentRelationPickerModal" tabindex="-1" aria-labelledby="documentRelationPickerModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content" data-document-relation-picker data-search-url="{% url 'documents:relation_picker_search' document.tenant.slug document.id %}">
+          <div class="modal-header">
+            <h2 class="modal-title h5" id="documentRelationPickerModalLabel">Dokument auswählen</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+          </div>
+          <div class="modal-body">
+            <div class="document-relation-filter-grid">
+              <div>
+                <label class="form-label" for="document-relation-search">Suche</label>
+                <input class="form-control" id="document-relation-search" type="search" placeholder="Titel, Dokumentenbox oder ID" data-relation-search-input>
+              </div>
+              <div>
+                <label class="form-label" for="document-relation-space">Dokumentenbox</label>
+                <select class="form-select" id="document-relation-space" data-relation-space-filter>
+                  <option value="">Alle sichtbaren Boxen</option>
+                  {% for space in relation_picker_spaces %}
+                    <option value="{{ space.id }}">{{ space.path }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label class="form-label" for="document-relation-workflow-status">Workflowstatus</label>
+                <select class="form-select" id="document-relation-workflow-status" data-relation-workflow-filter>
+                  <option value="any">Alle</option>
+                  <option value="open">Offener Workflow</option>
+                  <option value="completed">Workflows abgeschlossen</option>
+                  <option value="none">Keine Workflows</option>
+                </select>
+              </div>
+              <div class="document-relation-child-filter">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" id="document-relation-include-children" data-relation-include-children checked>
+                  <label class="form-check-label" for="document-relation-include-children">Unterboxen einschließen</label>
+                </div>
+              </div>
+            </div>
+            <div class="document-relation-results mt-3" data-relation-search-results>
+              <div class="text-secondary small">Filter setzen oder Suchbegriff eingeben, um Dokumente zu finden.</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
 {% endblock %}
 
@@ -718,6 +861,155 @@
         }
       });
     });
+    (() => {
+      const picker = document.querySelector("[data-document-relation-picker]");
+      const form = document.querySelector("[data-document-relation-form]");
+      if (!picker || !form) {
+        return;
+      }
+      const searchUrl = picker.getAttribute("data-search-url");
+      const input = picker.querySelector("[data-relation-search-input]");
+      const spaceFilter = picker.querySelector("[data-relation-space-filter]");
+      const workflowFilter = picker.querySelector("[data-relation-workflow-filter]");
+      const includeChildren = picker.querySelector("[data-relation-include-children]");
+      const results = picker.querySelector("[data-relation-search-results]");
+      const selected = form.querySelector("[data-relation-selected]");
+      const targetInput = form.querySelector("input[name='target_document_id']");
+      let activeRequest = 0;
+
+      const setFilterControlsEditable = (isEditable) => {
+        [spaceFilter, workflowFilter, includeChildren].forEach((control) => {
+          if (control) {
+            control.disabled = !isEditable;
+          }
+        });
+      };
+
+      const renderResults = (items) => {
+        results.innerHTML = "";
+        if (!items.length) {
+          results.innerHTML = "<div class=\"text-secondary small\">Keine passenden Dokumente gefunden.</div>";
+          return;
+        }
+        items.forEach((item) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "document-relation-result";
+          const thumbnail = document.createElement("span");
+          thumbnail.className = "document-row-thumbnail document-relation-thumbnail";
+          if (item.thumbnail_url) {
+            const image = document.createElement("img");
+            image.src = item.thumbnail_url;
+            image.alt = `Vorschau ${item.title}`;
+            thumbnail.appendChild(image);
+          } else {
+            const fallback = document.createElement("span");
+            fallback.className = "document-row-thumbnail-fallback";
+            fallback.textContent = "Dok";
+            thumbnail.appendChild(fallback);
+          }
+          const text = document.createElement("span");
+          text.className = "document-relation-result-main";
+          const title = document.createElement("strong");
+          title.textContent = item.title;
+          const meta = document.createElement("small");
+          meta.textContent = `#${item.id} · ${item.space}${item.document_date ? ` · ${item.document_date}` : ""}`;
+          text.append(title, meta);
+          const badges = document.createElement("span");
+          badges.className = "document-relation-result-badges";
+          const created = document.createElement("span");
+          created.className = "badge text-bg-light";
+          created.textContent = item.created_at;
+          badges.appendChild(created);
+          if (item.workflow_total_count) {
+            const workflow = document.createElement("span");
+            workflow.className = item.workflow_open_count
+              ? "badge text-bg-warning"
+              : "badge text-bg-success";
+            workflow.textContent = item.workflow_open_count
+              ? `${item.workflow_open_count} offen`
+              : "Workflow erledigt";
+            badges.appendChild(workflow);
+          }
+          button.append(thumbnail, text, badges);
+          button.addEventListener("click", () => {
+            targetInput.value = item.id;
+            selected.replaceChildren();
+            const selectedTitle = document.createElement("strong");
+            selectedTitle.textContent = item.title;
+            const selectedMeta = document.createElement("small");
+            selectedMeta.textContent = `#${item.id} · ${item.space}`;
+            selected.append(selectedTitle, selectedMeta);
+            const modal = window.bootstrap.Modal.getInstance(
+              document.getElementById("documentRelationPickerModal"),
+            );
+            if (modal) {
+              modal.hide();
+            }
+          });
+          results.appendChild(button);
+        });
+      };
+
+      const search = async () => {
+        const query = input.value.trim();
+        const params = new URLSearchParams({
+          q: query,
+          space: spaceFilter.value,
+          workflow_status: workflowFilter.value,
+          include_children: includeChildren.checked ? "1" : "0",
+        });
+        const requestId = activeRequest + 1;
+        activeRequest = requestId;
+        results.innerHTML = "<div class=\"text-secondary small\">Suche läuft...</div>";
+        try {
+          const response = await fetch(`${searchUrl}?${params.toString()}`, {
+            credentials: "same-origin",
+          });
+          if (!response.ok || requestId !== activeRequest) {
+            return;
+          }
+          const data = await response.json();
+          renderResults(data.results || []);
+        } catch {
+          results.innerHTML = "<div class=\"text-danger small\">Suche konnte nicht geladen werden.</div>";
+        }
+      };
+
+      let searchTimer = null;
+      input.addEventListener("input", () => {
+        window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(search, 180);
+      });
+      [spaceFilter, workflowFilter, includeChildren].forEach((control) => {
+        control.addEventListener("change", search);
+      });
+      document
+        .getElementById("documentRelationPickerModal")
+        .addEventListener("show.bs.modal", (event) => {
+          const trigger = event.relatedTarget;
+          const defaultSpace = trigger?.getAttribute("data-relation-default-space") || "";
+          const defaultWorkflowStatus = trigger?.getAttribute("data-relation-default-workflow-status") || "any";
+          const defaultIncludeChildren = trigger?.getAttribute("data-relation-default-include-children");
+          const filtersEditable = trigger?.getAttribute("data-relation-filters-editable") !== "0";
+          if (spaceFilter) {
+            spaceFilter.value = defaultSpace;
+          }
+          if (workflowFilter) {
+            workflowFilter.value = defaultWorkflowStatus;
+          }
+          if (includeChildren) {
+            includeChildren.checked = defaultIncludeChildren !== "0";
+          }
+          setFilterControlsEditable(filtersEditable);
+        });
+      document
+        .getElementById("documentRelationPickerModal")
+        .addEventListener("shown.bs.modal", () => {
+          input.focus();
+          search();
+        });
+    })();
     {% if share_attachment_modal_open %}
       const shareAttachmentModal = document.getElementById("documentShareAttachmentModal");
       if (shareAttachmentModal && window.bootstrap) {

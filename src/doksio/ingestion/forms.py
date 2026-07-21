@@ -114,6 +114,18 @@ class TenantSmtpSettingsForm(forms.Form):
         return cleaned_data
 
 
+class TenantSmtpTestForm(forms.Form):
+    recipient = forms.EmailField(
+        label="Testmail an",
+        widget=forms.EmailInput(
+            attrs={
+                "class": "form-control",
+                "placeholder": "name@example.com",
+            },
+        ),
+    )
+
+
 class ImportSourceForm(forms.Form):
     name = forms.CharField(
         label="Name",

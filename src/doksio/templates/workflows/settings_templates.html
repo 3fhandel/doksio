@@ -57,9 +57,14 @@
                 {% endif %}
               </td>
               <td class="text-end">
-                <a class="btn btn-sm btn-outline-primary" href="{% url 'workflows:settings_template_edit' tenant.slug template.id %}">
-                  Bearbeiten
-                </a>
+                <div class="d-inline-flex gap-2">
+                  <a class="btn btn-sm btn-outline-primary" href="{% url 'workflows:settings_template_edit' tenant.slug template.id %}">
+                    Bearbeiten
+                  </a>
+                  <a class="btn btn-sm btn-outline-danger" href="{% url 'workflows:settings_template_delete' tenant.slug template.id %}">
+                    Löschen
+                  </a>
+                </div>
               </td>
             </tr>
           {% empty %}

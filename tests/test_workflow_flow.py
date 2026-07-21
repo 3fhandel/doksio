@@ -10,7 +10,11 @@ from doksio.accounts.models import Notification, TenantMembership, UserProfile
 from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
 from doksio.documents.models import DocumentMetadataField
-from doksio.documents.services import CreateDocumentFromUpload, CreateDocumentSpace
+from doksio.documents.services import (
+    AddDocumentRelation,
+    CreateDocumentFromUpload,
+    CreateDocumentSpace,
+)
 from doksio.tenancy.models import Tenant
 from doksio.workflows.models import (
     WorkflowInstance,
@@ -200,6 +204,97 @@ def test_complete_metadata_step_requires_selected_metadata_before_completion():
     instance.refresh_from_db()
     assert instance.current_step == next_step
     assert WorkflowTask.objects.filter(title="Sachlich prüfen").exists()
+
+
+@pytest.mark.django_db
+def test_document_relation_step_auto_advances_when_relation_exists():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    source_space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    related_space = CreateDocumentSpace(tenant=tenant, name="Wareneingang").execute()
+    document = _create_document(tenant, source_space, title="Rechnung")
+    related_document = _create_document(tenant, related_space, title="Beleg")
+    AddDocumentRelation(document=document, related_document=related_document).execute()
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Prüfung",
+        slug="pruefung",
+    ).execute()
+    relation_step = CreateWorkflowStep(
+        template=template,
+        name="Dokument verknüpfen",
+        step_type=WorkflowStep.StepType.REQUIRE_DOCUMENT_RELATION,
+        required_related_document_spaces=[related_space],
+        sort_order=10,
+    ).execute()
+    next_step = CreateWorkflowStep(
+        template=template,
+        name="Preis prüfen",
+        step_type=WorkflowStep.StepType.TASK,
+        sort_order=20,
+    ).execute()
+
+    instance = StartWorkflowForDocument(
+        template=template,
+        document=document,
+    ).execute()
+
+    assert instance.current_step == next_step
+    assert not WorkflowTask.objects.filter(step=relation_step).exists()
+    assert WorkflowTask.objects.filter(step=next_step).exists()
+    assert AuditEvent.objects.filter(
+        event_type="workflow_step.auto_completed",
+        object_id=str(relation_step.id),
+        data__reason="document_relation_satisfied",
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_document_relation_step_waits_and_completes_when_relation_is_added():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    source_space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    related_space = CreateDocumentSpace(tenant=tenant, name="Wareneingang").execute()
+    document = _create_document(tenant, source_space, title="Rechnung")
+    related_document = _create_document(tenant, related_space, title="Beleg")
+    user = get_user_model().objects.create_user(username="alice")
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Prüfung",
+        slug="pruefung",
+    ).execute()
+    relation_step = CreateWorkflowStep(
+        template=template,
+        name="Dokument verknüpfen",
+        step_type=WorkflowStep.StepType.REQUIRE_DOCUMENT_RELATION,
+        required_related_document_spaces=[related_space],
+        sort_order=10,
+    ).execute()
+    next_step = CreateWorkflowStep(
+        template=template,
+        name="Preis prüfen",
+        step_type=WorkflowStep.StepType.TASK,
+        sort_order=20,
+    ).execute()
+    instance = StartWorkflowForDocument(
+        template=template,
+        document=document,
+    ).execute()
+    task = WorkflowTask.objects.get(step=relation_step)
+
+    AddDocumentRelation(
+        document=document,
+        related_document=related_document,
+        actor=user,
+    ).execute()
+
+    task.refresh_from_db()
+    instance.refresh_from_db()
+    assert task.status == WorkflowTask.Status.COMPLETED
+    assert task.completed_by == user
+    assert instance.current_step == next_step
+    assert WorkflowTask.objects.filter(
+        step=next_step,
+        status=WorkflowTask.Status.OPEN,
+    ).exists()
 
 
 @pytest.mark.django_db
@@ -399,6 +494,9 @@ def test_workflow_settings_create_template_and_step(client):
             "instructions": "Bitte prüfen.",
             "sort_order": "10",
             "comment_policy": WorkflowStep.CommentPolicy.REQUIRED,
+            "relation_picker_default_workflow_status": (
+                WorkflowStep.RelationPickerWorkflowStatus.ANY
+            ),
         },
     )
 
@@ -417,11 +515,349 @@ def test_workflow_settings_create_template_and_step(client):
     content = response.content.decode()
     assert response.status_code == 200
     assert "workflow-visualization" in content
+    assert "data-workflow-visualization" in content
     assert "Workflow-Ablauf" in content
     assert "Schritt 1 · Freigabe" in content
     assert "Sachlich prüfen" in content
     assert "Member" in content
     assert "Kommentar erforderlich" in content
+    assert "data-workflow-step-reorder" in content
+    assert f'data-flow-step-id="{step.id}"' in content
+    assert f'data-step-id="{step.id}"' in content
+    assert "Schritte per Ziehen sortieren." in content
+
+    step_response = client.get(
+        reverse(
+            "workflows:settings_step_edit",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "template_id": template.id,
+                "step_id": step.id,
+            },
+        )
+    )
+    step_content = step_response.content.decode()
+    assert step_response.status_code == 200
+    assert "data-workflow-step-form" in step_content
+    assert 'data-step-type-section="complete_metadata"' in step_content
+    assert 'data-step-type-section="require_document_relation"' in step_content
+    assert "workflow-step-form.js" in step_content
+
+
+@pytest.mark.django_db
+def test_workflow_step_form_ignores_irrelevant_type_options(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    invoice_space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    delivery_space = CreateDocumentSpace(tenant=tenant, name="Lieferscheine").execute()
+    metadata_field = DocumentMetadataField.objects.create(
+        tenant=tenant,
+        space=invoice_space,
+        name="Kostenstelle",
+        slug="kostenstelle",
+        field_type=DocumentMetadataField.FieldType.TEXT,
+    )
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    client.force_login(user)
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Rechnungsprüfung",
+        slug="rechnung",
+    ).execute()
+
+    response = client.post(
+        reverse(
+            "workflows:settings_step_create",
+            kwargs={"tenant_slug": tenant.slug, "template_id": template.id},
+        ),
+        {
+            "name": "Normale Aufgabe",
+            "step_type": WorkflowStep.StepType.TASK,
+            "assigned_role": roles["member"].id,
+            "required_metadata_fields": [metadata_field.id],
+            "required_related_document_spaces": [delivery_space.id],
+            "min_related_documents": "3",
+            "related_document_requires_completed_workflow": "on",
+            "relation_picker_default_document_space": delivery_space.id,
+            "relation_picker_default_include_child_spaces": "",
+            "relation_picker_default_workflow_status": (
+                WorkflowStep.RelationPickerWorkflowStatus.COMPLETED
+            ),
+            "instructions": "",
+            "sort_order": "10",
+            "comment_policy": WorkflowStep.CommentPolicy.OPTIONAL,
+        },
+    )
+
+    assert response.status_code == 302
+    step = template.steps.get()
+    assert step.required_metadata_fields.count() == 0
+    assert step.required_related_document_spaces.count() == 0
+    assert step.min_related_documents == 1
+    assert step.related_document_requires_completed_workflow is False
+    assert step.relation_picker_default_document_space is None
+    assert step.relation_picker_default_include_child_spaces is True
+    assert (
+        step.relation_picker_default_workflow_status
+        == WorkflowStep.RelationPickerWorkflowStatus.ANY
+    )
+
+
+@pytest.mark.django_db
+def test_workflow_settings_saves_relation_picker_defaults(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    invoice_space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    delivery_space = CreateDocumentSpace(tenant=tenant, name="Lieferscheine").execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    client.force_login(user)
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Rechnungsprüfung",
+        slug="rechnung",
+        trigger_document_space=invoice_space,
+    ).execute()
+
+    response = client.post(
+        reverse(
+            "workflows:settings_step_create",
+            kwargs={"tenant_slug": tenant.slug, "template_id": template.id},
+        ),
+        {
+            "name": "Lieferschein verknüpfen",
+            "step_type": WorkflowStep.StepType.REQUIRE_DOCUMENT_RELATION,
+            "assigned_role": roles["member"].id,
+            "required_related_document_spaces": [delivery_space.id],
+            "min_related_documents": "1",
+            "related_document_requires_completed_workflow": "on",
+            "relation_picker_default_document_space": delivery_space.id,
+            "relation_picker_default_workflow_status": (
+                WorkflowStep.RelationPickerWorkflowStatus.COMPLETED
+            ),
+            "relation_picker_default_include_child_spaces": "on",
+            "relation_picker_filters_editable": "",
+            "instructions": "",
+            "sort_order": "10",
+            "comment_policy": WorkflowStep.CommentPolicy.DISABLED,
+        },
+    )
+
+    assert response.status_code == 302
+    step = template.steps.get()
+    assert step.relation_picker_default_document_space == delivery_space
+    assert step.relation_picker_default_include_child_spaces is True
+    assert (
+        step.relation_picker_default_workflow_status
+        == WorkflowStep.RelationPickerWorkflowStatus.COMPLETED
+    )
+    assert step.relation_picker_filters_editable is False
+
+
+@pytest.mark.django_db
+def test_workflow_settings_reorders_steps(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    client.force_login(user)
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Rechnungsprüfung",
+        slug="rechnung",
+    ).execute()
+    first = CreateWorkflowStep(
+        template=template,
+        name="Erster Schritt",
+        step_type=WorkflowStep.StepType.TASK,
+        sort_order=10,
+    ).execute()
+    second = CreateWorkflowStep(
+        template=template,
+        name="Zweiter Schritt",
+        step_type=WorkflowStep.StepType.APPROVAL,
+        sort_order=20,
+    ).execute()
+    third = CreateWorkflowStep(
+        template=template,
+        name="Dritter Schritt",
+        step_type=WorkflowStep.StepType.TASK,
+        sort_order=30,
+    ).execute()
+
+    response = client.post(
+        reverse(
+            "workflows:settings_steps_reorder",
+            kwargs={"tenant_slug": tenant.slug, "template_id": template.id},
+        ),
+        {"step_ids": [str(third.id), str(first.id), str(second.id)]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert list(
+        template.steps.order_by("sort_order").values_list("id", "sort_order")
+    ) == [
+        (third.id, 10),
+        (first.id, 20),
+        (second.id, 30),
+    ]
+    event = AuditEvent.objects.get(event_type="workflow_steps.reordered")
+    assert event.data["previous_order"] == [first.id, second.id, third.id]
+    assert event.data["next_order"] == [third.id, first.id, second.id]
+
+
+@pytest.mark.django_db
+def test_workflow_settings_can_delete_unused_template(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    client.force_login(user)
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Entwurf",
+        slug="entwurf",
+    ).execute()
+    CreateWorkflowStep(
+        template=template,
+        name="Prüfen",
+        step_type=WorkflowStep.StepType.TASK,
+    ).execute()
+
+    response = client.post(
+        reverse(
+            "workflows:settings_template_delete",
+            kwargs={"tenant_slug": tenant.slug, "template_id": template.id},
+        ),
+        {"confirmation": "Entwurf"},
+    )
+
+    assert response.status_code == 302
+    assert not WorkflowTemplate.objects.filter(id=template.id).exists()
+    assert AuditEvent.objects.filter(
+        event_type="workflow_template.deleted",
+        object_id=str(template.id),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_workflow_settings_cannot_delete_used_template(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    client.force_login(user)
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    document = _create_document(tenant, space)
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Benutzt",
+        slug="benutzt",
+    ).execute()
+    CreateWorkflowStep(
+        template=template,
+        name="Prüfen",
+        step_type=WorkflowStep.StepType.TASK,
+    ).execute()
+    StartWorkflowForDocument(template=template, document=document).execute()
+
+    response = client.post(
+        reverse(
+            "workflows:settings_template_delete",
+            kwargs={"tenant_slug": tenant.slug, "template_id": template.id},
+        ),
+        {"confirmation": "Benutzt"},
+    )
+
+    assert response.status_code == 200
+    assert WorkflowTemplate.objects.filter(id=template.id).exists()
+    assert "kann nicht gelöscht werden" in response.content.decode()
+    assert not AuditEvent.objects.filter(
+        event_type="workflow_template.deleted",
+        object_id=str(template.id),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_workflow_settings_can_delete_unused_step(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    client.force_login(user)
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Rechnungsprüfung",
+        slug="rechnung",
+    ).execute()
+    step = CreateWorkflowStep(
+        template=template,
+        name="Prüfen",
+        step_type=WorkflowStep.StepType.TASK,
+    ).execute()
+
+    response = client.post(
+        reverse(
+            "workflows:settings_step_delete",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "template_id": template.id,
+                "step_id": step.id,
+            },
+        ),
+        {"confirmation": "Prüfen"},
+    )
+
+    assert response.status_code == 302
+    assert not WorkflowStep.objects.filter(id=step.id).exists()
+    assert AuditEvent.objects.filter(
+        event_type="workflow_step.deleted",
+        object_id=str(step.id),
+    ).exists()
 
 
 @pytest.mark.django_db

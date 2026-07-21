@@ -102,6 +102,20 @@ class WorkflowStepForm(forms.Form):
             )
             .order_by("space__path", "sort_order", "name")
         )
+        self.fields["required_related_document_spaces"].queryset = (
+            DocumentSpace.objects.filter(
+                tenant=tenant,
+                is_active=True,
+                deleted_at__isnull=True,
+            ).order_by("path")
+        )
+        self.fields["relation_picker_default_document_space"].queryset = (
+            DocumentSpace.objects.filter(
+                tenant=tenant,
+                is_active=True,
+                deleted_at__isnull=True,
+            ).order_by("path")
+        )
 
     name = forms.CharField(
         label="Name",
@@ -132,6 +146,55 @@ class WorkflowStepForm(forms.Form):
             "bereits gefüllt sind, läuft der Schritt automatisch durch."
         ),
     )
+    min_related_documents = forms.IntegerField(
+        label="Mindestanzahl verknüpfter Dokumente",
+        min_value=1,
+        initial=1,
+        required=False,
+        widget=forms.NumberInput(attrs={"class": "form-control"}),
+        help_text="Nur für den Schritt „Dokumentverknüpfung erforderlich“.",
+    )
+    required_related_document_spaces = forms.ModelMultipleChoiceField(
+        label="Erlaubte Dokumentenboxen für verknüpfte Dokumente",
+        required=False,
+        queryset=DocumentSpace.objects.none(),
+        widget=forms.CheckboxSelectMultiple(
+            attrs={"class": "workflow-metadata-checks"},
+        ),
+        help_text="Leer lassen, wenn jede sichtbare Dokumentenbox zulässig ist.",
+    )
+    related_document_requires_completed_workflow = forms.BooleanField(
+        label="Verknüpftes Dokument muss einen abgeschlossenen Workflow haben",
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+    relation_picker_default_document_space = forms.ModelChoiceField(
+        label="Vorausgewählte Dokumentenbox im Verknüpfungsdialog",
+        required=False,
+        queryset=DocumentSpace.objects.none(),
+        empty_label="Keine Vorauswahl",
+        widget=forms.Select(attrs={"class": "form-select"}),
+        help_text="Nur als Suchfilter-Vorbelegung, keine fachliche Pflicht.",
+    )
+    relation_picker_default_include_child_spaces = forms.BooleanField(
+        label="Unterboxen im Verknüpfungsdialog vorauswählen",
+        required=False,
+        initial=True,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+    relation_picker_default_workflow_status = forms.ChoiceField(
+        label="Vorausgewählter Workflowstatus im Verknüpfungsdialog",
+        choices=WorkflowStep.RelationPickerWorkflowStatus.choices,
+        initial=WorkflowStep.RelationPickerWorkflowStatus.ANY,
+        required=False,
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    relation_picker_filters_editable = forms.BooleanField(
+        label="Suchfilter im Verknüpfungsdialog dürfen geändert werden",
+        required=False,
+        initial=True,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
     instructions = forms.CharField(
         label="Anweisung",
         required=False,
@@ -149,6 +212,33 @@ class WorkflowStepForm(forms.Form):
         initial=WorkflowStep.CommentPolicy.OPTIONAL,
         widget=forms.Select(attrs={"class": "form-select"}),
     )
+
+    def clean_relation_picker_default_workflow_status(self) -> str:
+        return (
+            self.cleaned_data.get("relation_picker_default_workflow_status")
+            or WorkflowStep.RelationPickerWorkflowStatus.ANY
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        step_type = cleaned_data.get("step_type")
+        if step_type != WorkflowStep.StepType.COMPLETE_METADATA:
+            cleaned_data["required_metadata_fields"] = (
+                self.fields["required_metadata_fields"].queryset.none()
+            )
+        if step_type != WorkflowStep.StepType.REQUIRE_DOCUMENT_RELATION:
+            cleaned_data["required_related_document_spaces"] = (
+                self.fields["required_related_document_spaces"].queryset.none()
+            )
+            cleaned_data["min_related_documents"] = 1
+            cleaned_data["related_document_requires_completed_workflow"] = False
+            cleaned_data["relation_picker_default_document_space"] = None
+            cleaned_data["relation_picker_default_include_child_spaces"] = True
+            cleaned_data["relation_picker_default_workflow_status"] = (
+                WorkflowStep.RelationPickerWorkflowStatus.ANY
+            )
+            cleaned_data["relation_picker_filters_editable"] = True
+        return cleaned_data
 
 
 class StartWorkflowForm(forms.Form):

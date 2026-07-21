@@ -9,7 +9,7 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.files.storage import default_storage
 from django.core.mail import EmailMessage, get_connection
-from django.db.models import Case, Count, IntegerField, Q, Value, When
+from django.db.models import Case, Count, F, IntegerField, Q, Value, When
 from django.http import (
     FileResponse,
     Http404,
@@ -20,6 +20,7 @@ from django.http import (
 )
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 
@@ -50,6 +51,7 @@ from doksio.documents.forms import (
     DocumentImportBatchUploadForm,
     DocumentMetadataFieldForm,
     DocumentMetadataForm,
+    DocumentRelationForm,
     DocumentShareAttachmentForm,
     DocumentSpaceDeleteForm,
     DocumentSpaceEmptyForm,
@@ -67,6 +69,7 @@ from doksio.documents.models import (
     DocumentImportBatch,
     DocumentImportBatchItem,
     DocumentMetadataField,
+    DocumentRelation,
     DocumentSpace,
 )
 from doksio.documents.policies import (
@@ -87,6 +90,7 @@ from doksio.documents.policies import (
 from doksio.documents.services import (
     AddDocumentComment,
     AddDocumentMetadataChoice,
+    AddDocumentRelation,
     CreateDocumentFromUpload,
     CreateDocumentImportBatch,
     CreateDocumentMetadataField,
@@ -98,6 +102,7 @@ from doksio.documents.services import (
     DuplicateDocumentError,
     EmptyDocumentSpace,
     FinalizeDocumentImportBatch,
+    RemoveDocumentRelation,
     SetDocumentTags,
     SplitPdfDocument,
     UpdateDocumentCoreMetadata,
@@ -106,7 +111,11 @@ from doksio.documents.services import (
     UpdateDocumentSpace,
     pdf_page_count,
 )
-from doksio.ingestion.forms import ImportSourceForm, TenantSmtpSettingsForm
+from doksio.ingestion.forms import (
+    ImportSourceForm,
+    TenantSmtpSettingsForm,
+    TenantSmtpTestForm,
+)
 from doksio.ingestion.models import ImportJob, ImportSource, TenantSmtpSettings
 from doksio.ingestion.services import (
     ResolveManualUploadDocumentSpace,
@@ -764,6 +773,66 @@ def _viewer_rotation(document_file: DocumentFile | None) -> int:
     if rotation not in {0, 90, 180, 270}:
         return 0
     return rotation
+
+
+def _document_relations_for_display(document: Document, user) -> list[dict]:
+    relations = (
+        DocumentRelation.objects.select_related(
+            "first_document",
+            "first_document__space",
+            "second_document",
+            "second_document__space",
+            "created_by",
+        )
+        .prefetch_related("first_document__files", "second_document__files")
+        .filter(
+            Q(first_document=document) | Q(second_document=document),
+            tenant=document.tenant,
+        )
+        .order_by("-created_at", "-id")
+    )
+    visible_relations = []
+    for relation in relations:
+        related_document = relation.other_document(document)
+        if can_view_document(user, related_document):
+            visible_relations.append(
+                {
+                    "relation": relation,
+                    "document": related_document,
+                }
+            )
+    return visible_relations
+
+
+def _related_document_count_for_step(document: Document, step) -> int:
+    allowed_space_ids = set(
+        step.required_related_document_spaces.values_list("id", flat=True)
+    )
+    count = 0
+    relations = (
+        DocumentRelation.objects.select_related("first_document", "second_document")
+        .filter(
+            Q(first_document=document) | Q(second_document=document),
+            tenant=document.tenant,
+        )
+        .order_by("-created_at", "-id")
+    )
+    for relation in relations:
+        related_document = relation.other_document(document)
+        if related_document.status != Document.Status.ACTIVE:
+            continue
+        if allowed_space_ids and related_document.space_id not in allowed_space_ids:
+            continue
+        if (
+            step.related_document_requires_completed_workflow
+            and not WorkflowInstance.objects.filter(
+                document=related_document,
+                status=WorkflowInstance.Status.COMPLETED,
+            ).exists()
+        ):
+            continue
+        count += 1
+    return count
 
 
 def _smtp_from_email(smtp_settings: TenantSmtpSettings) -> str:
@@ -1615,6 +1684,7 @@ def document_detail(
         metadata_fields=metadata_fields,
         metadata=document.metadata,
     )
+    relation_form = DocumentRelationForm(document=document, user=request.user)
     share_attachment_form = DocumentShareAttachmentForm()
     tag_form = DocumentTagForm(
         tenant=tenant,
@@ -1663,6 +1733,36 @@ def document_detail(
                 ).execute()
                 messages.success(request, "Tags wurden aktualisiert.")
                 return redirect(request.get_full_path())
+        elif action == "add_relation":
+            relation_form = DocumentRelationForm(
+                request.POST,
+                document=document,
+                user=request.user,
+            )
+            if relation_form.is_valid():
+                AddDocumentRelation(
+                    document=document,
+                    related_document=relation_form.cleaned_data["target_document_id"],
+                    actor=request.user,
+                ).execute()
+                messages.success(request, "Dokument wurde verknüpft.")
+                return redirect(request.get_full_path())
+        elif action == "remove_relation":
+            relation = get_object_or_404(
+                DocumentRelation,
+                id=request.POST.get("relation_id"),
+                tenant=tenant,
+            )
+            related_document = relation.other_document(document)
+            if (
+                document.id
+                not in {relation.first_document_id, relation.second_document_id}
+                or not can_view_document(request.user, related_document)
+            ):
+                raise PermissionDenied
+            RemoveDocumentRelation(relation=relation, actor=request.user).execute()
+            messages.success(request, "Dokumentverknüpfung wurde entfernt.")
+            return redirect(request.get_full_path())
         elif action == "update_metadata":
             metadata_form = DocumentMetadataForm(
                 request.POST,
@@ -1792,6 +1892,7 @@ def document_detail(
         status=WorkflowTask.Status.OPEN,
     ).select_related("step", "assigned_role", "instance__template").prefetch_related(
         "step__required_metadata_fields",
+        "step__required_related_document_spaces",
     )
     open_workflow_tasks = [
         task
@@ -1806,12 +1907,47 @@ def document_detail(
             for field in required_metadata_fields
             if not _metadata_value_is_filled(document.metadata.get(field.slug))
         ]
+        task.related_documents_for_completion_count = _related_document_count_for_step(
+            document,
+            task.step,
+        )
+        task.missing_related_documents_for_completion_count = max(
+            task.step.min_related_documents
+            - task.related_documents_for_completion_count,
+            0,
+        )
+        required_related_space_ids = list(
+            task.step.required_related_document_spaces.values_list("id", flat=True)
+        )
+        task.relation_picker_default_space_id = (
+            task.step.relation_picker_default_document_space_id
+            or (required_related_space_ids[0] if required_related_space_ids else "")
+        )
+        task.relation_picker_default_include_children = (
+            task.step.relation_picker_default_include_child_spaces
+        )
+        task.relation_picker_default_workflow_status = (
+            task.step.relation_picker_default_workflow_status
+        )
+        task.relation_picker_filters_editable = (
+            task.step.relation_picker_filters_editable
+        )
     workflow_templates_available = WorkflowTemplate.objects.filter(
         tenant=tenant,
         is_active=True,
         trigger_type=WorkflowTemplate.TriggerType.MANUAL,
     ).exists()
     comments = list(document.comments.all())
+    relation_picker_spaces = filter_document_spaces_for_user(
+        DocumentSpace.objects.filter(
+            tenant=tenant,
+            is_active=True,
+            deleted_at__isnull=True,
+        ),
+        request.user,
+        tenant,
+        TenantPermissions.DOCUMENTS_VIEW,
+    ).order_by("path")
     share_attachment_file = _document_original_file(document)
     share_can_open_mail_client = (
         share_attachment_file is not None
@@ -1854,6 +1990,12 @@ def document_detail(
             "preview_rotation": preview_rotation,
             "comment_form": comment_form,
             "metadata_form": metadata_form,
+            "relation_form": relation_form,
+            "document_relations": _document_relations_for_display(
+                document,
+                request.user,
+            ),
+            "relation_picker_spaces": relation_picker_spaces,
             "share_attachment_form": share_attachment_form,
             "share_attachment_file": share_attachment_file,
             "share_attachment_download_url": share_attachment_download_url,
@@ -2113,6 +2255,112 @@ def document_split(
     )
 
 
+def document_relation_picker_search(
+    request: HttpRequest,
+    tenant_slug: str,
+    document_id: int,
+) -> JsonResponse:
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "authentication_required"}, status=403)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None:
+        raise PermissionDenied
+
+    document = get_object_or_404(
+        Document.objects.select_related("space"),
+        id=document_id,
+        tenant=tenant,
+        status=Document.Status.ACTIVE,
+    )
+    if not can_view_document(request.user, document):
+        raise PermissionDenied
+
+    query = request.GET.get("q", "").strip()
+    space_id = request.GET.get("space", "").strip()
+    include_children = request.GET.get("include_children", "1") == "1"
+    workflow_status = request.GET.get("workflow_status", "any").strip()
+    documents = _with_workflow_counts(
+        filter_documents_for_user(
+            Document.objects.select_related("space")
+            .prefetch_related("files")
+            .filter(tenant=tenant),
+            request.user,
+            tenant,
+        ).exclude(id=document.id)
+    )
+    if space_id:
+        selected_space = get_object_or_404(
+            DocumentSpace,
+            id=space_id,
+            tenant=tenant,
+            deleted_at__isnull=True,
+        )
+        if include_children:
+            documents = documents.filter(
+                Q(space=selected_space)
+                | Q(space__path__startswith=f"{selected_space.path.rstrip('/')}/")
+            )
+        else:
+            documents = documents.filter(space=selected_space)
+    if workflow_status == "open":
+        documents = documents.filter(workflow_open_count__gt=0)
+    elif workflow_status == "completed":
+        documents = documents.filter(
+            workflow_total_count__gt=0,
+            workflow_open_count=0,
+            workflow_completed_count=F("workflow_total_count"),
+        )
+    elif workflow_status == "none":
+        documents = documents.filter(workflow_total_count=0)
+    if query:
+        documents = documents.filter(
+            Q(title__icontains=query)
+            | Q(space__path__icontains=query)
+            | Q(id=int(query) if query.isdigit() else 0)
+        )
+
+    def thumbnail_url(candidate: Document) -> str:
+        thumbnail = next(
+            (
+                document_file
+                for document_file in candidate.files.all()
+                if document_file.file_kind == DocumentFile.Kind.THUMBNAIL
+            ),
+            None,
+        )
+        if thumbnail is None:
+            return ""
+        return (
+            reverse(
+                "documents:download",
+                kwargs={"tenant_slug": tenant.slug, "file_id": thumbnail.id},
+            )
+            + "?inline=1"
+        )
+
+    results = [
+        {
+            "id": candidate.id,
+            "title": candidate.title,
+            "space": candidate.space.path,
+            "document_date": (
+                candidate.document_date.isoformat()
+                if candidate.document_date
+                else ""
+            ),
+            "created_at": timezone.localtime(candidate.created_at).strftime(
+                "%d.%m.%Y %H:%M"
+            ),
+            "thumbnail_url": thumbnail_url(candidate),
+            "workflow_open_count": candidate.workflow_open_count,
+            "workflow_total_count": candidate.workflow_total_count,
+        }
+        for candidate in documents.order_by("-created_at", "-id")[:12]
+    ]
+    return JsonResponse({"results": results})
+
+
 def document_file_download(
     request: HttpRequest,
     tenant_slug: str,
@@ -2140,7 +2388,6 @@ def document_file_download(
         filename=document_file.original_filename,
         content_type=document_file.content_type,
     )
-
 
 def document_file_viewer_settings(
     request: HttpRequest,
@@ -2561,25 +2808,81 @@ def tenant_settings_smtp(
         raise PermissionDenied
 
     smtp_settings = TenantSmtpSettings.objects.filter(tenant=tenant).first()
+    test_form = TenantSmtpTestForm()
     if request.method == "POST":
-        form = TenantSmtpSettingsForm(request.POST)
-        if form.is_valid():
-            smtp_settings, _created = TenantSmtpSettings.objects.update_or_create(
-                tenant=tenant,
-                defaults={
-                    "host": form.cleaned_data["host"],
-                    "port": form.cleaned_data["port"] or 587,
-                    "security": form.cleaned_data["security"]
-                    or TenantSmtpSettings.Security.STARTTLS,
-                    "username": form.cleaned_data["username"],
-                    "password": form.cleaned_data["password"],
-                    "from_email": form.cleaned_data["from_email"],
-                    "from_name": form.cleaned_data["from_name"],
-                    "is_active": form.cleaned_data["is_active"],
-                },
+        if request.POST.get("action") == "send_test":
+            form = TenantSmtpSettingsForm(
+                initial=TenantSmtpSettingsForm.initial_from_settings(smtp_settings),
             )
-            messages.success(request, "SMTP-Einstellungen wurden gespeichert.")
-            return redirect("documents:settings_smtp", tenant_slug=tenant.slug)
+            test_form = TenantSmtpTestForm(request.POST)
+            if test_form.is_valid():
+                if smtp_settings is None or not smtp_settings.is_active:
+                    messages.error(
+                        request,
+                        "Für diesen Mandanten ist kein aktiver SMTP-Versand konfiguriert.",
+                    )
+                else:
+                    recipient = test_form.cleaned_data["recipient"]
+                    try:
+                        EmailMessage(
+                            subject="Doksio SMTP-Test",
+                            body=(
+                                "Diese Testmail wurde aus den SMTP-Einstellungen "
+                                f"des Mandanten {tenant.name} versendet."
+                            ),
+                            from_email=_smtp_from_email(smtp_settings),
+                            to=[recipient],
+                            connection=_smtp_connection(smtp_settings),
+                        ).send(fail_silently=False)
+                    except Exception as exc:
+                        RecordAuditEvent(
+                            tenant=tenant,
+                            actor=request.user,
+                            event_type="smtp.test_failed",
+                            object_type="tenant_smtp_settings",
+                            object_id=str(smtp_settings.id),
+                            data={"recipient": recipient, "error": str(exc)},
+                        ).execute()
+                        messages.error(
+                            request,
+                            f"Testmail konnte nicht gesendet werden: {exc}",
+                        )
+                    else:
+                        RecordAuditEvent(
+                            tenant=tenant,
+                            actor=request.user,
+                            event_type="smtp.test_sent",
+                            object_type="tenant_smtp_settings",
+                            object_id=str(smtp_settings.id),
+                            data={"recipient": recipient},
+                        ).execute()
+                        messages.success(
+                            request,
+                            f"Testmail wurde an {recipient} gesendet.",
+                        )
+                        return redirect(
+                            "documents:settings_smtp",
+                            tenant_slug=tenant.slug,
+                        )
+        else:
+            form = TenantSmtpSettingsForm(request.POST)
+            if form.is_valid():
+                smtp_settings, _created = TenantSmtpSettings.objects.update_or_create(
+                    tenant=tenant,
+                    defaults={
+                        "host": form.cleaned_data["host"],
+                        "port": form.cleaned_data["port"] or 587,
+                        "security": form.cleaned_data["security"]
+                        or TenantSmtpSettings.Security.STARTTLS,
+                        "username": form.cleaned_data["username"],
+                        "password": form.cleaned_data["password"],
+                        "from_email": form.cleaned_data["from_email"],
+                        "from_name": form.cleaned_data["from_name"],
+                        "is_active": form.cleaned_data["is_active"],
+                    },
+                )
+                messages.success(request, "SMTP-Einstellungen wurden gespeichert.")
+                return redirect("documents:settings_smtp", tenant_slug=tenant.slug)
     else:
         form = TenantSmtpSettingsForm(
             initial=TenantSmtpSettingsForm.initial_from_settings(smtp_settings),
@@ -2591,6 +2894,7 @@ def tenant_settings_smtp(
         {
             "tenant": tenant,
             "form": form,
+            "test_form": test_form,
             "smtp_settings": smtp_settings,
             "active_settings_section": "smtp",
         },

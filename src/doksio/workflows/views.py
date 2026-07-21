@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
-from django.http import HttpRequest, HttpResponse
+from django.db.models import Max
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.views.decorators.http import require_POST
 
 from doksio.accounts.permissions import TenantPermissions
 from doksio.documents.policies import has_tenant_permission
@@ -14,6 +16,9 @@ from doksio.workflows.models import WorkflowStep, WorkflowTemplate
 from doksio.workflows.services import (
     CreateWorkflowStep,
     CreateWorkflowTemplate,
+    DeleteWorkflowStep,
+    DeleteWorkflowTemplate,
+    ReorderWorkflowSteps,
     UpdateWorkflowStep,
     UpdateWorkflowTemplate,
 )
@@ -172,6 +177,60 @@ def workflow_template_edit(
     )
 
 
+def workflow_template_delete(
+    request: HttpRequest,
+    tenant_slug: str,
+    template_id: int,
+) -> HttpResponse:
+    tenant, response = _require_workflow_management(request, tenant_slug)
+    if response is not None:
+        return response
+
+    template = get_object_or_404(
+        WorkflowTemplate.objects.prefetch_related("steps"),
+        id=template_id,
+        tenant=tenant,
+    )
+    instance_count = template.instances.count()
+    can_delete = instance_count == 0
+    if request.method == "POST":
+        confirmation = request.POST.get("confirmation", "").strip()
+        if confirmation != template.name:
+            messages.error(
+                request,
+                "Bitte den Workflow-Namen exakt als Bestätigung eingeben.",
+            )
+        elif not can_delete:
+            messages.error(
+                request,
+                "Dieser Workflow wurde bereits verwendet und kann nicht gelöscht "
+                "werden. Deaktiviere ihn stattdessen.",
+            )
+        else:
+            try:
+                DeleteWorkflowTemplate(template=template, actor=request.user).execute()
+            except ValueError as error:
+                messages.error(request, str(error))
+            else:
+                messages.success(request, "Workflow wurde gelöscht.")
+                return redirect(
+                    "workflows:settings_templates",
+                    tenant_slug=tenant.slug,
+                )
+
+    return render(
+        request,
+        "workflows/settings_template_delete.html",
+        {
+            "tenant": tenant,
+            "template": template,
+            "instance_count": instance_count,
+            "can_delete": can_delete,
+            "active_settings_section": "workflows",
+        },
+    )
+
+
 def workflow_step_create(
     request: HttpRequest,
     tenant_slug: str,
@@ -193,6 +252,25 @@ def workflow_step_create(
                 required_metadata_fields=list(
                     form.cleaned_data["required_metadata_fields"]
                 ),
+                required_related_document_spaces=list(
+                    form.cleaned_data["required_related_document_spaces"]
+                ),
+                min_related_documents=form.cleaned_data["min_related_documents"],
+                related_document_requires_completed_workflow=form.cleaned_data[
+                    "related_document_requires_completed_workflow"
+                ],
+                relation_picker_default_document_space=form.cleaned_data[
+                    "relation_picker_default_document_space"
+                ],
+                relation_picker_default_include_child_spaces=form.cleaned_data[
+                    "relation_picker_default_include_child_spaces"
+                ],
+                relation_picker_default_workflow_status=form.cleaned_data[
+                    "relation_picker_default_workflow_status"
+                ],
+                relation_picker_filters_editable=form.cleaned_data[
+                    "relation_picker_filters_editable"
+                ],
                 instructions=form.cleaned_data["instructions"],
                 sort_order=form.cleaned_data["sort_order"],
                 comment_policy=form.cleaned_data["comment_policy"],
@@ -205,7 +283,13 @@ def workflow_step_create(
                 template_id=template.id,
             )
     else:
-        form = WorkflowStepForm(tenant=tenant)
+        next_sort_order = (
+            template.steps.aggregate(max_sort_order=Max("sort_order"))[
+                "max_sort_order"
+            ]
+            or 0
+        ) + 10
+        form = WorkflowStepForm(tenant=tenant, initial={"sort_order": next_sort_order})
 
     return render(
         request,
@@ -218,6 +302,38 @@ def workflow_step_create(
             "submit_label": "Schritt erstellen",
             "active_settings_section": "workflows",
         },
+    )
+
+
+@require_POST
+def workflow_steps_reorder(
+    request: HttpRequest,
+    tenant_slug: str,
+    template_id: int,
+) -> JsonResponse:
+    tenant, response = _require_workflow_management(request, tenant_slug)
+    if response is not None:
+        return JsonResponse({"ok": False, "error": "login_required"}, status=401)
+
+    template = get_object_or_404(WorkflowTemplate, id=template_id, tenant=tenant)
+    step_ids = request.POST.getlist("step_ids")
+    try:
+        steps = ReorderWorkflowSteps(
+            template=template,
+            step_ids=[int(step_id) for step_id in step_ids],
+            actor=request.user,
+        ).execute()
+    except (TypeError, ValueError):
+        return JsonResponse({"ok": False, "error": "invalid_order"}, status=400)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "steps": [
+                {"id": step.id, "sort_order": step.sort_order}
+                for step in sorted(steps, key=lambda item: (item.sort_order, item.id))
+            ],
+        }
     )
 
 
@@ -244,6 +360,25 @@ def workflow_step_edit(
                 required_metadata_fields=list(
                     form.cleaned_data["required_metadata_fields"]
                 ),
+                required_related_document_spaces=list(
+                    form.cleaned_data["required_related_document_spaces"]
+                ),
+                min_related_documents=form.cleaned_data["min_related_documents"],
+                related_document_requires_completed_workflow=form.cleaned_data[
+                    "related_document_requires_completed_workflow"
+                ],
+                relation_picker_default_document_space=form.cleaned_data[
+                    "relation_picker_default_document_space"
+                ],
+                relation_picker_default_include_child_spaces=form.cleaned_data[
+                    "relation_picker_default_include_child_spaces"
+                ],
+                relation_picker_default_workflow_status=form.cleaned_data[
+                    "relation_picker_default_workflow_status"
+                ],
+                relation_picker_filters_editable=form.cleaned_data[
+                    "relation_picker_filters_editable"
+                ],
                 instructions=form.cleaned_data["instructions"],
                 sort_order=form.cleaned_data["sort_order"],
                 comment_policy=form.cleaned_data["comment_policy"],
@@ -263,6 +398,25 @@ def workflow_step_edit(
                 "step_type": step.step_type,
                 "assigned_role": step.assigned_role,
                 "required_metadata_fields": step.required_metadata_fields.all(),
+                "required_related_document_spaces": (
+                    step.required_related_document_spaces.all()
+                ),
+                "min_related_documents": step.min_related_documents,
+                "related_document_requires_completed_workflow": (
+                    step.related_document_requires_completed_workflow
+                ),
+                "relation_picker_default_document_space": (
+                    step.relation_picker_default_document_space
+                ),
+                "relation_picker_default_include_child_spaces": (
+                    step.relation_picker_default_include_child_spaces
+                ),
+                "relation_picker_default_workflow_status": (
+                    step.relation_picker_default_workflow_status
+                ),
+                "relation_picker_filters_editable": (
+                    step.relation_picker_filters_editable
+                ),
                 "instructions": step.instructions,
                 "sort_order": step.sort_order,
                 "comment_policy": step.comment_policy,
@@ -279,6 +433,62 @@ def workflow_step_edit(
             "form": form,
             "form_title": "Workflow-Schritt bearbeiten",
             "submit_label": "Schritt speichern",
+            "active_settings_section": "workflows",
+        },
+    )
+
+
+def workflow_step_delete(
+    request: HttpRequest,
+    tenant_slug: str,
+    template_id: int,
+    step_id: int,
+) -> HttpResponse:
+    tenant, response = _require_workflow_management(request, tenant_slug)
+    if response is not None:
+        return response
+
+    template = get_object_or_404(WorkflowTemplate, id=template_id, tenant=tenant)
+    step = get_object_or_404(WorkflowStep, id=step_id, template=template, tenant=tenant)
+    task_count = step.tasks.count()
+    current_instance_count = step.current_instances.count()
+    can_delete = task_count == 0 and current_instance_count == 0
+    if request.method == "POST":
+        confirmation = request.POST.get("confirmation", "").strip()
+        if confirmation != step.name:
+            messages.error(
+                request,
+                "Bitte den Schrittnamen exakt als Bestätigung eingeben.",
+            )
+        elif not can_delete:
+            messages.error(
+                request,
+                "Dieser Schritt wurde bereits verwendet und kann nicht gelöscht "
+                "werden.",
+            )
+        else:
+            try:
+                DeleteWorkflowStep(step=step, actor=request.user).execute()
+            except ValueError as error:
+                messages.error(request, str(error))
+            else:
+                messages.success(request, "Workflow-Schritt wurde gelöscht.")
+                return redirect(
+                    "workflows:settings_template_edit",
+                    tenant_slug=tenant.slug,
+                    template_id=template.id,
+                )
+
+    return render(
+        request,
+        "workflows/settings_step_delete.html",
+        {
+            "tenant": tenant,
+            "template": template,
+            "step": step,
+            "task_count": task_count,
+            "current_instance_count": current_instance_count,
+            "can_delete": can_delete,
             "active_settings_section": "workflows",
         },
     )

@@ -1,4 +1,5 @@
 {% extends "documents/settings_base.html" %}
+{% load static %}
 
 {% block settings_content %}
   {% if messages %}
@@ -9,7 +10,12 @@
 
   <div class="d-flex align-items-center justify-content-between mb-4">
     <h2 class="h4 mb-0">{{ form_title }}</h2>
-    <a class="btn btn-outline-secondary" href="{% url 'workflows:settings_templates' tenant.slug %}">Zurück</a>
+    <div class="d-flex gap-2">
+      {% if template %}
+        <a class="btn btn-outline-danger" href="{% url 'workflows:settings_template_delete' tenant.slug template.id %}">Löschen</a>
+      {% endif %}
+      <a class="btn btn-outline-secondary" href="{% url 'workflows:settings_templates' tenant.slug %}">Zurück</a>
+    </div>
   </div>
 
   <section class="app-card p-4 mb-4">
@@ -72,49 +78,57 @@
         </div>
       </div>
 
-      <div class="workflow-visualization" aria-label="Workflow-Ablauf">
-        <div class="workflow-node workflow-node-trigger">
-          <div class="workflow-node-kicker">Start</div>
-          <div class="workflow-node-title">{{ template.get_trigger_type_display }}</div>
-          <div class="workflow-node-meta">
-            {% if template.trigger_document_space %}
-              {{ template.trigger_document_space.path }}
-              {% if template.trigger_include_child_spaces %} · inkl. Kindboxen{% endif %}
-            {% else %}
-              Manuell oder alle Boxen
-            {% endif %}
+      <div class="workflow-visualization" aria-label="Workflow-Ablauf" data-workflow-visualization>
+        <div class="workflow-flow-item" data-flow-kind="trigger">
+          <div class="workflow-node workflow-node-trigger">
+            <div class="workflow-node-kicker">Start</div>
+            <div class="workflow-node-title">{{ template.get_trigger_type_display }}</div>
+            <div class="workflow-node-meta">
+              {% if template.trigger_document_space %}
+                {{ template.trigger_document_space.path }}
+                {% if template.trigger_include_child_spaces %} · inkl. Kindboxen{% endif %}
+              {% else %}
+                Manuell oder alle Boxen
+              {% endif %}
+            </div>
           </div>
+          <div class="workflow-flow-arrow" aria-hidden="true"></div>
         </div>
 
         {% for step in template.steps.all %}
-          <div class="workflow-connector" aria-hidden="true"></div>
-          <a
-            class="workflow-node workflow-node-step"
-            href="{% url 'workflows:settings_step_edit' tenant.slug template.id step.id %}"
-          >
-            <div class="workflow-node-kicker">
-              Schritt {{ forloop.counter }} · {{ step.get_step_type_display }}
-            </div>
-            <div class="workflow-node-title">{{ step.name }}</div>
-            <div class="workflow-node-meta">
-              {{ step.assigned_role.name|default:"Keine feste Rolle" }}
-              · {{ step.get_comment_policy_display }}
-            </div>
-          </a>
+          <div class="workflow-flow-item" data-flow-kind="step" data-flow-step-id="{{ step.id }}">
+            <a
+              class="workflow-node workflow-node-step"
+              href="{% url 'workflows:settings_step_edit' tenant.slug template.id step.id %}"
+            >
+              <div class="workflow-node-kicker" data-flow-step-kicker>
+                Schritt {{ forloop.counter }} · {{ step.get_step_type_display }}
+              </div>
+              <div class="workflow-node-title">{{ step.name }}</div>
+              <div class="workflow-node-meta">
+                {{ step.assigned_role.name|default:"Keine feste Rolle" }}
+                · {{ step.get_comment_policy_display }}
+              </div>
+            </a>
+            <div class="workflow-flow-arrow" aria-hidden="true"></div>
+          </div>
         {% empty %}
-          <div class="workflow-connector" aria-hidden="true"></div>
-          <div class="workflow-node workflow-node-empty">
-            <div class="workflow-node-kicker">Noch offen</div>
-            <div class="workflow-node-title">Keine Schritte</div>
-            <div class="workflow-node-meta">Füge den ersten Schritt hinzu.</div>
+          <div class="workflow-flow-item" data-flow-kind="empty">
+            <div class="workflow-node workflow-node-empty">
+              <div class="workflow-node-kicker">Noch offen</div>
+              <div class="workflow-node-title">Keine Schritte</div>
+              <div class="workflow-node-meta">Füge den ersten Schritt hinzu.</div>
+            </div>
+            <div class="workflow-flow-arrow" aria-hidden="true"></div>
           </div>
         {% endfor %}
 
-        <div class="workflow-connector" aria-hidden="true"></div>
-        <div class="workflow-node workflow-node-finish">
-          <div class="workflow-node-kicker">Ende</div>
-          <div class="workflow-node-title">Abgeschlossen</div>
-          <div class="workflow-node-meta">Keine offenen Aufgaben</div>
+        <div class="workflow-flow-item workflow-flow-item-finish" data-flow-kind="finish">
+          <div class="workflow-node workflow-node-finish">
+            <div class="workflow-node-kicker">Ende</div>
+            <div class="workflow-node-title">Abgeschlossen</div>
+            <div class="workflow-node-meta">Keine offenen Aufgaben</div>
+          </div>
         </div>
       </div>
     </section>
@@ -126,47 +140,59 @@
           Schritt hinzufügen
         </a>
       </div>
-      <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0">
-          <thead>
-            <tr>
-              <th>Reihenfolge</th>
-              <th>Name</th>
-              <th>Typ</th>
-              <th>Rolle</th>
-              <th>Kommentar</th>
-              <th class="text-end">Aktion</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for step in template.steps.all %}
-              <tr>
-                <td>{{ step.sort_order }}</td>
-                <td>{{ step.name }}</td>
-                <td>{{ step.get_step_type_display }}</td>
-                <td>{{ step.assigned_role.name|default:"-" }}</td>
-                <td>
-                  {{ step.get_comment_policy_display }}
+      {% if template.steps.all %}
+        <div
+          class="workflow-step-reorder-list"
+          data-workflow-step-reorder
+          data-reorder-url="{% url 'workflows:settings_steps_reorder' tenant.slug template.id %}"
+        >
+          {% csrf_token %}
+          {% for step in template.steps.all %}
+            <div
+              class="workflow-step-reorder-item"
+              draggable="true"
+              data-step-id="{{ step.id }}"
+            >
+              <button class="workflow-step-drag-handle" type="button" aria-label="Schritt verschieben">
+                <span class="workflow-step-drag-dots" aria-hidden="true"></span>
+              </button>
+              <div class="workflow-step-position" data-step-position>{{ forloop.counter }}</div>
+              <div class="workflow-step-reorder-main">
+                <div class="workflow-step-reorder-title">{{ step.name }}</div>
+                <div class="workflow-step-reorder-meta">
+                  <span>{{ step.get_step_type_display }}</span>
+                  <span>{{ step.assigned_role.name|default:"Keine feste Rolle" }}</span>
+                  <span>{{ step.get_comment_policy_display }}</span>
                   {% if step.required_metadata_fields.count %}
-                    <div class="small text-secondary">
-                      {{ step.required_metadata_fields.count }} Pflichtfeld{% if step.required_metadata_fields.count != 1 %}er{% endif %}
-                    </div>
+                    <span>{{ step.required_metadata_fields.count }} Pflichtfeld{% if step.required_metadata_fields.count != 1 %}er{% endif %}</span>
                   {% endif %}
-                </td>
-                <td class="text-end">
-                  <a class="btn btn-sm btn-outline-primary" href="{% url 'workflows:settings_step_edit' tenant.slug template.id step.id %}">
-                    Bearbeiten
-                  </a>
-                </td>
-              </tr>
-            {% empty %}
-              <tr>
-                <td colspan="6" class="text-center text-secondary py-4">Noch keine Schritte angelegt.</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+                  {% if step.step_type == "require_document_relation" %}
+                    <span>{{ step.min_related_documents }} Verknüpfung{% if step.min_related_documents != 1 %}en{% endif %}</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="workflow-step-reorder-actions">
+                <a class="btn btn-sm btn-outline-primary" href="{% url 'workflows:settings_step_edit' tenant.slug template.id step.id %}">
+                  Bearbeiten
+                </a>
+                <a class="btn btn-sm btn-outline-danger" href="{% url 'workflows:settings_step_delete' tenant.slug template.id step.id %}">
+                  Löschen
+                </a>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="workflow-step-reorder-status small text-secondary mt-2" data-workflow-step-reorder-status aria-live="polite">
+          Schritte per Ziehen sortieren.
+        </div>
+      {% else %}
+        <div class="text-center text-secondary py-4">Noch keine Schritte angelegt.</div>
+      {% endif %}
     </section>
   {% endif %}
+{% endblock %}
+
+{% block extra_body %}
+  {{ block.super }}
+  <script src="{% static 'js/workflow-steps.js' %}?v=3"></script>
 {% endblock %}

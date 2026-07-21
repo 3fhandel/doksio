@@ -14,8 +14,9 @@
     <p class="text-secondary mb-0">Tenantweiter Versand für automatische Antworten aus Mail-Importen.</p>
   </div>
 
-  <form class="app-card p-4" method="post">
+  <form class="app-card p-4 mb-4" method="post">
     {% csrf_token %}
+    <input type="hidden" name="action" value="save">
     {% if form.errors %}
       <div class="alert alert-danger form-error-summary" role="alert">
         <div class="fw-bold mb-2">Bitte prüfe die markierten Felder.</div>
@@ -74,4 +75,46 @@
 
     <button class="btn btn-primary mt-4" type="submit">SMTP speichern</button>
   </form>
+
+  <section class="app-card p-4">
+    <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+      <div>
+        <h3 class="h5 mb-1">SMTP testen</h3>
+        <p class="text-secondary mb-0">
+          Sendet eine Testmail über die zuletzt gespeicherten SMTP-Einstellungen dieses Mandanten.
+        </p>
+      </div>
+      {% if smtp_settings and smtp_settings.is_active %}
+        <span class="badge text-bg-success">Aktiv</span>
+      {% else %}
+        <span class="badge text-bg-secondary">Nicht aktiv</span>
+      {% endif %}
+    </div>
+
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="send_test">
+      {% if test_form.errors %}
+        <div class="alert alert-danger form-error-summary" role="alert">
+          Bitte prüfe die Empfängeradresse.
+        </div>
+      {% endif %}
+      <div class="row g-3 align-items-end">
+        <div class="col-md-8">
+          <label class="form-label" for="{{ test_form.recipient.id_for_label }}">Empfängeradresse</label>
+          {{ test_form.recipient }}
+          {{ test_form.recipient.errors }}
+        </div>
+        <div class="col-md-4">
+          <button
+            class="btn btn-outline-primary w-100"
+            type="submit"
+            {% if not smtp_settings or not smtp_settings.is_active %}disabled{% endif %}
+          >
+            Testmail senden
+          </button>
+        </div>
+      </div>
+    </form>
+  </section>
 {% endblock %}

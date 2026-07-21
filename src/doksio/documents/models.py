@@ -289,6 +289,60 @@ class DocumentTagAssignment(models.Model):
         return f"{self.document} #{self.tag}"
 
 
+class DocumentRelation(models.Model):
+    """Neutral relation between two tenant documents."""
+
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="document_relations",
+    )
+    first_document = models.ForeignKey(
+        Document,
+        on_delete=models.CASCADE,
+        related_name="relations_as_first",
+    )
+    second_document = models.ForeignKey(
+        Document,
+        on_delete=models.CASCADE,
+        related_name="relations_as_second",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="created_document_relations",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["first_document", "second_document"],
+                name="unique_document_relation_pair",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(first_document=models.F("second_document")),
+                name="document_relation_distinct_documents",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "first_document"]),
+            models.Index(fields=["tenant", "second_document"]),
+            models.Index(fields=["tenant", "created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.first_document_id} <-> {self.second_document_id}"
+
+    def other_document(self, document: Document) -> Document:
+        if document.id == self.first_document_id:
+            return self.second_document
+        return self.first_document
+
+
 class DocumentComment(models.Model):
     """Append-only comment attached to one document."""
 

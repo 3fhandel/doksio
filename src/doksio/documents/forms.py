@@ -9,6 +9,7 @@ from django.utils.text import slugify
 from doksio.accounts.permissions import TenantPermissions
 from doksio.documents.metadata import metadata_field_slug_is_available
 from doksio.documents.models import (
+    Document,
     DocumentImportBatchItem,
     DocumentMetadataField,
     DocumentSpace,
@@ -226,6 +227,42 @@ class DocumentShareAttachmentForm(forms.Form):
         required=False,
         widget=forms.Textarea(attrs={"class": "form-control", "rows": 4}),
     )
+
+
+class DocumentRelationForm(forms.Form):
+    def __init__(self, *args, document: Document, user, **kwargs) -> None:
+        self.document = document
+        self.user = user
+        super().__init__(*args, **kwargs)
+
+    target_document_id = forms.IntegerField(
+        label="Dokument",
+        min_value=1,
+        widget=forms.HiddenInput,
+    )
+
+    def clean_target_document_id(self):
+        target_document_id = self.cleaned_data["target_document_id"]
+        if target_document_id == self.document.id:
+            raise forms.ValidationError(
+                "Ein Dokument kann nicht mit sich selbst verknüpft werden."
+            )
+        target_document = (
+            Document.objects.select_related("tenant", "space")
+            .filter(
+                id=target_document_id,
+                tenant=self.document.tenant,
+                status=Document.Status.ACTIVE,
+            )
+            .first()
+        )
+        if target_document is None:
+            raise forms.ValidationError("Dieses Dokument wurde nicht gefunden.")
+        from doksio.documents.policies import can_view_document
+
+        if not can_view_document(self.user, target_document):
+            raise forms.ValidationError("Du darfst dieses Dokument nicht sehen.")
+        return target_document
 
 
 class DocumentSplitForm(forms.Form):

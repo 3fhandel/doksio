@@ -14,7 +14,7 @@ from doksio.accounts.models import Notification, TenantMembership, TenantRole
 from doksio.accounts.permissions import TenantPermissions
 from doksio.accounts.services import CreateNotification
 from doksio.audit.services import RecordAuditEvent
-from doksio.documents.models import Document, DocumentSpace
+from doksio.documents.models import Document, DocumentRelation, DocumentSpace
 from doksio.tenancy.models import Tenant
 from doksio.workflows.models import (
     WorkflowInstance,
@@ -87,6 +87,50 @@ def _complete_metadata_step_is_satisfied(
     )
 
 
+def _related_documents_for_workflow_step(
+    *,
+    step: WorkflowStep,
+    document: Document,
+):
+    relations = DocumentRelation.objects.select_related(
+        "first_document",
+        "second_document",
+    ).filter(
+        Q(first_document=document) | Q(second_document=document),
+        tenant=document.tenant,
+    )
+    related_documents = []
+    allowed_space_ids = set(
+        step.required_related_document_spaces.values_list("id", flat=True)
+    )
+    for relation in relations:
+        related_document = relation.other_document(document)
+        if related_document.status != Document.Status.ACTIVE:
+            continue
+        if allowed_space_ids and related_document.space_id not in allowed_space_ids:
+            continue
+        if step.related_document_requires_completed_workflow:
+            has_completed_workflow = WorkflowInstance.objects.filter(
+                document=related_document,
+                status=WorkflowInstance.Status.COMPLETED,
+            ).exists()
+            if not has_completed_workflow:
+                continue
+        related_documents.append(related_document)
+    return related_documents
+
+
+def _document_relation_step_is_satisfied(
+    *,
+    step: WorkflowStep,
+    document: Document,
+) -> bool:
+    return (
+        len(_related_documents_for_workflow_step(step=step, document=document))
+        >= step.min_related_documents
+    )
+
+
 def _advance_instance_to_step(
     *,
     instance: WorkflowInstance,
@@ -126,6 +170,30 @@ def _advance_instance_to_step(
                 "workflow_template_name": instance.template.name,
                 "step_id": step.id,
                 "step_name": step.name,
+                "next_step_id": next_step.id if next_step else None,
+                "next_step_name": next_step.name if next_step else None,
+            },
+        ).execute()
+        _advance_instance_to_step(instance=instance, step=next_step, actor=actor)
+        return
+    if (
+        step.step_type == WorkflowStep.StepType.REQUIRE_DOCUMENT_RELATION
+        and _document_relation_step_is_satisfied(step=step, document=instance.document)
+    ):
+        next_step = _next_step(step)
+        RecordAuditEvent(
+            tenant=instance.tenant,
+            actor=actor,
+            event_type="workflow_step.auto_completed",
+            object_type="workflows.WorkflowStep",
+            object_id=str(step.id),
+            data={
+                "instance_id": instance.id,
+                "document_id": instance.document_id,
+                "workflow_template_name": instance.template.name,
+                "step_id": step.id,
+                "step_name": step.name,
+                "reason": "document_relation_satisfied",
                 "next_step_id": next_step.id if next_step else None,
                 "next_step_name": next_step.name if next_step else None,
             },
@@ -370,6 +438,15 @@ class CreateWorkflowStep:
     step_type: str
     assigned_role: TenantRole | None = None
     required_metadata_fields: list | None = None
+    required_related_document_spaces: list | None = None
+    min_related_documents: int = 1
+    related_document_requires_completed_workflow: bool = False
+    relation_picker_default_document_space: DocumentSpace | None = None
+    relation_picker_default_include_child_spaces: bool = True
+    relation_picker_default_workflow_status: str = (
+        WorkflowStep.RelationPickerWorkflowStatus.ANY
+    )
+    relation_picker_filters_editable: bool = True
     instructions: str = ""
     sort_order: int = 100
     comment_policy: str = WorkflowStep.CommentPolicy.OPTIONAL
@@ -383,11 +460,25 @@ class CreateWorkflowStep:
         ):
             raise ValueError("Assigned role belongs to a different tenant.")
         required_metadata_fields = list(self.required_metadata_fields or [])
+        required_related_document_spaces = list(
+            self.required_related_document_spaces or []
+        )
         if any(
             field.tenant_id != self.template.tenant_id
             for field in required_metadata_fields
         ):
             raise ValueError("Required metadata field belongs to a different tenant.")
+        if any(
+            space.tenant_id != self.template.tenant_id
+            for space in required_related_document_spaces
+        ):
+            raise ValueError("Required document space belongs to a different tenant.")
+        if (
+            self.relation_picker_default_document_space
+            and self.relation_picker_default_document_space.tenant_id
+            != self.template.tenant_id
+        ):
+            raise ValueError("Default document space belongs to a different tenant.")
 
         step = WorkflowStep.objects.create(
             tenant=self.template.tenant,
@@ -398,8 +489,24 @@ class CreateWorkflowStep:
             instructions=self.instructions,
             sort_order=self.sort_order,
             comment_policy=self.comment_policy,
+            min_related_documents=max(self.min_related_documents or 1, 1),
+            related_document_requires_completed_workflow=(
+                self.related_document_requires_completed_workflow
+            ),
+            relation_picker_default_document_space=(
+                self.relation_picker_default_document_space
+            ),
+            relation_picker_default_include_child_spaces=(
+                self.relation_picker_default_include_child_spaces
+            ),
+            relation_picker_default_workflow_status=(
+                self.relation_picker_default_workflow_status
+                or WorkflowStep.RelationPickerWorkflowStatus.ANY
+            ),
+            relation_picker_filters_editable=self.relation_picker_filters_editable,
         )
         step.required_metadata_fields.set(required_metadata_fields)
+        step.required_related_document_spaces.set(required_related_document_spaces)
         RecordAuditEvent(
             tenant=self.template.tenant,
             actor=self.actor,
@@ -423,6 +530,15 @@ class UpdateWorkflowStep:
     step_type: str
     assigned_role: TenantRole | None = None
     required_metadata_fields: list | None = None
+    required_related_document_spaces: list | None = None
+    min_related_documents: int = 1
+    related_document_requires_completed_workflow: bool = False
+    relation_picker_default_document_space: DocumentSpace | None = None
+    relation_picker_default_include_child_spaces: bool = True
+    relation_picker_default_workflow_status: str = (
+        WorkflowStep.RelationPickerWorkflowStatus.ANY
+    )
+    relation_picker_filters_editable: bool = True
     instructions: str = ""
     sort_order: int = 100
     comment_policy: str = WorkflowStep.CommentPolicy.OPTIONAL
@@ -436,11 +552,25 @@ class UpdateWorkflowStep:
         ):
             raise ValueError("Assigned role belongs to a different tenant.")
         required_metadata_fields = list(self.required_metadata_fields or [])
+        required_related_document_spaces = list(
+            self.required_related_document_spaces or []
+        )
         if any(
             field.tenant_id != self.step.tenant_id
             for field in required_metadata_fields
         ):
             raise ValueError("Required metadata field belongs to a different tenant.")
+        if any(
+            space.tenant_id != self.step.tenant_id
+            for space in required_related_document_spaces
+        ):
+            raise ValueError("Required document space belongs to a different tenant.")
+        if (
+            self.relation_picker_default_document_space
+            and self.relation_picker_default_document_space.tenant_id
+            != self.step.tenant_id
+        ):
+            raise ValueError("Default document space belongs to a different tenant.")
 
         previous_assigned_role_id = self.step.assigned_role_id
         self.step.name = self.name
@@ -449,6 +579,23 @@ class UpdateWorkflowStep:
         self.step.instructions = self.instructions
         self.step.sort_order = self.sort_order
         self.step.comment_policy = self.comment_policy
+        self.step.min_related_documents = max(self.min_related_documents or 1, 1)
+        self.step.related_document_requires_completed_workflow = (
+            self.related_document_requires_completed_workflow
+        )
+        self.step.relation_picker_default_document_space = (
+            self.relation_picker_default_document_space
+        )
+        self.step.relation_picker_default_include_child_spaces = (
+            self.relation_picker_default_include_child_spaces
+        )
+        self.step.relation_picker_default_workflow_status = (
+            self.relation_picker_default_workflow_status
+            or WorkflowStep.RelationPickerWorkflowStatus.ANY
+        )
+        self.step.relation_picker_filters_editable = (
+            self.relation_picker_filters_editable
+        )
         self.step.save(
             update_fields=[
                 "name",
@@ -457,10 +604,17 @@ class UpdateWorkflowStep:
                 "instructions",
                 "sort_order",
                 "comment_policy",
+                "min_related_documents",
+                "related_document_requires_completed_workflow",
+                "relation_picker_default_document_space",
+                "relation_picker_default_include_child_spaces",
+                "relation_picker_default_workflow_status",
+                "relation_picker_filters_editable",
                 "updated_at",
             ]
         )
         self.step.required_metadata_fields.set(required_metadata_fields)
+        self.step.required_related_document_spaces.set(required_related_document_spaces)
         updated_open_tasks = self._sync_open_tasks(previous_assigned_role_id)
         RecordAuditEvent(
             tenant=self.step.tenant,
@@ -491,6 +645,123 @@ class UpdateWorkflowStep:
             assigned_role=self.step.assigned_role,
             updated_at=timezone.now(),
         )
+
+
+@dataclass(frozen=True)
+class ReorderWorkflowSteps:
+    template: WorkflowTemplate
+    step_ids: list[int]
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> list[WorkflowStep]:
+        current_steps = list(
+            WorkflowStep.objects.select_for_update()
+            .filter(template=self.template, tenant=self.template.tenant)
+            .order_by("sort_order", "id")
+        )
+        current_ids = {step.id for step in current_steps}
+        submitted_ids = [int(step_id) for step_id in self.step_ids]
+        if set(submitted_ids) != current_ids or len(submitted_ids) != len(current_ids):
+            raise ValueError("Submitted workflow step order is incomplete.")
+
+        steps_by_id = {step.id: step for step in current_steps}
+        ordered_steps = [steps_by_id[step_id] for step_id in submitted_ids]
+        previous_order = [step.id for step in current_steps]
+        next_order = []
+        updated_at = timezone.now()
+        for index, step in enumerate(ordered_steps, start=1):
+            step.sort_order = index * 10
+            step.updated_at = updated_at
+            next_order.append(step.id)
+        WorkflowStep.objects.bulk_update(ordered_steps, ["sort_order", "updated_at"])
+
+        RecordAuditEvent(
+            tenant=self.template.tenant,
+            actor=self.actor,
+            event_type="workflow_steps.reordered",
+            object_type="workflows.WorkflowTemplate",
+            object_id=str(self.template.id),
+            data={
+                "template_id": self.template.id,
+                "template_name": self.template.name,
+                "previous_order": previous_order,
+                "next_order": next_order,
+            },
+        ).execute()
+        return ordered_steps
+
+
+@dataclass(frozen=True)
+class DeleteWorkflowStep:
+    step: WorkflowStep
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> None:
+        if self.step.tasks.exists() or self.step.current_instances.exists():
+            raise ValueError(
+                "Dieser Schritt wurde bereits verwendet und kann nicht gelöscht "
+                "werden."
+            )
+
+        tenant = self.step.tenant
+        step_id = self.step.id
+        template_id = self.step.template_id
+        step_name = self.step.name
+        step_type = self.step.step_type
+        sort_order = self.step.sort_order
+
+        self.step.delete()
+
+        RecordAuditEvent(
+            tenant=tenant,
+            actor=self.actor,
+            event_type="workflow_step.deleted",
+            object_type="workflows.WorkflowStep",
+            object_id=str(step_id),
+            data={
+                "template_id": template_id,
+                "name": step_name,
+                "step_type": step_type,
+                "sort_order": sort_order,
+            },
+        ).execute()
+
+
+@dataclass(frozen=True)
+class DeleteWorkflowTemplate:
+    template: WorkflowTemplate
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> None:
+        if self.template.instances.exists():
+            raise ValueError(
+                "Dieser Workflow wurde bereits verwendet und kann nicht gelöscht "
+                "werden. Deaktiviere ihn stattdessen."
+            )
+
+        tenant = self.template.tenant
+        template_id = self.template.id
+        template_name = self.template.name
+        template_slug = self.template.slug
+        step_ids = list(self.template.steps.values_list("id", flat=True))
+
+        self.template.delete()
+
+        RecordAuditEvent(
+            tenant=tenant,
+            actor=self.actor,
+            event_type="workflow_template.deleted",
+            object_type="workflows.WorkflowTemplate",
+            object_id=str(template_id),
+            data={
+                "name": template_name,
+                "slug": template_slug,
+                "step_ids": step_ids,
+            },
+        ).execute()
 
 
 @dataclass(frozen=True)
@@ -649,6 +920,16 @@ class CompleteWorkflowTask:
             raise ValueError(
                 "Bitte zuerst die erforderlichen Metadaten vollständig ausfüllen."
             )
+        if (
+            self.task.step.step_type == WorkflowStep.StepType.REQUIRE_DOCUMENT_RELATION
+            and not _document_relation_step_is_satisfied(
+                step=self.task.step,
+                document=self.task.document,
+            )
+        ):
+            raise ValueError(
+                "Bitte zuerst die erforderlichen Dokumente verknüpfen."
+            )
 
         comment = ""
         if self.task.step.comment_policy != WorkflowStep.CommentPolicy.DISABLED:
@@ -690,3 +971,63 @@ class CompleteWorkflowTask:
             },
         ).execute()
         return self.task
+
+
+@dataclass(frozen=True)
+class RefreshRelationWorkflowTasksForDocument:
+    document: Document
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> int:
+        tasks = list(
+            WorkflowTask.objects.select_related("instance", "step")
+            .filter(
+                tenant=self.document.tenant,
+                document=self.document,
+                status=WorkflowTask.Status.OPEN,
+                step__step_type=WorkflowStep.StepType.REQUIRE_DOCUMENT_RELATION,
+            )
+            .order_by("created_at", "id")
+        )
+        completed_count = 0
+        for task in tasks:
+            if not _document_relation_step_is_satisfied(
+                step=task.step,
+                document=task.document,
+            ):
+                continue
+            task.status = WorkflowTask.Status.COMPLETED
+            task.completed_by = self.actor
+            task.completed_at = timezone.now()
+            task.completion_comment = ""
+            task.save(
+                update_fields=[
+                    "status",
+                    "completed_by",
+                    "completed_at",
+                    "completion_comment",
+                    "updated_at",
+                ]
+            )
+            next_step = _next_step(task.step)
+            RecordAuditEvent(
+                tenant=task.tenant,
+                actor=self.actor,
+                event_type="workflow_task.auto_completed",
+                object_type="workflows.WorkflowTask",
+                object_id=str(task.id),
+                data={
+                    "document_id": task.document_id,
+                    "instance_id": task.instance_id,
+                    "step_id": task.step_id,
+                    "reason": "document_relation_satisfied",
+                },
+            ).execute()
+            _advance_instance_to_step(
+                instance=task.instance,
+                step=next_step,
+                actor=self.actor,
+            )
+            completed_count += 1
+        return completed_count

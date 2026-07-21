@@ -23,9 +23,22 @@ urlpatterns = [
         name="settings_template_edit",
     ),
     path(
+        "t/<slug:tenant_slug>/settings/workflows/<int:template_id>/delete/",
+        views.workflow_template_delete,
+        name="settings_template_delete",
+    ),
+    path(
         "t/<slug:tenant_slug>/settings/workflows/<int:template_id>/steps/new/",
         views.workflow_step_create,
         name="settings_step_create",
+    ),
+    path(
+        (
+            "t/<slug:tenant_slug>/settings/workflows/<int:template_id>/"
+            "steps/reorder/"
+        ),
+        views.workflow_steps_reorder,
+        name="settings_steps_reorder",
     ),
     path(
         (
@@ -34,5 +47,13 @@ urlpatterns = [
         ),
         views.workflow_step_edit,
         name="settings_step_edit",
+    ),
+    path(
+        (
+            "t/<slug:tenant_slug>/settings/workflows/<int:template_id>/"
+            "steps/<int:step_id>/delete/"
+        ),
+        views.workflow_step_delete,
+        name="settings_step_delete",
     ),
 ]

@@ -66,6 +66,11 @@ urlpatterns = [
         name="delete",
     ),
     path(
+        "t/<slug:tenant_slug>/documents/<int:document_id>/relations/search/",
+        views.document_relation_picker_search,
+        name="relation_picker_search",
+    ),
+    path(
         "t/<slug:tenant_slug>/documents/files/<int:file_id>/download/",
         views.document_file_download,
         name="download",
