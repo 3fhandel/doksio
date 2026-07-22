@@ -103,17 +103,31 @@ class DocumentSearchForm(forms.Form):
             self.fields[f"{base_name}_from"] = forms.DateField(
                 label=f"{field_definition.name} von",
                 required=False,
+                input_formats=["%d.%m.%Y", "%Y-%m-%d"],
                 widget=forms.DateInput(
-                    attrs={"class": "form-control", "type": "date"},
-                    format="%Y-%m-%d",
+                    attrs={
+                        "class": "form-control",
+                        "type": "text",
+                        "inputmode": "numeric",
+                        "placeholder": "TT.MM.JJJJ, today, +1week",
+                        "data-smart-date": "true",
+                    },
+                    format="%d.%m.%Y",
                 ),
             )
             self.fields[f"{base_name}_to"] = forms.DateField(
                 label=f"{field_definition.name} bis",
                 required=False,
+                input_formats=["%d.%m.%Y", "%Y-%m-%d"],
                 widget=forms.DateInput(
-                    attrs={"class": "form-control", "type": "date"},
-                    format="%Y-%m-%d",
+                    attrs={
+                        "class": "form-control",
+                        "type": "text",
+                        "inputmode": "numeric",
+                        "placeholder": "TT.MM.JJJJ, today, +1week",
+                        "data-smart-date": "true",
+                    },
+                    format="%d.%m.%Y",
                 ),
             )
         elif field_definition.field_type == DocumentMetadataField.FieldType.NUMBER:
@@ -219,17 +233,31 @@ class DocumentSearchForm(forms.Form):
     document_date_from = forms.DateField(
         label="Belegdatum von",
         required=False,
+        input_formats=["%d.%m.%Y", "%Y-%m-%d"],
         widget=forms.DateInput(
-            attrs={"class": "form-control", "type": "date"},
-            format="%Y-%m-%d",
+            attrs={
+                "class": "form-control",
+                "type": "text",
+                "inputmode": "numeric",
+                "placeholder": "TT.MM.JJJJ, today, +1week",
+                "data-smart-date": "true",
+            },
+            format="%d.%m.%Y",
         ),
     )
     document_date_to = forms.DateField(
         label="Belegdatum bis",
         required=False,
+        input_formats=["%d.%m.%Y", "%Y-%m-%d"],
         widget=forms.DateInput(
-            attrs={"class": "form-control", "type": "date"},
-            format="%Y-%m-%d",
+            attrs={
+                "class": "form-control",
+                "type": "text",
+                "inputmode": "numeric",
+                "placeholder": "TT.MM.JJJJ, today, +1week",
+                "data-smart-date": "true",
+            },
+            format="%d.%m.%Y",
         ),
     )
     box = forms.ModelChoiceField(

@@ -29,12 +29,32 @@ class DocumentImageExportForm(forms.Form):
     document_date_from = forms.DateField(
         label="Belegdatum von",
         required=False,
-        widget=forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+        input_formats=["%d.%m.%Y", "%Y-%m-%d"],
+        widget=forms.DateInput(
+            attrs={
+                "class": "form-control",
+                "type": "text",
+                "inputmode": "numeric",
+                "placeholder": "TT.MM.JJJJ, today, +1week",
+                "data-smart-date": "true",
+            },
+            format="%d.%m.%Y",
+        ),
     )
     document_date_to = forms.DateField(
         label="Belegdatum bis",
         required=False,
-        widget=forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+        input_formats=["%d.%m.%Y", "%Y-%m-%d"],
+        widget=forms.DateInput(
+            attrs={
+                "class": "form-control",
+                "type": "text",
+                "inputmode": "numeric",
+                "placeholder": "TT.MM.JJJJ, today, +1week",
+                "data-smart-date": "true",
+            },
+            format="%d.%m.%Y",
+        ),
     )
 
     def __init__(self, *args, tenant: Tenant, user, **kwargs) -> None:

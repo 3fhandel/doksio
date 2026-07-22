@@ -185,9 +185,16 @@ class DocumentCoreMetadataForm(forms.Form):
     document_date = forms.DateField(
         label="Belegdatum",
         required=False,
+        input_formats=["%d.%m.%Y", "%Y-%m-%d"],
         widget=forms.DateInput(
-            attrs={"class": "form-control", "type": "date"},
-            format="%Y-%m-%d",
+            attrs={
+                "class": "form-control",
+                "type": "text",
+                "inputmode": "numeric",
+                "placeholder": "TT.MM.JJJJ, today, +1week",
+                "data-smart-date": "true",
+            },
+            format="%d.%m.%Y",
         ),
     )
     space = forms.ModelChoiceField(
@@ -691,7 +698,17 @@ class DocumentMetadataForm(forms.Form):
         if field_definition.field_type == DocumentMetadataField.FieldType.DATE:
             return forms.DateField(
                 **kwargs,
-                widget=forms.DateInput(attrs={**attrs, "type": "date"}),
+                input_formats=["%d.%m.%Y", "%Y-%m-%d"],
+                widget=forms.DateInput(
+                    attrs={
+                        **attrs,
+                        "type": "text",
+                        "inputmode": "numeric",
+                        "placeholder": "TT.MM.JJJJ, today, +1week",
+                        "data-smart-date": "true",
+                    },
+                    format="%d.%m.%Y",
+                ),
             )
         if field_definition.field_type == DocumentMetadataField.FieldType.NUMBER:
             return forms.DecimalField(**kwargs, widget=forms.NumberInput(attrs=attrs))
