@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 
 class DocumentSpace(models.Model):
@@ -647,6 +650,9 @@ class DocumentBoxScanOptimizationJob(models.Model):
     )
     started_at = models.DateTimeField(blank=True, null=True)
     completed_at = models.DateTimeField(blank=True, null=True)
+    heartbeat_at = models.DateTimeField(blank=True, null=True)
+    lease_token = models.UUIDField(blank=True, null=True, editable=False)
+    lease_expires_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -666,6 +672,23 @@ class DocumentBoxScanOptimizationJob(models.Model):
         if not self.total_documents:
             return 0
         return min(100, round(self.processed_documents / self.total_documents * 100))
+
+    @property
+    def is_resumable(self) -> bool:
+        if self.status not in {self.Status.QUEUED, self.Status.RUNNING}:
+            return False
+        now = timezone.now()
+        if self.lease_expires_at is not None:
+            return self.lease_expires_at <= now
+        stale_after = timedelta(
+            seconds=getattr(
+                settings,
+                "SCAN_OPTIMIZATION_STALE_AFTER_SECONDS",
+                120,
+            )
+        )
+        last_activity = self.heartbeat_at or self.updated_at
+        return last_activity <= now - stale_after
 
     def __str__(self) -> str:
         return f"{self.document_space.path} {self.get_status_display()}"

@@ -6,7 +6,7 @@ import mimetypes
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from fnmatch import fnmatch
 from pathlib import Path
@@ -1120,9 +1120,77 @@ class CreateDocumentBoxScanOptimizationJob:
 
 
 @dataclass(frozen=True)
+class ClaimDocumentBoxScanOptimizationJob:
+    job_id: int
+    lease_token: uuid.UUID
+    resume_reason: str = ""
+
+    @transaction.atomic
+    def execute(self) -> DocumentBoxScanOptimizationJob | None:
+        job = (
+            DocumentBoxScanOptimizationJob.objects.select_for_update()
+            .select_related("tenant", "document_space", "created_by")
+            .get(id=self.job_id)
+        )
+        if job.status in {
+            DocumentBoxScanOptimizationJob.Status.COMPLETED,
+            DocumentBoxScanOptimizationJob.Status.FAILED,
+        }:
+            return None
+
+        now = timezone.now()
+        if (
+            job.lease_expires_at is not None
+            and job.lease_expires_at > now
+            and job.lease_token != self.lease_token
+        ):
+            return None
+
+        was_running = job.status == DocumentBoxScanOptimizationJob.Status.RUNNING
+        job.status = DocumentBoxScanOptimizationJob.Status.RUNNING
+        if job.started_at is None:
+            job.started_at = now
+        job.heartbeat_at = now
+        job.lease_token = self.lease_token
+        job.lease_expires_at = now + timedelta(
+            seconds=getattr(
+                settings,
+                "SCAN_OPTIMIZATION_LEASE_SECONDS",
+                32 * 60,
+            )
+        )
+        job.save(
+            update_fields=[
+                "status",
+                "started_at",
+                "heartbeat_at",
+                "lease_token",
+                "lease_expires_at",
+                "updated_at",
+            ]
+        )
+        if was_running and self.resume_reason:
+            RecordAuditEvent(
+                tenant=job.tenant,
+                actor=job.created_by,
+                event_type="document_box.scan_optimization.resumed",
+                object_type="documents.DocumentBoxScanOptimizationJob",
+                object_id=str(job.id),
+                data={
+                    "space_path": job.document_space.path,
+                    "reason": self.resume_reason,
+                    "processed_documents": job.processed_documents,
+                    "total_documents": job.total_documents,
+                },
+            ).execute()
+        return job
+
+
+@dataclass
 class RunDocumentBoxScanOptimizationBatch:
     job: DocumentBoxScanOptimizationJob
     actor: get_user_model() | None = None
+    lease_token: uuid.UUID | None = None
     dpi: int = 300
     min_savings_ratio: float = 0.05
 
@@ -1132,6 +1200,12 @@ class RunDocumentBoxScanOptimizationBatch:
             DocumentBoxScanOptimizationJob.Status.COMPLETED,
             DocumentBoxScanOptimizationJob.Status.FAILED,
         }:
+            return self.job
+
+        if (
+            self.lease_token is not None
+            and self.job.lease_token != self.lease_token
+        ):
             return self.job
 
         if self.job.document_space.tenant_id != self.job.tenant_id:
@@ -1172,6 +1246,8 @@ class RunDocumentBoxScanOptimizationBatch:
         self.job.refresh_from_db()
         if self.job.processed_documents >= self.job.total_documents:
             self._mark_completed()
+        else:
+            self._release_lease()
         return self.job
 
     def _next_document_ids(self):
@@ -1226,6 +1302,7 @@ class RunDocumentBoxScanOptimizationBatch:
         self.job.errors += counters.errors
         self.job.bytes_before += counters.bytes_before
         self.job.bytes_after += counters.bytes_after
+        self.job.heartbeat_at = timezone.now()
         self.job.save(
             update_fields=[
                 "processed_documents",
@@ -1236,6 +1313,21 @@ class RunDocumentBoxScanOptimizationBatch:
                 "errors",
                 "bytes_before",
                 "bytes_after",
+                "heartbeat_at",
+                "updated_at",
+            ]
+        )
+
+    @transaction.atomic
+    def _release_lease(self) -> None:
+        self.job.heartbeat_at = timezone.now()
+        self.job.lease_token = None
+        self.job.lease_expires_at = None
+        self.job.save(
+            update_fields=[
+                "heartbeat_at",
+                "lease_token",
+                "lease_expires_at",
                 "updated_at",
             ]
         )
@@ -1244,7 +1336,19 @@ class RunDocumentBoxScanOptimizationBatch:
     def _mark_completed(self) -> None:
         self.job.status = DocumentBoxScanOptimizationJob.Status.COMPLETED
         self.job.completed_at = timezone.now()
-        self.job.save(update_fields=["status", "completed_at", "updated_at"])
+        self.job.heartbeat_at = self.job.completed_at
+        self.job.lease_token = None
+        self.job.lease_expires_at = None
+        self.job.save(
+            update_fields=[
+                "status",
+                "completed_at",
+                "heartbeat_at",
+                "lease_token",
+                "lease_expires_at",
+                "updated_at",
+            ]
+        )
         RecordAuditEvent(
             tenant=self.job.tenant,
             actor=self.actor or self.job.created_by,
@@ -1271,11 +1375,17 @@ class RunDocumentBoxScanOptimizationBatch:
         self.job.status = DocumentBoxScanOptimizationJob.Status.FAILED
         self.job.error_message = message
         self.job.completed_at = timezone.now()
+        self.job.heartbeat_at = self.job.completed_at
+        self.job.lease_token = None
+        self.job.lease_expires_at = None
         self.job.save(
             update_fields=[
                 "status",
                 "error_message",
                 "completed_at",
+                "heartbeat_at",
+                "lease_token",
+                "lease_expires_at",
                 "updated_at",
             ]
         )

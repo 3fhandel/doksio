@@ -21,6 +21,7 @@ from doksio.audit.services import RecordAuditEvent
 from doksio.documents.models import Document, DocumentFile
 from doksio.exports.models import ExportRun, ExportRunItem
 from doksio.tenancy.models import Tenant
+from doksio.workflows.models import WorkflowInstance
 
 
 SAFE_FILENAME_PATTERN = re.compile(r"[^A-Za-z0-9._ -]+")
@@ -137,7 +138,10 @@ class BuildDocumentImageExport:
         with tempfile.TemporaryFile() as zip_file:
             with ZipFile(zip_file, "w", compression=ZIP_DEFLATED) as archive:
                 for document in documents:
-                    if self._already_exported(document):
+                    if (
+                        export_run.filters.get("only_not_exported", True)
+                        and self._already_exported(document)
+                    ):
                         skipped_count += 1
                         self._create_item(
                             export_run=export_run,
@@ -151,6 +155,33 @@ class BuildDocumentImageExport:
                                 document,
                                 "skipped",
                                 "Dokument wurde bereits erfolgreich exportiert.",
+                            )
+                        )
+                        self._mark_processed(export_run)
+                        continue
+
+                    if (
+                        export_run.filters.get(
+                            "only_without_open_workflows",
+                            False,
+                        )
+                        and document.workflow_instances.filter(
+                            status=WorkflowInstance.Status.RUNNING,
+                        ).exists()
+                    ):
+                        skipped_count += 1
+                        self._create_item(
+                            export_run=export_run,
+                            document=document,
+                            document_file=None,
+                            status=ExportRunItem.Status.SKIPPED,
+                            message="Dokument besitzt einen offenen Workflow.",
+                        )
+                        log_rows.append(
+                            self._log_row(
+                                document,
+                                "skipped",
+                                "Dokument besitzt einen offenen Workflow.",
                             )
                         )
                         self._mark_processed(export_run)

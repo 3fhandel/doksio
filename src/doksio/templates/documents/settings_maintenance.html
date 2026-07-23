@@ -107,9 +107,23 @@
                             {% if job.include_children %}inkl. Kindboxen{% endif %}
                           </div>
                         </div>
-                        <span class="badge text-bg-{% if job.status == "completed" %}success{% elif job.status == "failed" %}danger{% elif job.status == "running" %}warning{% else %}secondary{% endif %}">
-                          {{ job.get_status_display }}
-                        </span>
+                        <div class="d-flex align-items-center gap-2">
+                          {% if job.is_resumable %}
+                            <span class="badge text-bg-danger">Unterbrochen</span>
+                          {% else %}
+                            <span class="badge text-bg-{% if job.status == "completed" %}success{% elif job.status == "failed" %}danger{% elif job.status == "running" %}warning{% else %}secondary{% endif %}">
+                              {{ job.get_status_display }}
+                            </span>
+                          {% endif %}
+                          {% if job.is_resumable %}
+                            <form method="post" action="{% url 'documents:settings_scan_optimization_resume' tenant.slug job.id %}">
+                              {% csrf_token %}
+                              <button class="btn btn-sm btn-outline-primary" type="submit">
+                                Fortsetzen
+                              </button>
+                            </form>
+                          {% endif %}
+                        </div>
                       </div>
                       <div
                         class="progress mb-2"

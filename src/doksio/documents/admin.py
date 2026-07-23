@@ -164,6 +164,9 @@ class DocumentBoxScanOptimizationJobAdmin(admin.ModelAdmin):
         "created_by",
         "started_at",
         "completed_at",
+        "heartbeat_at",
+        "lease_token",
+        "lease_expires_at",
         "created_at",
         "updated_at",
     ]

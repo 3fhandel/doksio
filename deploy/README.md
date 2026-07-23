@@ -32,6 +32,9 @@ Doksio deployment.
 - OCR is CPU-heavy. Start with `CELERY_WORKER_CONCURRENCY=1`,
   `CELERY_WORKER_PREFETCH_MULTIPLIER=1` and `OMP_THREAD_LIMIT=1`; raise these
   only after watching CPU load during larger imports.
+- Scan optimization jobs are persisted and resumed by Celery Beat after worker
+  or stack restarts. Keep `SCAN_OPTIMIZATION_LEASE_SECONDS` above the Celery
+  task time limit so one batch cannot run concurrently.
 - The default stack builds the Doksio image directly from the Git repository.
 - If `web` logs show missing application files, verify that the Stack was
   deployed from the repository root and that the compose path is exactly

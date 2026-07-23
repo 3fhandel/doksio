@@ -171,6 +171,14 @@ urlpatterns = [
         name="settings_maintenance",
     ),
     path(
+        (
+            "t/<slug:tenant_slug>/settings/maintenance/"
+            "scan-optimization/<int:job_id>/resume/"
+        ),
+        views.tenant_settings_scan_optimization_resume,
+        name="settings_scan_optimization_resume",
+    ),
+    path(
         "t/<slug:tenant_slug>/settings/import/new/",
         views.tenant_settings_import_source_create,
         name="settings_import_source_create",

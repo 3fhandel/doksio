@@ -10,6 +10,7 @@ from doksio.documents.policies import (
 )
 from doksio.exports.models import ExportRun, ExportRunItem
 from doksio.tenancy.models import Tenant
+from doksio.workflows.models import WorkflowInstance
 
 
 class DocumentImageExportForm(forms.Form):
@@ -56,6 +57,18 @@ class DocumentImageExportForm(forms.Form):
             format="%d.%m.%Y",
         ),
     )
+    only_without_open_workflows = forms.BooleanField(
+        label="Nur Dokumente ohne offenen Workflow",
+        required=False,
+        initial=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+    only_not_exported = forms.BooleanField(
+        label="Nur noch nicht exportierte Dokumente",
+        required=False,
+        initial=True,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
 
     def __init__(self, *args, tenant: Tenant, user, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -95,12 +108,18 @@ class DocumentImageExportForm(forms.Form):
             self.tenant,
             TenantPermissions.DOCUMENTS_EXPORT,
         )
-        exported_document_ids = ExportRunItem.objects.filter(
-            tenant=self.tenant,
-            status=ExportRunItem.Status.EXPORTED,
-            export_run__export_type=ExportRun.ExportType.DATEV_DOCUMENT_IMAGES,
-        ).values("document_id")
-        documents = documents.exclude(id__in=exported_document_ids)
+        if self.cleaned_data.get("only_not_exported"):
+            exported_document_ids = ExportRunItem.objects.filter(
+                tenant=self.tenant,
+                status=ExportRunItem.Status.EXPORTED,
+                export_run__export_type=ExportRun.ExportType.DATEV_DOCUMENT_IMAGES,
+            ).values("document_id")
+            documents = documents.exclude(id__in=exported_document_ids)
+
+        if self.cleaned_data.get("only_without_open_workflows"):
+            documents = documents.exclude(
+                workflow_instances__status=WorkflowInstance.Status.RUNNING,
+            )
 
         document_space = self.cleaned_data.get("document_space")
         if document_space is not None:
@@ -126,6 +145,12 @@ class DocumentImageExportForm(forms.Form):
             "document_space_id": document_space.id if document_space else None,
             "document_space_path": document_space.path if document_space else "",
             "include_children": bool(self.cleaned_data.get("include_children")),
+            "only_without_open_workflows": bool(
+                self.cleaned_data.get("only_without_open_workflows")
+            ),
+            "only_not_exported": bool(
+                self.cleaned_data.get("only_not_exported")
+            ),
             "document_date_from": (
                 self.cleaned_data["document_date_from"].isoformat()
                 if self.cleaned_data.get("document_date_from")

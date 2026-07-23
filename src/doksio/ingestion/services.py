@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import imaplib
 import mimetypes
+import re
 import shlex
 from contextlib import suppress
 from dataclasses import dataclass, field
+from datetime import datetime
 from email import policy
 from email.message import EmailMessage as ParsedEmailMessage
 from email.parser import BytesParser
-from email.utils import getaddresses
+from email.utils import getaddresses, parsedate_to_datetime
 from fnmatch import fnmatch
 from io import BytesIO
 from typing import BinaryIO
@@ -516,6 +518,41 @@ def _raw_message_from_fetch_data(data) -> bytes | None:
     return None
 
 
+def _email_received_at(
+    fetch_data,
+    message: ParsedEmailMessage,
+) -> datetime | None:
+    for item in fetch_data or []:
+        response_metadata = item[0] if isinstance(item, tuple) and item else item
+        if not isinstance(response_metadata, bytes):
+            continue
+        match = re.search(
+            rb'INTERNALDATE\s+"([^"]+)"',
+            response_metadata,
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            continue
+        with suppress(TypeError, ValueError, OverflowError):
+            received_at = parsedate_to_datetime(
+                match.group(1).decode("ascii", errors="replace")
+            )
+            if timezone.is_naive(received_at):
+                received_at = timezone.make_aware(received_at)
+            return received_at
+
+    for received_header in message.get_all("Received", []):
+        _separator, delimiter, timestamp = str(received_header).rpartition(";")
+        if not delimiter:
+            continue
+        with suppress(TypeError, ValueError, OverflowError):
+            received_at = parsedate_to_datetime(timestamp.strip())
+            if timezone.is_naive(received_at):
+                received_at = timezone.make_aware(received_at)
+            return received_at
+    return None
+
+
 @dataclass(frozen=True)
 class ProcessEmailImportSource:
     source: ImportSource
@@ -576,7 +613,7 @@ class ProcessEmailImportSource:
         email_settings: dict,
         result: EmailImportResult,
     ) -> None:
-        status, data = connection.fetch(message_id, "(RFC822)")
+        status, data = connection.fetch(message_id, "(RFC822 INTERNALDATE)")
         if not _imap_ok(status):
             result.errors.append(f"Mail {message_id!r} konnte nicht gelesen werden.")
             return
@@ -586,6 +623,7 @@ class ProcessEmailImportSource:
             return
 
         message = BytesParser(policy=policy.default).parsebytes(raw_message)
+        received_at = _email_received_at(data, message)
         attachment_scan = _matching_email_attachments(
             message,
             email_settings.get("attachment_pattern", "*"),
@@ -621,6 +659,7 @@ class ProcessEmailImportSource:
             self._import_attachment(
                 attachment=attachment,
                 message=message,
+                received_at=received_at,
                 result=result,
             )
 
@@ -650,6 +689,7 @@ class ProcessEmailImportSource:
         *,
         attachment: EmailImportAttachment,
         message: ParsedEmailMessage,
+        received_at,
         result: EmailImportResult,
     ) -> None:
         try:
@@ -658,7 +698,7 @@ class ProcessEmailImportSource:
                 source=self.source,
                 original_filename=attachment.filename,
             ).execute()
-            ImportDocument(
+            document, import_job = ImportDocument(
                 tenant=self.source.tenant,
                 source=self.source,
                 document_space=document_space,
@@ -670,6 +710,27 @@ class ProcessEmailImportSource:
                     "message_id": str(message.get("Message-ID", "")),
                     "subject": str(message.get("Subject", "")),
                     "from": _email_address_header(message, "From"),
+                    "received_at": (
+                        received_at.isoformat() if received_at is not None else ""
+                    ),
+                },
+            ).execute()
+            RecordAuditEvent(
+                tenant=self.source.tenant,
+                actor=None,
+                event_type="document.email_received",
+                object_type="documents.Document",
+                object_id=str(document.id),
+                data={
+                    "document_id": document.id,
+                    "import_job_id": import_job.id,
+                    "source_id": self.source.id,
+                    "sender": _email_address_header(message, "From"),
+                    "received_at": (
+                        received_at.isoformat() if received_at is not None else ""
+                    ),
+                    "subject": str(message.get("Subject", "")),
+                    "message_id": str(message.get("Message-ID", "")),
                 },
             ).execute()
             result.imported_documents += 1

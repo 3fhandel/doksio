@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date
+import uuid
+from datetime import date, timedelta
 from io import BytesIO
 from urllib.parse import quote
 
@@ -11,6 +12,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from django.utils import timezone
 
 from doksio.accounts.models import Notification, TenantMembership, UserProfile
 from doksio.accounts.services import EnsureDefaultTenantRoles
@@ -3560,6 +3562,8 @@ def test_scan_optimization_job_processes_documents_in_batches(monkeypatch):
     assert job.total_documents == 3
     assert job.candidates == 2
     assert job.skipped == 2
+    assert job.lease_token is None
+    assert job.lease_expires_at is None
     assert scheduled_job_ids == [job.id]
 
     scheduled_job_ids.clear()
@@ -3576,6 +3580,89 @@ def test_scan_optimization_job_processes_documents_in_batches(monkeypatch):
     assert AuditEvent.objects.filter(
         event_type="document_box.scan_optimization.completed",
         object_id=str(job.id),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_scan_optimization_job_does_not_run_while_lease_is_active(monkeypatch):
+    from doksio.documents.tasks import process_document_box_scan_optimization_job
+
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    job = CreateDocumentBoxScanOptimizationJob(
+        tenant=tenant,
+        document_space=space,
+    ).execute()
+    active_lease_token = uuid.uuid4()
+    job.status = DocumentBoxScanOptimizationJob.Status.RUNNING
+    job.lease_token = active_lease_token
+    job.lease_expires_at = timezone.now() + timedelta(minutes=10)
+    job.save(
+        update_fields=[
+            "status",
+            "lease_token",
+            "lease_expires_at",
+            "updated_at",
+        ]
+    )
+    scheduled_job_ids = []
+    monkeypatch.setattr(
+        "doksio.documents.tasks.process_document_box_scan_optimization_job.delay",
+        lambda job_id: scheduled_job_ids.append(job_id),
+    )
+
+    result = process_document_box_scan_optimization_job(job.id)
+
+    assert result["claimed"] is False
+    assert result["processed_documents"] == 0
+    assert scheduled_job_ids == []
+
+    resumed_result = process_document_box_scan_optimization_job(
+        job.id,
+        lease_token_value=str(active_lease_token),
+    )
+
+    assert resumed_result["claimed"] is True
+    assert resumed_result["status"] == DocumentBoxScanOptimizationJob.Status.COMPLETED
+
+
+@pytest.mark.django_db
+def test_stale_scan_optimization_jobs_are_automatically_requeued(monkeypatch):
+    from doksio.documents.tasks import resume_stale_scan_optimization_jobs
+
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    job = CreateDocumentBoxScanOptimizationJob(
+        tenant=tenant,
+        document_space=space,
+    ).execute()
+    stale_at = timezone.now() - timedelta(minutes=10)
+    DocumentBoxScanOptimizationJob.objects.filter(id=job.id).update(
+        status=DocumentBoxScanOptimizationJob.Status.RUNNING,
+        heartbeat_at=None,
+        lease_token=None,
+        lease_expires_at=None,
+        updated_at=stale_at,
+    )
+    scheduled_jobs = []
+    monkeypatch.setattr(
+        "doksio.documents.tasks.process_document_box_scan_optimization_job.delay",
+        lambda job_id, **kwargs: scheduled_jobs.append((job_id, kwargs)),
+    )
+
+    result = resume_stale_scan_optimization_jobs()
+
+    assert result == {"resumed_job_ids": [job.id], "count": 1}
+    assert len(scheduled_jobs) == 1
+    assert scheduled_jobs[0][0] == job.id
+    assert uuid.UUID(scheduled_jobs[0][1]["lease_token_value"])
+    job.refresh_from_db()
+    assert job.lease_token is not None
+    assert job.lease_expires_at > timezone.now()
+    assert AuditEvent.objects.filter(
+        event_type="document_box.scan_optimization.resumed",
+        object_id=str(job.id),
+        data__reason="automatic",
     ).exists()
 
 
@@ -3712,6 +3799,75 @@ def test_tenant_admin_can_start_scan_optimization_from_maintenance(
     assert "Scan-Speicher optimieren" in content
     assert "Letzte Optimierungen" in content
     assert "0 / 0 Dokumente geprüft" in content
+
+
+@pytest.mark.django_db
+def test_tenant_admin_can_resume_stale_scan_optimization_job(
+    client,
+    monkeypatch,
+):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    space = CreateDocumentSpace(
+        tenant=tenant,
+        name="Rechnungen",
+        slug="rechnungen",
+    ).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    job = CreateDocumentBoxScanOptimizationJob(
+        tenant=tenant,
+        document_space=space,
+        actor=user,
+    ).execute()
+    DocumentBoxScanOptimizationJob.objects.filter(id=job.id).update(
+        status=DocumentBoxScanOptimizationJob.Status.RUNNING,
+        heartbeat_at=None,
+        lease_token=None,
+        lease_expires_at=None,
+        updated_at=timezone.now() - timedelta(minutes=10),
+    )
+    scheduled_jobs = []
+    monkeypatch.setattr(
+        "doksio.documents.tasks.process_document_box_scan_optimization_job.delay",
+        lambda job_id, **kwargs: scheduled_jobs.append((job_id, kwargs)),
+    )
+    client.force_login(user)
+
+    maintenance_url = reverse(
+        "documents:settings_maintenance",
+        kwargs={"tenant_slug": tenant.slug},
+    )
+    get_response = client.get(maintenance_url)
+    post_response = client.post(
+        reverse(
+            "documents:settings_scan_optimization_resume",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "job_id": job.id,
+            },
+        )
+    )
+
+    assert get_response.status_code == 200
+    assert "Unterbrochen" in get_response.content.decode()
+    assert "Fortsetzen" in get_response.content.decode()
+    assert post_response.status_code == 302
+    assert scheduled_jobs == [
+        (job.id, {"resume_reason": "manual"}),
+    ]
+    assert AuditEvent.objects.filter(
+        event_type="document_box.scan_optimization.resume_requested",
+        actor=user,
+        object_id=str(job.id),
+    ).exists()
 
 
 @pytest.mark.django_db

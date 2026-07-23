@@ -74,6 +74,19 @@
                 </div>
               </div>
 
+              <div class="border-top pt-3 d-grid gap-2">
+                <div class="form-check">
+                  {{ form.only_without_open_workflows }}
+                  <label class="form-check-label" for="{{ form.only_without_open_workflows.id_for_label }}">{{ form.only_without_open_workflows.label }}</label>
+                  {{ form.only_without_open_workflows.errors }}
+                </div>
+                <div class="form-check">
+                  {{ form.only_not_exported }}
+                  <label class="form-check-label" for="{{ form.only_not_exported.id_for_label }}">{{ form.only_not_exported.label }}</label>
+                  {{ form.only_not_exported.errors }}
+                </div>
+              </div>
+
               <button class="btn btn-primary justify-content-center" type="submit">
                 {% include "includes/icons.html" with icon="package" %}
                 Exportlauf starten

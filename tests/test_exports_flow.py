@@ -15,9 +15,28 @@ from doksio.accounts.permissions import TenantPermissions
 from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
 from doksio.documents.services import CreateDocumentFromUpload, CreateDocumentSpace
+from doksio.exports.forms import DocumentImageExportForm
 from doksio.exports.models import ExportRun, ExportRunItem
 from doksio.exports.tasks import build_document_image_export
 from doksio.tenancy.models import Tenant
+from doksio.workflows.models import WorkflowInstance, WorkflowTemplate
+
+
+@pytest.mark.django_db
+def test_document_image_export_filter_defaults():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(username="alice")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+
+    form = DocumentImageExportForm(tenant=tenant, user=user)
+
+    assert form.fields["only_without_open_workflows"].initial is False
+    assert form.fields["only_not_exported"].initial is True
 
 
 @pytest.mark.django_db
@@ -73,6 +92,7 @@ def test_document_image_export_starts_zip_export_for_enabled_boxes(
         {
             "document_space": space.id,
             "include_children": "on",
+            "only_not_exported": "on",
         },
     )
 
@@ -84,6 +104,8 @@ def test_document_image_export_starts_zip_export_for_enabled_boxes(
     assert export_run.processed_count == 1
     assert export_run.exported_count == 1
     assert export_run.warning_count == 0
+    assert export_run.filters["only_not_exported"] is True
+    assert export_run.filters["only_without_open_workflows"] is False
     assert export_run.filename
     assert export_run.storage_key
     assert len(export_run.sha256) == 64
@@ -206,7 +228,7 @@ def test_document_image_export_ignores_boxes_without_export_flag(
 
     response = client.post(
         reverse("exports:document_images", kwargs={"tenant_slug": tenant.slug}),
-        {},
+        {"only_not_exported": "on"},
     )
 
     assert response.status_code == 302
@@ -327,8 +349,20 @@ def test_document_image_export_does_not_export_same_document_twice(
     )
     url = reverse("exports:document_images", kwargs={"tenant_slug": tenant.slug})
 
-    first_response = client.post(url, {"document_space": space.id})
-    second_response = client.post(url, {"document_space": space.id})
+    first_response = client.post(
+        url,
+        {
+            "document_space": space.id,
+            "only_not_exported": "on",
+        },
+    )
+    second_response = client.post(
+        url,
+        {
+            "document_space": space.id,
+            "only_not_exported": "on",
+        },
+    )
 
     assert first_response.status_code == 302
     assert second_response.status_code == 200
@@ -339,3 +373,101 @@ def test_document_image_export_does_not_export_same_document_twice(
         document=document,
         status=ExportRunItem.Status.EXPORTED,
     ).count() == 1
+
+    repeated_response = client.post(
+        url,
+        {
+            "document_space": space.id,
+        },
+    )
+
+    assert repeated_response.status_code == 302
+    assert ExportRun.objects.count() == 2
+    assert ExportRunItem.objects.filter(
+        document=document,
+        status=ExportRunItem.Status.EXPORTED,
+    ).count() == 2
+
+
+@pytest.mark.django_db
+def test_document_image_export_can_exclude_documents_with_open_workflow(
+    client,
+    monkeypatch,
+):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(
+        tenant=tenant,
+        name="Rechnungen",
+        datev_document_image_export_enabled=True,
+    ).execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    roles["member"].permissions.add(
+        roles["admin"].permissions.get(code=TenantPermissions.DOCUMENTS_EXPORT)
+    )
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    open_document, _open_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        space=space,
+        file_obj=SimpleUploadedFile("offen.pdf", b"open"),
+        original_filename="offen.pdf",
+        content_type="application/pdf",
+        title="Offener Workflow",
+        created_by=user,
+        auto_start_ocr=False,
+        auto_extract_einvoice=False,
+        auto_start_workflows=False,
+    ).execute()
+    exportable_document, _exportable_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        space=space,
+        file_obj=SimpleUploadedFile("fertig.pdf", b"ready"),
+        original_filename="fertig.pdf",
+        content_type="application/pdf",
+        title="Ohne offenen Workflow",
+        created_by=user,
+        auto_start_ocr=False,
+        auto_extract_einvoice=False,
+        auto_start_workflows=False,
+    ).execute()
+    template = WorkflowTemplate.objects.create(
+        tenant=tenant,
+        name="Rechnungsprüfung",
+        slug="rechnungspruefung",
+    )
+    WorkflowInstance.objects.create(
+        tenant=tenant,
+        template=template,
+        document=open_document,
+        status=WorkflowInstance.Status.RUNNING,
+    )
+    client.force_login(user)
+    monkeypatch.setattr(
+        "doksio.exports.views.build_document_image_export.delay",
+        lambda export_run_id: build_document_image_export(export_run_id),
+    )
+
+    response = client.post(
+        reverse("exports:document_images", kwargs={"tenant_slug": tenant.slug}),
+        {
+            "document_space": space.id,
+            "only_without_open_workflows": "on",
+            "only_not_exported": "on",
+        },
+    )
+
+    assert response.status_code == 302
+    export_run = ExportRun.objects.get()
+    assert export_run.filters["only_without_open_workflows"] is True
+    assert not ExportRunItem.objects.filter(document=open_document).exists()
+    assert ExportRunItem.objects.filter(
+        document=exportable_document,
+        status=ExportRunItem.Status.EXPORTED,
+    ).exists()

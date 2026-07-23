@@ -44,7 +44,15 @@ class FakeImapConnection:
 
     def fetch(self, message_id, _query):
         self.actions.append(("fetch", message_id))
-        return "OK", [(b"RFC822", self.messages[message_id])]
+        return "OK", [
+            (
+                (
+                    b'1 (RFC822 {123} INTERNALDATE '
+                    b'"23-Jul-2026 09:15:00 +0200")'
+                ),
+                self.messages[message_id],
+            )
+        ]
 
     def store(self, message_id, command, flags):
         self.actions.append(("store", message_id, command, flags))
@@ -948,7 +956,7 @@ def test_import_document_passes_source_ocr_title_policy_to_ocr_job(monkeypatch):
 
 
 @pytest.mark.django_db
-def test_process_email_import_source_imports_matching_attachment():
+def test_process_email_import_source_imports_matching_attachment(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
     source = ImportSource.objects.create(
@@ -988,6 +996,40 @@ def test_process_email_import_source_imports_matching_attachment():
     )
     assert ("store", b"1", "+FLAGS", "\\Seen") in imap.actions
     assert source.settings["email"]["last_result"]["imported_documents"] == 1
+    import_job = ImportJob.objects.get(document=document)
+    assert import_job.metadata["from"] == "sender@example.test"
+    assert import_job.metadata["received_at"] == "2026-07-23T09:15:00+02:00"
+    email_event = AuditEvent.objects.get(event_type="document.email_received")
+    assert email_event.object_id == str(document.id)
+    assert email_event.data["sender"] == "sender@example.test"
+    assert email_event.data["received_at"] == "2026-07-23T09:15:00+02:00"
+
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="viewer",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    client.force_login(user)
+    detail_response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "document_id": document.id,
+            },
+        )
+    )
+    detail_content = detail_response.content.decode()
+    assert detail_response.status_code == 200
+    assert "Per E-Mail empfangen" in detail_content
+    assert "sender@example.test" in detail_content
+    assert "23.07." in detail_content
+    assert "09:15" in detail_content
 
 
 @pytest.mark.django_db

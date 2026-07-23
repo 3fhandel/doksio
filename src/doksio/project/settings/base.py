@@ -173,6 +173,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "doksio.ingestion.tasks.process_due_email_import_sources",
         "schedule": 60.0,
     },
+    "resume-stale-scan-optimization-jobs": {
+        "task": "doksio.documents.tasks.resume_stale_scan_optimization_jobs",
+        "schedule": 60.0,
+    },
 }
 
 OCR_LANGUAGE = os.getenv("OCR_LANGUAGE", "deu+eng")
@@ -184,6 +188,14 @@ OCR_IMAGE_ENHANCED_MAX_PAGES = int(os.getenv("OCR_IMAGE_ENHANCED_MAX_PAGES", "1"
 OCR_AUTO_START_ON_UPLOAD = env_bool("OCR_AUTO_START_ON_UPLOAD", True)
 OCR_RUN_INLINE = env_bool("OCR_RUN_INLINE", DEBUG)
 SCAN_OPTIMIZATION_BATCH_SIZE = env_int("SCAN_OPTIMIZATION_BATCH_SIZE", 100)
+SCAN_OPTIMIZATION_STALE_AFTER_SECONDS = env_int(
+    "SCAN_OPTIMIZATION_STALE_AFTER_SECONDS",
+    120,
+)
+SCAN_OPTIMIZATION_LEASE_SECONDS = env_int(
+    "SCAN_OPTIMIZATION_LEASE_SECONDS",
+    32 * 60,
+)
 
 STORAGES = {
     "default": {

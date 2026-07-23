@@ -21,6 +21,7 @@ from django.http import (
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 
@@ -65,6 +66,7 @@ from doksio.documents.mentions import mention_suggestions_for_tenant
 from doksio.documents.metadata import effective_metadata_fields
 from doksio.documents.models import (
     Document,
+    DocumentBoxScanOptimizationJob,
     DocumentFile,
     DocumentImportBatch,
     DocumentImportBatchItem,
@@ -154,6 +156,7 @@ DOCUMENT_LOG_EVENT_LABELS = {
     "document.deleted": "Dokument gelöscht",
     "document.shared": "Dokument geteilt",
     "document.exported": "Dokument exportiert",
+    "document.email_received": "Per E-Mail empfangen",
     "document_import_batch.created": "Stapelimport angelegt",
     "document_import_batch.discarded": "Stapelimport verworfen",
     "document_import_batch.finalized": "Stapelimport abgeschlossen",
@@ -714,13 +717,24 @@ def _document_log_entries(document: Document):
         .select_related("actor")
         .order_by("-created_at", "-id")
     )
-    return [
-        {
-            "event": event,
-            "label": DOCUMENT_LOG_EVENT_LABELS.get(event.event_type, event.event_type),
-        }
-        for event in events
-    ]
+    entries = []
+    for event in events:
+        display_at = event.created_at
+        if event.event_type == "document.email_received":
+            received_at = parse_datetime(event.data.get("received_at", ""))
+            if received_at is not None:
+                display_at = received_at
+        entries.append(
+            {
+                "event": event,
+                "display_at": display_at,
+                "label": DOCUMENT_LOG_EVENT_LABELS.get(
+                    event.event_type,
+                    event.event_type,
+                ),
+            }
+        )
+    return entries
 
 
 AUDIT_EVENT_LABELS = DOCUMENT_LOG_EVENT_LABELS | {
@@ -2979,6 +2993,61 @@ def tenant_settings_maintenance(
             "active_settings_section": "maintenance",
         },
     )
+
+
+def tenant_settings_scan_optimization_resume(
+    request: HttpRequest,
+    tenant_slug: str,
+    job_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    job = get_object_or_404(
+        DocumentBoxScanOptimizationJob.objects.select_related("document_space"),
+        id=job_id,
+        tenant=tenant,
+    )
+    if job.is_resumable:
+        from doksio.documents.tasks import (
+            process_document_box_scan_optimization_job,
+        )
+
+        process_document_box_scan_optimization_job.delay(
+            job.id,
+            resume_reason="manual",
+        )
+        RecordAuditEvent(
+            tenant=tenant,
+            actor=request.user,
+            event_type="document_box.scan_optimization.resume_requested",
+            object_type="documents.DocumentBoxScanOptimizationJob",
+            object_id=str(job.id),
+            data={
+                "space_path": job.document_space.path,
+                "processed_documents": job.processed_documents,
+                "total_documents": job.total_documents,
+            },
+        ).execute()
+        messages.success(
+            request,
+            "Die Fortsetzung der Scan-Optimierung wurde angefordert.",
+        )
+    elif job.status in {
+        DocumentBoxScanOptimizationJob.Status.COMPLETED,
+        DocumentBoxScanOptimizationJob.Status.FAILED,
+    }:
+        messages.info(request, "Dieser Wartungsjob ist bereits beendet.")
+    else:
+        messages.info(request, "Der Wartungsjob wird derzeit noch verarbeitet.")
+
+    return redirect("documents:settings_maintenance", tenant_slug=tenant.slug)
 
 
 def tenant_settings_import_source_create(

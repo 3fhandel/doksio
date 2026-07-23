@@ -667,9 +667,9 @@
                 {% for entry in document_log_entries %}
                   {% with event=entry.event %}
                     <div class="document-timeline-row">
-                      <time class="document-timeline-time" datetime="{{ event.created_at|date:'c' }}">
-                        {{ event.created_at|date:"d.m." }}<br>
-                        {{ event.created_at|date:"H:i" }}
+                      <time class="document-timeline-time" datetime="{{ entry.display_at|date:'c' }}">
+                        {{ entry.display_at|date:"d.m." }}<br>
+                        {{ entry.display_at|date:"H:i" }}
                       </time>
                       <div class="document-timeline-main">
                         <div class="document-timeline-title">{{ entry.label }}</div>
@@ -688,6 +688,9 @@
                             {% if event.data.tags %}{{ event.data.tags|join:", " }}{% endif %}
                           {% elif event.event_type == "document.exported" %}
                             {{ event.data.exported_filename|default:"DATEV-Belegbild-Export" }}
+                          {% elif event.event_type == "document.email_received" %}
+                            {{ event.data.sender|default:"Unbekannter Absender" }}
+                            {% if event.data.subject %} · {{ event.data.subject }}{% endif %}
                           {% endif %}
                         </div>
                       </div>
