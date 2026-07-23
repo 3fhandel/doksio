@@ -236,9 +236,15 @@
           <h3 class="h6 mb-3">Erfolgreicher Import</h3>
           <div class="row g-3">
             <div class="col-12">
-              <div class="form-check">
-                {{ form.email_success_reply_enabled }}
-                <label class="form-check-label" for="{{ form.email_success_reply_enabled.id_for_label }}">Antwort senden</label>
+              <div class="d-flex flex-wrap gap-4">
+                <div class="form-check">
+                  {{ form.email_success_reply_enabled }}
+                  <label class="form-check-label" for="{{ form.email_success_reply_enabled.id_for_label }}">Antwort senden</label>
+                </div>
+                <div class="form-check">
+                  {{ form.email_success_reply_once_per_sender }}
+                  <label class="form-check-label" for="{{ form.email_success_reply_once_per_sender.id_for_label }}">Pro Absender nur einmal senden</label>
+                </div>
               </div>
             </div>
             <div class="col-md-5">
@@ -267,9 +273,15 @@
               {{ form.email_unprocessable_move_to.errors }}
             </div>
             <div class="col-12">
-              <div class="form-check">
-                {{ form.email_unprocessable_reply_enabled }}
-                <label class="form-check-label" for="{{ form.email_unprocessable_reply_enabled.id_for_label }}">Antwort senden</label>
+              <div class="d-flex flex-wrap gap-4">
+                <div class="form-check">
+                  {{ form.email_unprocessable_reply_enabled }}
+                  <label class="form-check-label" for="{{ form.email_unprocessable_reply_enabled.id_for_label }}">Antwort senden</label>
+                </div>
+                <div class="form-check">
+                  {{ form.email_unprocessable_reply_once_per_sender }}
+                  <label class="form-check-label" for="{{ form.email_unprocessable_reply_once_per_sender.id_for_label }}">Pro Absender nur einmal senden</label>
+                </div>
               </div>
             </div>
             <div class="col-md-5">
@@ -352,6 +364,69 @@
 
     <button class="btn btn-primary" type="submit">{{ submit_label }}</button>
   </form>
+
+  {% if import_source and import_source.source_type == "email" %}
+    <section class="app-card p-4 mt-4">
+      <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+        <div>
+          <h3 class="h5 mb-1">Bereits benachrichtigte Absender</h3>
+          <p class="text-secondary small mb-0">
+            Diese Einträge verhindern bei aktivierter Begrenzung einen erneuten Versand derselben Antwortart.
+          </p>
+        </div>
+        {% if auto_reply_recipients_page_obj %}
+          <form method="post" action="{% url 'documents:settings_import_source_auto_reply_recipients_reset' tenant.slug import_source.id %}">
+            {% csrf_token %}
+            <button class="btn btn-sm btn-outline-danger" type="submit">
+              Liste zurücksetzen
+            </button>
+          </form>
+        {% endif %}
+      </div>
+
+      {% if auto_reply_recipients_page_obj %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th scope="col">Absender</th>
+                <th scope="col">Antwortart</th>
+                <th scope="col">Gesendet</th>
+                <th scope="col" class="text-end"><span class="visually-hidden">Aktionen</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for recipient in auto_reply_recipients_page_obj %}
+                <tr>
+                  <td>{{ recipient.recipient }}</td>
+                  <td>{{ recipient.get_reply_type_display }}</td>
+                  <td>
+                    {% if recipient.sent_at %}
+                      {{ recipient.sent_at|date:"d.m.Y H:i" }}
+                    {% else %}
+                      Versand wird verarbeitet
+                    {% endif %}
+                  </td>
+                  <td class="text-end">
+                    <form method="post" action="{% url 'documents:settings_import_source_auto_reply_recipients_reset' tenant.slug import_source.id %}">
+                      {% csrf_token %}
+                      <input type="hidden" name="recipient_id" value="{{ recipient.id }}">
+                      <button class="btn btn-sm btn-outline-secondary" type="submit">
+                        Zurücksetzen
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% include "includes/pagination.html" with page_obj=auto_reply_recipients_page_obj page_param="auto_replies_page" label="Absenderseiten" %}
+      {% else %}
+        <p class="text-secondary small mb-0">Noch keine Absender gespeichert.</p>
+      {% endif %}
+    </section>
+  {% endif %}
 
   {% if import_source and import_source.source_type == "http_api" %}
     <section class="app-card p-4 mt-4">

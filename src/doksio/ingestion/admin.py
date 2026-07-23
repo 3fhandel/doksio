@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from django.contrib import admin
 
-from doksio.ingestion.models import ImportJob, ImportSource, TenantSmtpSettings
+from doksio.ingestion.models import (
+    EmailAutoReplyRecipient,
+    ImportJob,
+    ImportSource,
+    TenantSmtpSettings,
+)
 
 
 @admin.register(ImportSource)
@@ -40,3 +45,11 @@ class TenantSmtpSettingsAdmin(admin.ModelAdmin):
     list_display = ["tenant", "host", "from_email", "is_active", "updated_at"]
     list_filter = ["is_active", "security"]
     search_fields = ["tenant__name", "host", "from_email"]
+
+
+@admin.register(EmailAutoReplyRecipient)
+class EmailAutoReplyRecipientAdmin(admin.ModelAdmin):
+    list_display = ["recipient", "tenant", "source", "reply_type", "sent_at"]
+    list_filter = ["tenant", "source", "reply_type"]
+    search_fields = ["recipient", "subject", "source__name"]
+    readonly_fields = ["created_at", "sent_at"]

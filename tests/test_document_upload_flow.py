@@ -1264,7 +1264,10 @@ def test_document_detail_can_send_original_file_as_email_attachment(
         sent_messages.append(email_message)
         return 1
 
-    monkeypatch.setattr("doksio.documents.views.EmailMessage.send", fake_send)
+    monkeypatch.setattr(
+        "doksio.documents.views.EmailMultiAlternatives.send",
+        fake_send,
+    )
     client.force_login(user)
 
     response = client.post(
@@ -1286,8 +1289,21 @@ def test_document_detail_can_send_original_file_as_email_attachment(
     assert email_message.subject == "Doksio Dokument: Invoice 4711"
     assert "Bitte prüfen." in email_message.body
     assert "Dokument in Doksio:" in email_message.body
+    assert email_message.alternatives[0][1] == "text/html"
+    assert "Dokument in Doksio öffnen" in email_message.alternatives[0][0]
     assert email_message.attachments[0][0] == "invoice.pdf"
     assert email_message.attachments[0][1] == b"invoice content"
+    mime_message = email_message.message()
+    assert mime_message.get_content_type() == "multipart/mixed"
+    assert any(
+        part.get("Content-ID") == "<doksio-logo>"
+        for part in mime_message.walk()
+    )
+    assert any(
+        part.get_filename() == "invoice.pdf"
+        and part.get_content_disposition() == "attachment"
+        for part in mime_message.walk()
+    )
     assert email_message.attachments[0][2] == "application/pdf"
     assert AuditEvent.objects.filter(
         event_type="document.shared",
@@ -2155,7 +2171,10 @@ def test_add_document_comment_can_send_mention_email_without_in_app_notification
     assert len(sent_messages) == 1
     assert sent_messages[0].to == ["bob@example.test"]
     assert "Du wurdest erwähnt" in sent_messages[0].subject
-    assert "Invoice 4711" not in sent_messages[0].body
+    assert "Dokument: Invoice 4711" in sent_messages[0].body
+    assert sent_messages[0].alternatives[0][1] == "text/html"
+    assert "Dokument: Invoice 4711" in sent_messages[0].alternatives[0][0]
+    assert "In Doksio öffnen" in sent_messages[0].alternatives[0][0]
 
 
 @pytest.mark.django_db

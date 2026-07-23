@@ -307,6 +307,11 @@ class ImportSourceForm(forms.Form):
         required=False,
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
+    email_success_reply_once_per_sender = forms.BooleanField(
+        label="Pro Absender nur einmal senden",
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
     email_success_reply_subject = forms.CharField(
         label="Betreff",
         required=False,
@@ -332,6 +337,11 @@ class ImportSourceForm(forms.Form):
     )
     email_unprocessable_reply_enabled = forms.BooleanField(
         label="Antwort bei nicht importierbarer Mail senden",
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+    email_unprocessable_reply_once_per_sender = forms.BooleanField(
+        label="Pro Absender nur einmal senden",
         required=False,
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
@@ -444,6 +454,10 @@ class ImportSourceForm(forms.Form):
                 "success_reply_enabled",
                 False,
             ),
+            "email_success_reply_once_per_sender": email.get(
+                "success_reply_once_per_sender",
+                False,
+            ),
             "email_success_reply_subject": email.get(
                 "success_reply_subject",
                 "Ihre Dokumente wurden importiert",
@@ -459,6 +473,10 @@ class ImportSourceForm(forms.Form):
             ),
             "email_unprocessable_reply_enabled": email.get(
                 "unprocessable_reply_enabled",
+                False,
+            ),
+            "email_unprocessable_reply_once_per_sender": email.get(
+                "unprocessable_reply_once_per_sender",
                 False,
             ),
             "email_unprocessable_reply_subject": email.get(
@@ -689,6 +707,9 @@ class ImportSourceForm(forms.Form):
                     "success_reply_enabled": self.cleaned_data[
                         "email_success_reply_enabled"
                     ],
+                    "success_reply_once_per_sender": self.cleaned_data[
+                        "email_success_reply_once_per_sender"
+                    ],
                     "success_reply_subject": self.cleaned_data[
                         "email_success_reply_subject"
                     ],
@@ -703,6 +724,9 @@ class ImportSourceForm(forms.Form):
                     ],
                     "unprocessable_reply_enabled": self.cleaned_data[
                         "email_unprocessable_reply_enabled"
+                    ],
+                    "unprocessable_reply_once_per_sender": self.cleaned_data[
+                        "email_unprocessable_reply_once_per_sender"
                     ],
                     "unprocessable_reply_subject": self.cleaned_data[
                         "email_unprocessable_reply_subject"

@@ -13,7 +13,12 @@ from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
 from doksio.documents.models import Document, DocumentFile, DocumentTagAssignment
 from doksio.documents.services import CreateDocumentSpace, DuplicateDocumentError
-from doksio.ingestion.models import ImportJob, ImportSource, TenantSmtpSettings
+from doksio.ingestion.models import (
+    EmailAutoReplyRecipient,
+    ImportJob,
+    ImportSource,
+    TenantSmtpSettings,
+)
 from doksio.ingestion.services import ImportDocument, ProcessEmailImportSource
 from doksio.ocr.models import OcrJob
 from doksio.tenancy.models import Tenant
@@ -1157,6 +1162,166 @@ def test_process_email_import_source_handles_unprocessable_message(monkeypatch):
     assert ("store", b"1", "+FLAGS", "\\Deleted") in imap.actions
     assert sent_messages[0].to == ["absender@example.test"]
     assert sent_messages[0].subject == "Import nicht möglich"
+    assert sent_messages[0].alternatives[0][1] == "text/html"
+    assert "Nicht importierbare Mail" not in sent_messages[0].alternatives[0][0]
+    assert "Bitte senden Sie einen PDF-Anhang." in sent_messages[0].alternatives[0][0]
+    assert "Falls der Button nicht funktioniert" not in sent_messages[0].alternatives[0][0]
+    assert "https://github.com/3fhandel/doksio" in sent_messages[0].alternatives[0][0]
+    mime_message = sent_messages[0].message()
+    assert "multipart/related" in {
+        part.get_content_type() for part in mime_message.walk()
+    }
+    assert any(
+        part.get("Content-ID") == "<doksio-logo>"
+        for part in mime_message.walk()
+    )
+
+
+@pytest.mark.django_db
+def test_email_auto_reply_can_be_limited_once_per_sender_and_reply_type(
+    monkeypatch,
+):
+    sent_messages = []
+    monkeypatch.setattr(
+        "doksio.ingestion.services.EmailMultiAlternatives.send",
+        lambda self: sent_messages.append(self) or 1,
+    )
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    TenantSmtpSettings.objects.create(
+        tenant=tenant,
+        host="smtp.example.test",
+        from_email="doksio@example.test",
+        is_active=True,
+    )
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Rechnungsmail",
+        source_type=ImportSource.SourceType.EMAIL,
+        settings={
+            "email": {
+                "mailbox": "INBOX",
+                "search_criteria": "ALL",
+                "attachment_pattern": "*.pdf",
+                "mark_seen": True,
+                "success_reply_enabled": True,
+                "success_reply_once_per_sender": True,
+                "success_reply_subject": "Import erfolgreich",
+                "success_reply_body": "Ihre Dokumente wurden importiert.",
+                "unprocessable_action": "mark_seen",
+                "unprocessable_reply_enabled": True,
+                "unprocessable_reply_once_per_sender": True,
+                "unprocessable_reply_subject": "Import nicht möglich",
+                "unprocessable_reply_body": "Bitte senden Sie einen PDF-Anhang.",
+            }
+        },
+        auto_start_ocr=False,
+        extract_einvoice=False,
+        start_workflows=False,
+    )
+    imap = FakeImapConnection(
+        {
+            b"1": _raw_email(
+                message_id="<mail-1@example.test>",
+                sender="Max Mustermann <ABSENDER@example.test>",
+                attachment_name="rechnung-1.pdf",
+                attachment_content=MINIMAL_PDF_BYTES + b"1",
+            ),
+            b"2": _raw_email(
+                message_id="<mail-2@example.test>",
+                sender="absender@example.test",
+                attachment_name="rechnung-2.pdf",
+                attachment_content=MINIMAL_PDF_BYTES + b"2",
+            ),
+            b"3": _raw_email(
+                message_id="<mail-3@example.test>",
+                sender="absender@example.test",
+                attachment_name=None,
+            ),
+        }
+    )
+
+    result = ProcessEmailImportSource(
+        source=source,
+        imap_factory=lambda _settings: imap,
+    ).execute()
+
+    assert result.imported_documents == 2
+    assert result.unprocessable_messages == 1
+    assert len(sent_messages) == 2
+    assert {message.subject for message in sent_messages} == {
+        "Import erfolgreich",
+        "Import nicht möglich",
+    }
+    assert set(
+        EmailAutoReplyRecipient.objects.values_list(
+            "recipient",
+            "reply_type",
+        )
+    ) == {
+        (
+            "absender@example.test",
+            EmailAutoReplyRecipient.ReplyType.SUCCESS,
+        ),
+        (
+            "absender@example.test",
+            EmailAutoReplyRecipient.ReplyType.UNPROCESSABLE,
+        ),
+    }
+    assert not EmailAutoReplyRecipient.objects.filter(sent_at=None).exists()
+    assert AuditEvent.objects.filter(
+        event_type="email_import_reply.suppressed"
+    ).count() == 1
+
+
+@pytest.mark.django_db
+def test_failed_email_auto_reply_does_not_block_later_retry(monkeypatch):
+    def fail_to_send(_message):
+        raise RuntimeError("SMTP nicht erreichbar")
+
+    monkeypatch.setattr(
+        "doksio.ingestion.services.EmailMultiAlternatives.send",
+        fail_to_send,
+    )
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    TenantSmtpSettings.objects.create(
+        tenant=tenant,
+        host="smtp.example.test",
+        from_email="doksio@example.test",
+        is_active=True,
+    )
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Rechnungsmail",
+        source_type=ImportSource.SourceType.EMAIL,
+        settings={
+            "email": {
+                "mailbox": "INBOX",
+                "search_criteria": "UNSEEN",
+                "attachment_pattern": "*.pdf",
+                "unprocessable_action": "keep",
+                "unprocessable_reply_enabled": True,
+                "unprocessable_reply_once_per_sender": True,
+                "unprocessable_reply_body": "Bitte senden Sie einen Anhang.",
+            }
+        },
+        auto_start_ocr=False,
+        extract_einvoice=False,
+        start_workflows=False,
+    )
+
+    with pytest.raises(RuntimeError, match="SMTP nicht erreichbar"):
+        ProcessEmailImportSource(
+            source=source,
+            imap_factory=lambda _settings: FakeImapConnection(
+                {b"1": _raw_email(attachment_name=None)}
+            ),
+        ).execute()
+
+    assert not EmailAutoReplyRecipient.objects.exists()
 
 
 @pytest.mark.django_db
@@ -1226,10 +1391,12 @@ def test_tenant_admin_can_create_folder_and_email_import_source_settings(client)
             "email_delete_after_import": "on",
             "email_move_processed_to": "Archiv/Doksio",
             "email_success_reply_enabled": "on",
+            "email_success_reply_once_per_sender": "on",
             "email_success_reply_subject": "Import erfolgreich",
             "email_success_reply_body": "Ihre Dokumente wurden importiert.",
             "email_unprocessable_action": "delete",
             "email_unprocessable_reply_enabled": "on",
+            "email_unprocessable_reply_once_per_sender": "on",
             "email_unprocessable_reply_subject": "Import nicht möglich",
             "email_unprocessable_reply_body": "Bitte senden Sie einen Anhang.",
             "is_active": "on",
@@ -1242,9 +1409,74 @@ def test_tenant_admin_can_create_folder_and_email_import_source_settings(client)
     assert source.settings["email"]["password"] == "mail-secret"
     assert source.settings["email"]["delete_after_import"] is True
     assert source.settings["email"]["success_reply_enabled"] is True
+    assert source.settings["email"]["success_reply_once_per_sender"] is True
     assert source.settings["email"]["success_reply_subject"] == "Import erfolgreich"
     assert source.settings["email"]["unprocessable_action"] == "delete"
     assert source.settings["email"]["unprocessable_reply_enabled"] is True
+    assert (
+        source.settings["email"]["unprocessable_reply_once_per_sender"] is True
+    )
+
+
+@pytest.mark.django_db
+def test_tenant_admin_can_reset_email_auto_reply_recipient(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Rechnungsmail",
+        source_type=ImportSource.SourceType.EMAIL,
+    )
+    recipient = EmailAutoReplyRecipient.objects.create(
+        tenant=tenant,
+        source=source,
+        recipient="absender@example.test",
+        reply_type=EmailAutoReplyRecipient.ReplyType.SUCCESS,
+    )
+    client.force_login(user)
+
+    edit_response = client.get(
+        reverse(
+            "documents:settings_import_source_edit",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "source_id": source.id,
+            },
+        )
+    )
+
+    assert edit_response.status_code == 200
+    assert "Pro Absender nur einmal senden" in edit_response.content.decode()
+    assert "absender@example.test" in edit_response.content.decode()
+
+    response = client.post(
+        reverse(
+            "documents:settings_import_source_auto_reply_recipients_reset",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "source_id": source.id,
+            },
+        ),
+        {"recipient_id": str(recipient.id)},
+    )
+
+    assert response.status_code == 302
+    assert not EmailAutoReplyRecipient.objects.exists()
+    assert AuditEvent.objects.filter(
+        event_type="email_import_reply.recipients_reset",
+        actor=user,
+    ).exists()
 
 
 @pytest.mark.django_db
@@ -1328,7 +1560,10 @@ def test_tenant_admin_can_send_smtp_test_mail(client, monkeypatch):
         sent_messages.append(message)
         return 1
 
-    monkeypatch.setattr("doksio.documents.views.EmailMessage.send", fake_send)
+    monkeypatch.setattr(
+        "doksio.documents.views.EmailMultiAlternatives.send",
+        fake_send,
+    )
     client.force_login(user)
 
     response = client.post(
@@ -1343,6 +1578,8 @@ def test_tenant_admin_can_send_smtp_test_mail(client, monkeypatch):
     assert len(sent_messages) == 1
     assert sent_messages[0].to == ["admin@example.test"]
     assert sent_messages[0].subject == "Doksio SMTP-Test"
+    assert sent_messages[0].alternatives[0][1] == "text/html"
+    assert "SMTP-Verbindung erfolgreich" in sent_messages[0].alternatives[0][0]
     assert AuditEvent.objects.filter(
         tenant=tenant,
         event_type="smtp.test_sent",
@@ -1372,7 +1609,10 @@ def test_tenant_admin_cannot_send_smtp_test_without_active_settings(
         sent_messages.append(message)
         return 1
 
-    monkeypatch.setattr("doksio.documents.views.EmailMessage.send", fake_send)
+    monkeypatch.setattr(
+        "doksio.documents.views.EmailMultiAlternatives.send",
+        fake_send,
+    )
     client.force_login(user)
 
     response = client.post(

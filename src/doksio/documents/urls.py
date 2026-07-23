@@ -186,6 +186,14 @@ urlpatterns = [
         name="settings_import_source_edit",
     ),
     path(
+        (
+            "t/<slug:tenant_slug>/settings/import/<int:source_id>/"
+            "auto-reply-recipients/reset/"
+        ),
+        views.tenant_settings_import_source_auto_reply_recipients_reset,
+        name="settings_import_source_auto_reply_recipients_reset",
+    ),
+    path(
         "t/<slug:tenant_slug>/settings/import/<int:source_id>/script/",
         views.tenant_settings_import_source_script,
         name="settings_import_source_script",

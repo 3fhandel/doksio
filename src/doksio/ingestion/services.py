@@ -10,12 +10,13 @@ from dataclasses import dataclass, field
 from email import policy
 from email.message import EmailMessage as ParsedEmailMessage
 from email.parser import BytesParser
+from email.utils import getaddresses
 from fnmatch import fnmatch
 from io import BytesIO
 from typing import BinaryIO
 
 from django.contrib.auth import get_user_model
-from django.core.mail import EmailMultiAlternatives, get_connection
+from django.core.mail import get_connection
 from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
@@ -30,7 +31,16 @@ from doksio.documents.services import (
     DuplicateDocumentError,
     SetDocumentTags,
 )
-from doksio.ingestion.models import ImportJob, ImportSource, TenantSmtpSettings
+from doksio.ingestion.models import (
+    EmailAutoReplyRecipient,
+    ImportJob,
+    ImportSource,
+    TenantSmtpSettings,
+)
+from doksio.project.email import (
+    BrandedEmailMultiAlternatives as EmailMultiAlternatives,
+    attach_branded_html,
+)
 from doksio.tenancy.models import Tenant
 
 
@@ -385,23 +395,59 @@ def _smtp_connection(smtp_settings: TenantSmtpSettings):
     )
 
 
+def _email_reply_recipient(original_message: ParsedEmailMessage) -> str:
+    header_values = original_message.get_all("Reply-To", [])
+    if not header_values:
+        header_values = original_message.get_all("From", [])
+    for _display_name, address in getaddresses(
+        [str(value) for value in header_values]
+    ):
+        normalized_address = address.strip().casefold()
+        if normalized_address:
+            return normalized_address
+    return ""
+
+
 def _send_email_import_reply(
     *,
     source: ImportSource,
     original_message: ParsedEmailMessage,
     subject: str,
     body: str,
+    reply_type: str,
+    once_per_sender: bool = False,
 ) -> bool:
-    recipient = (
-        _email_address_header(original_message, "Reply-To")
-        or _email_address_header(original_message, "From")
-    )
+    recipient = _email_reply_recipient(original_message)
     smtp_settings = TenantSmtpSettings.objects.filter(
         tenant=source.tenant,
         is_active=True,
     ).first()
     if not recipient or smtp_settings is None or not body:
         return False
+
+    recipient_record = None
+    if once_per_sender:
+        recipient_record, created = EmailAutoReplyRecipient.objects.get_or_create(
+            tenant=source.tenant,
+            source=source,
+            recipient=recipient,
+            reply_type=reply_type,
+            defaults={"subject": (subject or "Doksio Import")[:255]},
+        )
+        if not created:
+            RecordAuditEvent(
+                tenant=source.tenant,
+                actor=None,
+                event_type="email_import_reply.suppressed",
+                object_type="ingestion.ImportSource",
+                object_id=str(source.id),
+                data={
+                    "recipient": recipient,
+                    "reply_type": reply_type,
+                    "reason": "once_per_sender",
+                },
+            ).execute()
+            return False
 
     email = EmailMultiAlternatives(
         subject=subject or "Doksio Import",
@@ -410,7 +456,38 @@ def _send_email_import_reply(
         to=[recipient],
         connection=_smtp_connection(smtp_settings),
     )
-    email.send()
+    attach_branded_html(
+        email,
+        heading=subject or "Doksio Import",
+        content=body,
+        tenant_name=source.tenant.name,
+    )
+    try:
+        sent_count = email.send()
+    except Exception:
+        if recipient_record is not None:
+            recipient_record.delete()
+        raise
+    if not sent_count:
+        if recipient_record is not None:
+            recipient_record.delete()
+        return False
+
+    if recipient_record is not None:
+        recipient_record.sent_at = timezone.now()
+        recipient_record.save(update_fields=["sent_at"])
+    RecordAuditEvent(
+        tenant=source.tenant,
+        actor=None,
+        event_type="email_import_reply.sent",
+        object_type="ingestion.ImportSource",
+        object_id=str(source.id),
+        data={
+            "recipient": recipient,
+            "reply_type": reply_type,
+            "once_per_sender": once_per_sender,
+        },
+    ).execute()
     return True
 
 
@@ -644,6 +721,11 @@ class ProcessEmailImportSource:
                 original_message=message,
                 subject=email_settings.get("unprocessable_reply_subject", ""),
                 body=email_settings.get("unprocessable_reply_body", ""),
+                reply_type=EmailAutoReplyRecipient.ReplyType.UNPROCESSABLE,
+                once_per_sender=email_settings.get(
+                    "unprocessable_reply_once_per_sender",
+                    False,
+                ),
             )
 
     def _send_success_reply(
@@ -658,6 +740,11 @@ class ProcessEmailImportSource:
             original_message=message,
             subject=email_settings.get("success_reply_subject", ""),
             body=email_settings.get("success_reply_body", ""),
+            reply_type=EmailAutoReplyRecipient.ReplyType.SUCCESS,
+            once_per_sender=email_settings.get(
+                "success_reply_once_per_sender",
+                False,
+            ),
         )
 
     def _copy_to_mailbox(self, connection, message_id: bytes, mailbox: str) -> None:

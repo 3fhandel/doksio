@@ -8,7 +8,7 @@ from urllib.parse import quote, urlencode
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.files.storage import default_storage
-from django.core.mail import EmailMessage, get_connection
+from django.core.mail import get_connection
 from django.db.models import Case, Count, F, IntegerField, Q, Value, When
 from django.http import (
     FileResponse,
@@ -116,13 +116,22 @@ from doksio.ingestion.forms import (
     TenantSmtpSettingsForm,
     TenantSmtpTestForm,
 )
-from doksio.ingestion.models import ImportJob, ImportSource, TenantSmtpSettings
+from doksio.ingestion.models import (
+    EmailAutoReplyRecipient,
+    ImportJob,
+    ImportSource,
+    TenantSmtpSettings,
+)
 from doksio.ingestion.services import (
     ResolveManualUploadDocumentSpace,
     ocr_title_policy_from_source,
 )
 from doksio.ocr.services import StartOcrForDocumentFile, title_from_ocr_policy
 from doksio.pagination import paginate_queryset
+from doksio.project.email import (
+    BrandedEmailMultiAlternatives as EmailMultiAlternatives,
+    attach_branded_html,
+)
 from doksio.project.url_helpers import build_public_url
 from doksio.tenancy.services import get_default_tenant_for_user, get_tenant_for_user
 from doksio.workflows.forms import CompleteWorkflowTaskForm, StartWorkflowForm
@@ -872,12 +881,20 @@ def _send_document_attachment_email(
     with default_storage.open(document_file.storage_key, "rb") as stored_file:
         attachment_content = stored_file.read()
 
-    email = EmailMessage(
+    email = EmailMultiAlternatives(
         subject=f"Doksio Dokument: {document.title}",
         body=body,
         from_email=_smtp_from_email(smtp_settings),
         to=[recipient],
         connection=_smtp_connection(smtp_settings),
+    )
+    attach_branded_html(
+        email,
+        heading=document.title,
+        content=message.strip() or "Ein Dokument wurde über Doksio mit dir geteilt.",
+        tenant_name=document.tenant.name,
+        action_url=document_url,
+        action_label="Dokument in Doksio öffnen",
     )
     email.attach(
         document_file.original_filename,
@@ -2824,7 +2841,7 @@ def tenant_settings_smtp(
                 else:
                     recipient = test_form.cleaned_data["recipient"]
                     try:
-                        EmailMessage(
+                        test_message = EmailMultiAlternatives(
                             subject="Doksio SMTP-Test",
                             body=(
                                 "Diese Testmail wurde aus den SMTP-Einstellungen "
@@ -2833,7 +2850,17 @@ def tenant_settings_smtp(
                             from_email=_smtp_from_email(smtp_settings),
                             to=[recipient],
                             connection=_smtp_connection(smtp_settings),
-                        ).send(fail_silently=False)
+                        )
+                        attach_branded_html(
+                            test_message,
+                            heading="SMTP-Verbindung erfolgreich",
+                            content=(
+                                "Diese Testmail wurde aus den SMTP-Einstellungen "
+                                "deines Doksio-Mandanten versendet."
+                            ),
+                            tenant_name=tenant.name,
+                        )
+                        test_message.send(fail_silently=False)
                     except Exception as exc:
                         RecordAuditEvent(
                             tenant=tenant,
@@ -3128,6 +3155,14 @@ def tenant_settings_import_source_edit(
             kwargs={"tenant_slug": tenant.slug, "source_id": import_source.id},
         )
     )
+    auto_reply_recipients_page_obj = None
+    if import_source.source_type == ImportSource.SourceType.EMAIL:
+        auto_reply_recipients_page_obj = paginate_queryset(
+            request,
+            import_source.auto_reply_recipients.all(),
+            page_param="auto_replies_page",
+            per_page=25,
+        )
 
     return render(
         request,
@@ -3140,7 +3175,70 @@ def tenant_settings_import_source_edit(
             "submit_label": "Quelle speichern",
             "active_settings_section": "import",
             "http_import_url": http_import_url,
+            "auto_reply_recipients_page_obj": auto_reply_recipients_page_obj,
         },
+    )
+
+
+def tenant_settings_import_source_auto_reply_recipients_reset(
+    request: HttpRequest,
+    tenant_slug: str,
+    source_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    import_source = get_object_or_404(
+        ImportSource,
+        id=source_id,
+        tenant=tenant,
+        source_type=ImportSource.SourceType.EMAIL,
+    )
+    recipients = EmailAutoReplyRecipient.objects.filter(
+        tenant=tenant,
+        source=import_source,
+    )
+    recipient_id = request.POST.get("recipient_id", "").strip()
+    if recipient_id:
+        if not recipient_id.isdigit():
+            raise Http404
+        recipients = recipients.filter(id=recipient_id)
+
+    deleted_recipients = list(
+        recipients.values("recipient", "reply_type")
+    )
+    recipients.delete()
+    RecordAuditEvent(
+        tenant=tenant,
+        actor=request.user,
+        event_type="email_import_reply.recipients_reset",
+        object_type="ingestion.ImportSource",
+        object_id=str(import_source.id),
+        data={
+            "recipients": deleted_recipients,
+            "reset_all": not bool(recipient_id),
+        },
+    ).execute()
+    if deleted_recipients:
+        messages.success(
+            request,
+            (
+                "Der Absender kann die gewählte Auto-Antwort erneut erhalten."
+                if recipient_id
+                else "Die Liste der bereits benachrichtigten Absender wurde geleert."
+            ),
+        )
+
+    return redirect(
+        "documents:settings_import_source_edit",
+        tenant_slug=tenant.slug,
+        source_id=import_source.id,
     )
 
 

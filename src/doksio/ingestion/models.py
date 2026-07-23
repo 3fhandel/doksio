@@ -164,3 +164,45 @@ class TenantSmtpSettings(models.Model):
 
     def __str__(self) -> str:
         return f"{self.tenant}: {self.host or 'SMTP nicht konfiguriert'}"
+
+
+class EmailAutoReplyRecipient(models.Model):
+    """Tracks recipients protected by per-sender auto-reply limits."""
+
+    class ReplyType(models.TextChoices):
+        SUCCESS = "success", "Erfolgreicher Import"
+        UNPROCESSABLE = "unprocessable", "Nicht importierbare Mail"
+
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="email_auto_reply_recipients",
+    )
+    source = models.ForeignKey(
+        ImportSource,
+        on_delete=models.CASCADE,
+        related_name="auto_reply_recipients",
+    )
+    recipient = models.EmailField()
+    reply_type = models.CharField(max_length=30, choices=ReplyType.choices)
+    subject = models.CharField(max_length=255, blank=True)
+    sent_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-sent_at", "-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source", "recipient", "reply_type"],
+                name="unique_email_auto_reply_recipient",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["tenant", "source", "reply_type"],
+                name="ingestion_e_tenant__6393c4_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.recipient}: {self.get_reply_type_display()}"

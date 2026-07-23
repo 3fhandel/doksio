@@ -365,6 +365,8 @@ def test_tenant_admin_can_send_password_reset_mail(client, monkeypatch):
         "https://doksio.example.test/t/acme/password-reset/"
         in sent_messages[0].body
     )
+    assert sent_messages[0].alternatives[0][1] == "text/html"
+    assert "Neues Passwort festlegen" in sent_messages[0].alternatives[0][0]
     assert AuditEvent.objects.filter(
         event_type="tenant_membership.password_reset_email_sent",
         object_id=str(target_membership.id),

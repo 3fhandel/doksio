@@ -2331,7 +2331,10 @@ class AddDocumentComment:
                 recipient=user,
                 notification_type=Notification.Type.DOCUMENT_COMMENT_MENTION,
                 title="Du wurdest erwähnt",
-                body=f"{actor_name} hat dich in einem Kommentar erwähnt.",
+                body=(
+                    f"{actor_name} hat dich in einem Kommentar erwähnt.\n\n"
+                    f"Dokument: {self.document.title}"
+                ),
                 link_url=link_url,
                 document=self.document,
                 document_comment=comment,

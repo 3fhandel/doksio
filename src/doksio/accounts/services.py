@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
-from django.core.mail import EmailMultiAlternatives, get_connection
+from django.core.mail import get_connection
 from django.db import transaction
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -24,6 +24,10 @@ from doksio.accounts.permissions import DEFAULT_ROLE_PERMISSIONS, PERMISSION_DEF
 from doksio.audit.services import RecordAuditEvent
 from doksio.documents.models import DocumentSpace
 from doksio.ingestion.models import TenantSmtpSettings
+from doksio.project.email import (
+    BrandedEmailMultiAlternatives as EmailMultiAlternatives,
+    attach_branded_html,
+)
 from doksio.project.url_helpers import build_public_url
 from doksio.tenancy.models import Tenant
 
@@ -121,6 +125,14 @@ def _send_notification_email(
         from_email=_tenant_smtp_from_email(smtp_settings),
         to=[recipient.email],
         connection=_tenant_smtp_connection(smtp_settings),
+    )
+    attach_branded_html(
+        message,
+        heading=title,
+        content=body or "In Doksio gibt es eine neue Benachrichtigung.",
+        tenant_name=tenant.name,
+        action_url=context["link_url"],
+        action_label="In Doksio öffnen",
     )
     message.send()
 
@@ -408,6 +420,19 @@ class SendTenantPasswordResetEmail:
             from_email=_tenant_smtp_from_email(smtp_settings),
             to=[user.email],
             connection=_tenant_smtp_connection(smtp_settings),
+        )
+        attach_branded_html(
+            message,
+            heading="Passwort zurücksetzen",
+            content=(
+                f"Hallo {user.get_username()},\n\n"
+                "für deinen Doksio-Zugang wurde eine Passwort-Zurücksetzung "
+                "angefordert. Wenn du diese Mail nicht erwartet hast, kannst "
+                "du sie ignorieren."
+            ),
+            tenant_name=self.tenant.name,
+            action_url=reset_url,
+            action_label="Neues Passwort festlegen",
         )
         message.send()
         RecordAuditEvent(
