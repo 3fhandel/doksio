@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.files.storage import default_storage
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse
@@ -11,7 +12,8 @@ from doksio.audit.services import RecordAuditEvent
 from doksio.documents.policies import has_tenant_permission
 from doksio.exports.forms import DocumentImageExportForm
 from doksio.exports.models import ExportRun
-from doksio.exports.services import BuildDocumentImageExport
+from doksio.exports.services import CreateDocumentImageExportRun
+from doksio.exports.tasks import build_document_image_export
 from doksio.tenancy.services import get_tenant_for_user
 
 
@@ -44,20 +46,19 @@ def document_image_export(request: HttpRequest, tenant_slug: str) -> HttpRespons
                     "Für die gewählten Filter gibt es keine exportierbaren Dokumente.",
                 )
             else:
-                package = BuildDocumentImageExport(
+                export_run = CreateDocumentImageExportRun(
                     tenant=tenant,
                     documents=documents,
                     created_by=request.user,
                     filters=form.filters_payload(),
                 ).execute()
-                response = HttpResponse(
-                    package.content,
-                    content_type="application/zip",
+                build_document_image_export.delay(export_run.id)
+                messages.success(
+                    request,
+                    "Exportlauf wurde gestartet. Das ZIP-Paket erscheint nach "
+                    "Fertigstellung in der Liste.",
                 )
-                response["Content-Disposition"] = (
-                    f'attachment; filename="{package.filename}"'
-                )
-                return response
+                return redirect("exports:document_images", tenant_slug=tenant.slug)
     else:
         form = DocumentImageExportForm(tenant=tenant, user=request.user)
 

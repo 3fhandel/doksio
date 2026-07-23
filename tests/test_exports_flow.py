@@ -16,11 +16,15 @@ from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
 from doksio.documents.services import CreateDocumentFromUpload, CreateDocumentSpace
 from doksio.exports.models import ExportRun, ExportRunItem
+from doksio.exports.tasks import build_document_image_export
 from doksio.tenancy.models import Tenant
 
 
 @pytest.mark.django_db
-def test_document_image_export_downloads_zip_for_enabled_boxes(client):
+def test_document_image_export_starts_zip_export_for_enabled_boxes(
+    client,
+    monkeypatch,
+):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(
         tenant=tenant,
@@ -59,6 +63,10 @@ def test_document_image_export_downloads_zip_for_enabled_boxes(client):
     document.document_date = date(2026, 7, 12)
     document.save(update_fields=["document_date", "updated_at"])
     client.force_login(user)
+    monkeypatch.setattr(
+        "doksio.exports.views.build_document_image_export.delay",
+        lambda export_run_id: build_document_image_export(export_run_id),
+    )
 
     response = client.post(
         reverse("exports:document_images", kwargs={"tenant_slug": tenant.slug}),
@@ -68,10 +76,19 @@ def test_document_image_export_downloads_zip_for_enabled_boxes(client):
         },
     )
 
-    assert response.status_code == 200
-    assert response["Content-Type"] == "application/zip"
-    assert response["Content-Disposition"].startswith("attachment;")
-    with ZipFile(BytesIO(response.content)) as archive:
+    assert response.status_code == 302
+
+    export_run = ExportRun.objects.get()
+    assert export_run.status == ExportRun.Status.COMPLETED
+    assert export_run.exported_count == 1
+    assert export_run.warning_count == 0
+    assert export_run.filename
+    assert export_run.storage_key
+    assert len(export_run.sha256) == 64
+    assert default_storage.exists(export_run.storage_key)
+    with default_storage.open(export_run.storage_key, "rb") as package_file:
+        package_content = package_file.read()
+    with ZipFile(BytesIO(package_content)) as archive:
         names = archive.namelist()
         assert "manifest.csv" in names
         assert "export-log.csv" in names
@@ -83,15 +100,7 @@ def test_document_image_export_downloads_zip_for_enabled_boxes(client):
         assert "rechnung.pdf" in manifest
         assert str(document.id) in manifest
 
-    export_run = ExportRun.objects.get()
-    assert export_run.status == ExportRun.Status.COMPLETED
-    assert export_run.exported_count == 1
-    assert export_run.warning_count == 0
-    assert export_run.filename
-    assert export_run.storage_key
-    assert export_run.byte_size == len(response.content)
-    assert len(export_run.sha256) == 64
-    assert default_storage.exists(export_run.storage_key)
+    assert export_run.byte_size == len(package_content)
     assert ExportRunItem.objects.filter(
         export_run=export_run,
         document=document,
@@ -128,12 +137,15 @@ def test_document_image_export_downloads_zip_for_enabled_boxes(client):
     assert download_response.status_code == 200
     assert download_response["Content-Type"] == "application/zip"
     downloaded_content = b"".join(download_response.streaming_content)
-    assert downloaded_content == response.content
+    assert downloaded_content == package_content
     assert AuditEvent.objects.filter(event_type="export_run.downloaded").exists()
 
 
 @pytest.mark.django_db
-def test_document_image_export_ignores_boxes_without_export_flag(client):
+def test_document_image_export_ignores_boxes_without_export_flag(
+    client,
+    monkeypatch,
+):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     enabled_space = CreateDocumentSpace(
         tenant=tenant,
@@ -183,14 +195,21 @@ def test_document_image_export_ignores_boxes_without_export_flag(client):
         auto_start_workflows=False,
     ).execute()
     client.force_login(user)
+    monkeypatch.setattr(
+        "doksio.exports.views.build_document_image_export.delay",
+        lambda export_run_id: build_document_image_export(export_run_id),
+    )
 
     response = client.post(
         reverse("exports:document_images", kwargs={"tenant_slug": tenant.slug}),
         {},
     )
 
-    assert response.status_code == 200
-    with ZipFile(BytesIO(response.content)) as archive:
+    assert response.status_code == 302
+    export_run = ExportRun.objects.get()
+    with default_storage.open(export_run.storage_key, "rb") as package_file:
+        package_content = package_file.read()
+    with ZipFile(BytesIO(package_content)) as archive:
         manifest = archive.read("manifest.csv").decode("utf-8-sig")
         assert "Rechnung" in manifest
         assert "Personalakte" not in manifest
@@ -225,7 +244,10 @@ def test_document_image_export_requires_export_permission(client):
 
 
 @pytest.mark.django_db
-def test_document_image_export_does_not_export_same_document_twice(client):
+def test_document_image_export_does_not_export_same_document_twice(
+    client,
+    monkeypatch,
+):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(
         tenant=tenant,
@@ -258,13 +280,16 @@ def test_document_image_export_does_not_export_same_document_twice(client):
         auto_start_workflows=False,
     ).execute()
     client.force_login(user)
+    monkeypatch.setattr(
+        "doksio.exports.views.build_document_image_export.delay",
+        lambda export_run_id: build_document_image_export(export_run_id),
+    )
     url = reverse("exports:document_images", kwargs={"tenant_slug": tenant.slug})
 
     first_response = client.post(url, {"document_space": space.id})
     second_response = client.post(url, {"document_space": space.id})
 
-    assert first_response.status_code == 200
-    assert first_response["Content-Type"] == "application/zip"
+    assert first_response.status_code == 302
     assert second_response.status_code == 200
     assert second_response["Content-Type"].startswith("text/html")
     assert "keine exportierbaren Dokumente" in second_response.content.decode()

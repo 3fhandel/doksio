@@ -5,13 +5,14 @@ from __future__ import annotations
 import csv
 import hashlib
 import re
+import tempfile
 import uuid
 from dataclasses import dataclass
-from io import BytesIO, StringIO
+from io import StringIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from django.contrib.auth import get_user_model
-from django.core.files.base import ContentFile
+from django.core.files import File
 from django.core.files.storage import default_storage
 from django.db import transaction
 from django.db.models import QuerySet
@@ -29,7 +30,6 @@ SAFE_FILENAME_PATTERN = re.compile(r"[^A-Za-z0-9._ -]+")
 @dataclass(frozen=True)
 class DocumentImageExportPackage:
     filename: str
-    content: bytes
     export_run: ExportRun
 
 
@@ -96,196 +96,221 @@ def _export_storage_key(tenant: Tenant, export_run: ExportRun, filename: str) ->
 
 
 @dataclass(frozen=True)
-class BuildDocumentImageExport:
+class CreateDocumentImageExportRun:
     tenant: Tenant
     documents: QuerySet[Document]
     created_by: get_user_model()
     filters: dict
 
-    def execute(self) -> DocumentImageExportPackage:
-        export_run = ExportRun.objects.create(
+    def execute(self) -> ExportRun:
+        document_ids = list(self.documents.values_list("id", flat=True))
+        return ExportRun.objects.create(
             tenant=self.tenant,
             export_type=ExportRun.ExportType.DATEV_DOCUMENT_IMAGES,
             status=ExportRun.Status.PROCESSING,
-            filters=self.filters,
+            filters={**self.filters, "document_ids": document_ids},
             created_by=self.created_by,
         )
-        timestamp = timezone.localtime().strftime("%Y%m%d-%H%M%S")
-        filename = f"doksio-datev-belegbilder-{self.tenant.slug}-{timestamp}.zip"
 
-        zip_buffer = BytesIO()
+
+@dataclass(frozen=True)
+class BuildDocumentImageExport:
+    export_run: ExportRun
+
+    def execute(self) -> DocumentImageExportPackage:
+        export_run = self.export_run
+        tenant = export_run.tenant
+        document_ids = export_run.filters.get("document_ids") or []
+        timestamp = timezone.localtime().strftime("%Y%m%d-%H%M%S")
+        filename = f"doksio-datev-belegbilder-{tenant.slug}-{timestamp}.zip"
+
         manifest_rows: list[dict[str, object]] = []
         log_rows: list[dict[str, object]] = []
         used_paths: set[str] = set()
         exported_count = 0
         skipped_count = 0
 
-        documents = self.documents.select_related("space").prefetch_related("files")
-        with transaction.atomic():
-            with ZipFile(zip_buffer, "w", compression=ZIP_DEFLATED) as archive:
-                for document in documents:
-                    if self._already_exported(document):
-                        skipped_count += 1
-                        self._create_item(
-                            export_run=export_run,
-                            document=document,
-                            document_file=None,
-                            status=ExportRunItem.Status.SKIPPED,
-                            message="Dokument wurde bereits erfolgreich exportiert.",
-                        )
-                        log_rows.append(
-                            self._log_row(
-                                document,
-                                "skipped",
-                                "Dokument wurde bereits erfolgreich exportiert.",
+        documents = Document.objects.filter(
+            tenant=tenant,
+            id__in=document_ids,
+        ).select_related("space").prefetch_related("files")
+        with tempfile.TemporaryFile() as zip_file:
+            with transaction.atomic():
+                with ZipFile(zip_file, "w", compression=ZIP_DEFLATED) as archive:
+                    for document in documents:
+                        if self._already_exported(document):
+                            skipped_count += 1
+                            self._create_item(
+                                export_run=export_run,
+                                document=document,
+                                document_file=None,
+                                status=ExportRunItem.Status.SKIPPED,
+                                message="Dokument wurde bereits erfolgreich exportiert.",
                             )
-                        )
-                        continue
+                            log_rows.append(
+                                self._log_row(
+                                    document,
+                                    "skipped",
+                                    "Dokument wurde bereits erfolgreich exportiert.",
+                                )
+                            )
+                            continue
 
-                    document_file = self._original_file_for_document(document)
-                    if document_file is None:
-                        skipped_count += 1
-                        self._create_item(
-                            export_run=export_run,
-                            document=document,
-                            document_file=None,
-                            status=ExportRunItem.Status.SKIPPED,
-                            message="Kein Originaldatei-Artefakt vorhanden.",
-                        )
-                        log_rows.append(self._log_row(document, "skipped", "Kein Original vorhanden."))
-                        continue
+                        document_file = self._original_file_for_document(document)
+                        if document_file is None:
+                            skipped_count += 1
+                            self._create_item(
+                                export_run=export_run,
+                                document=document,
+                                document_file=None,
+                                status=ExportRunItem.Status.SKIPPED,
+                                message="Kein Originaldatei-Artefakt vorhanden.",
+                            )
+                            log_rows.append(self._log_row(document, "skipped", "Kein Original vorhanden."))
+                            continue
 
-                    exported_filename = _unique_zip_path(
-                        f"belege/{_document_filename(document, document_file)}",
-                        used_paths,
-                    )
-                    try:
-                        with default_storage.open(document_file.storage_key, "rb") as stored_file:
-                            archive.writestr(exported_filename, stored_file.read())
-                    except FileNotFoundError:
-                        skipped_count += 1
+                        exported_filename = _unique_zip_path(
+                            f"belege/{_document_filename(document, document_file)}",
+                            used_paths,
+                        )
+                        try:
+                            with default_storage.open(document_file.storage_key, "rb") as stored_file:
+                                with archive.open(exported_filename, "w") as target_file:
+                                    for chunk in iter(
+                                        lambda: stored_file.read(1024 * 1024),
+                                        b"",
+                                    ):
+                                        target_file.write(chunk)
+                        except FileNotFoundError:
+                            skipped_count += 1
+                            self._create_item(
+                                export_run=export_run,
+                                document=document,
+                                document_file=document_file,
+                                status=ExportRunItem.Status.FAILED,
+                                message="Datei wurde im Storage nicht gefunden.",
+                                exported_filename=exported_filename,
+                            )
+                            log_rows.append(self._log_row(document, "failed", "Datei im Storage nicht gefunden."))
+                            continue
+
+                        exported_count += 1
                         self._create_item(
                             export_run=export_run,
                             document=document,
                             document_file=document_file,
-                            status=ExportRunItem.Status.FAILED,
-                            message="Datei wurde im Storage nicht gefunden.",
+                            status=ExportRunItem.Status.EXPORTED,
+                            message="Exportiert.",
                             exported_filename=exported_filename,
                         )
-                        log_rows.append(self._log_row(document, "failed", "Datei im Storage nicht gefunden."))
-                        continue
+                        manifest_rows.append(self._manifest_row(document, document_file, exported_filename))
+                        log_rows.append(self._log_row(document, "exported", "Exportiert."))
+                        RecordAuditEvent(
+                            tenant=tenant,
+                            actor=export_run.created_by,
+                            event_type="document.exported",
+                            object_type="documents.Document",
+                            object_id=str(document.id),
+                            data={
+                                "document_id": document.id,
+                                "export_run_id": export_run.id,
+                                "export_type": export_run.export_type,
+                                "exported_filename": exported_filename,
+                            },
+                        ).execute()
 
-                    exported_count += 1
-                    self._create_item(
-                        export_run=export_run,
-                        document=document,
-                        document_file=document_file,
-                        status=ExportRunItem.Status.EXPORTED,
-                        message="Exportiert.",
-                        exported_filename=exported_filename,
+                    archive.writestr(
+                        "manifest.csv",
+                        _csv_bytes(
+                            manifest_rows,
+                            [
+                                "doksio_document_id",
+                                "doksio_file_id",
+                                "exported_filename",
+                                "original_filename",
+                                "document_title",
+                                "document_box",
+                                "document_date",
+                                "created_at",
+                                "content_type",
+                                "sha256",
+                            ],
+                        ),
                     )
-                    manifest_rows.append(self._manifest_row(document, document_file, exported_filename))
-                    log_rows.append(self._log_row(document, "exported", "Exportiert."))
-                    RecordAuditEvent(
-                        tenant=self.tenant,
-                        actor=self.created_by,
-                        event_type="document.exported",
-                        object_type="documents.Document",
-                        object_id=str(document.id),
-                        data={
-                            "document_id": document.id,
-                            "export_run_id": export_run.id,
-                            "export_type": export_run.export_type,
-                            "exported_filename": exported_filename,
-                        },
-                    ).execute()
+                    archive.writestr(
+                        "export-log.csv",
+                        _csv_bytes(
+                            log_rows,
+                            [
+                                "doksio_document_id",
+                                "document_title",
+                                "status",
+                                "message",
+                            ],
+                        ),
+                    )
 
-                archive.writestr(
-                    "manifest.csv",
-                    _csv_bytes(
-                        manifest_rows,
-                        [
-                            "doksio_document_id",
-                            "doksio_file_id",
-                            "exported_filename",
-                            "original_filename",
-                            "document_title",
-                            "document_box",
-                            "document_date",
-                            "created_at",
-                            "content_type",
-                            "sha256",
-                        ],
-                    ),
+                zip_file.flush()
+                zip_file.seek(0, 2)
+                zip_size = zip_file.tell()
+                zip_file.seek(0)
+                digest = hashlib.sha256()
+                for chunk in iter(lambda: zip_file.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                zip_file.seek(0)
+                storage_key = default_storage.save(
+                    _export_storage_key(tenant, export_run, filename),
+                    File(zip_file, name=filename),
                 )
-                archive.writestr(
-                    "export-log.csv",
-                    _csv_bytes(
-                        log_rows,
-                        [
-                            "doksio_document_id",
-                            "document_title",
-                            "status",
-                            "message",
-                        ],
-                    ),
+                export_run.status = (
+                    ExportRun.Status.COMPLETED
+                    if skipped_count == 0
+                    else ExportRun.Status.COMPLETED_WITH_WARNINGS
                 )
-
-            zip_content = zip_buffer.getvalue()
-            storage_key = default_storage.save(
-                _export_storage_key(self.tenant, export_run, filename),
-                ContentFile(zip_content),
-            )
-            export_run.status = (
-                ExportRun.Status.COMPLETED
-                if skipped_count == 0
-                else ExportRun.Status.COMPLETED_WITH_WARNINGS
-            )
-            export_run.filename = filename
-            export_run.storage_key = storage_key
-            export_run.byte_size = len(zip_content)
-            export_run.sha256 = hashlib.sha256(zip_content).hexdigest()
-            export_run.item_count = exported_count + skipped_count
-            export_run.exported_count = exported_count
-            export_run.warning_count = skipped_count
-            export_run.completed_at = timezone.now()
-            export_run.save(
-                update_fields=[
-                    "status",
-                    "filename",
-                    "storage_key",
-                    "byte_size",
-                    "sha256",
-                    "item_count",
-                    "exported_count",
-                    "warning_count",
-                    "completed_at",
-                    "updated_at",
-                ]
-            )
-            RecordAuditEvent(
-                tenant=self.tenant,
-                actor=self.created_by,
-                event_type="export_run.created",
-                object_type="exports.ExportRun",
-                object_id=str(export_run.id),
-                data={
-                    "export_type": export_run.export_type,
-                    "filename": filename,
-                    "exported_count": exported_count,
-                    "warning_count": skipped_count,
-                },
-            ).execute()
+                export_run.filename = filename
+                export_run.storage_key = storage_key
+                export_run.byte_size = zip_size
+                export_run.sha256 = digest.hexdigest()
+                export_run.item_count = exported_count + skipped_count
+                export_run.exported_count = exported_count
+                export_run.warning_count = skipped_count
+                export_run.completed_at = timezone.now()
+                export_run.save(
+                    update_fields=[
+                        "status",
+                        "filename",
+                        "storage_key",
+                        "byte_size",
+                        "sha256",
+                        "item_count",
+                        "exported_count",
+                        "warning_count",
+                        "completed_at",
+                        "updated_at",
+                    ]
+                )
+                RecordAuditEvent(
+                    tenant=tenant,
+                    actor=export_run.created_by,
+                    event_type="export_run.created",
+                    object_type="exports.ExportRun",
+                    object_id=str(export_run.id),
+                    data={
+                        "export_type": export_run.export_type,
+                        "filename": filename,
+                        "exported_count": exported_count,
+                        "warning_count": skipped_count,
+                    },
+                ).execute()
 
         return DocumentImageExportPackage(
             filename=filename,
-            content=zip_content,
             export_run=export_run,
         )
 
     def _already_exported(self, document: Document) -> bool:
         return ExportRunItem.objects.filter(
-            tenant=self.tenant,
+            tenant=self.export_run.tenant,
             document=document,
             status=ExportRunItem.Status.EXPORTED,
             export_run__export_type=ExportRun.ExportType.DATEV_DOCUMENT_IMAGES,
@@ -310,7 +335,7 @@ class BuildDocumentImageExport:
         exported_filename: str = "",
     ) -> ExportRunItem:
         return ExportRunItem.objects.create(
-            tenant=self.tenant,
+            tenant=self.export_run.tenant,
             export_run=export_run,
             document=document,
             document_file=document_file,

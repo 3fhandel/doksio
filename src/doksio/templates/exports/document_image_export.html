@@ -15,6 +15,14 @@
         </div>
       </div>
 
+      {% if messages %}
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+
       <div class="row g-4">
         <div class="col-xl-5">
           <section class="app-card p-4">
@@ -60,8 +68,8 @@
               </div>
 
               <button class="btn btn-primary justify-content-center" type="submit">
-                {% include "includes/icons.html" with icon="download" %}
-                Exportpaket herunterladen
+                {% include "includes/icons.html" with icon="package" %}
+                Exportlauf starten
               </button>
             </form>
           </section>
@@ -92,7 +100,7 @@
                     <tr>
                       <td>{{ run.created_at|date:"d.m.Y H:i" }}</td>
                       <td>
-                        <span class="badge text-bg-{% if run.status == "completed" %}success{% elif run.status == "completed_with_warnings" %}warning{% else %}secondary{% endif %}">
+                        <span class="badge text-bg-{% if run.status == "completed" %}success{% elif run.status == "completed_with_warnings" %}warning{% elif run.status == "failed" %}danger{% else %}secondary{% endif %}">
                           {{ run.get_status_display }}
                         </span>
                       </td>
@@ -115,6 +123,10 @@
                             {% include "includes/icons.html" with icon="download" %}
                             Herunterladen
                           </a>
+                        {% elif run.status == "processing" %}
+                          <span class="text-secondary small">Wird erstellt</span>
+                        {% elif run.status == "failed" %}
+                          <span class="text-danger small">Fehlgeschlagen</span>
                         {% else %}
                           <span class="text-secondary small">Nicht verfügbar</span>
                         {% endif %}
