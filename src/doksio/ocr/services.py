@@ -194,30 +194,38 @@ class LocalOcrProvider:
 
         ocrmypdf = shutil.which("ocrmypdf")
         if ocrmypdf is None:
-            raise RuntimeError(
-                "Kein Text gefunden und ocrmypdf ist nicht installiert."
-            )
+            return self._extract_pdf_images(input_path=input_path, language=language)
 
-        output_pdf = input_path.with_suffix(".ocr.pdf")
-        sidecar = input_path.with_suffix(".txt")
-        subprocess.run(
-            [
-                ocrmypdf,
-                "--skip-text",
-                "--sidecar",
-                str(sidecar),
-                "-l",
-                language,
-                str(input_path),
-                str(output_pdf),
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=getattr(settings, "OCR_COMMAND_TIMEOUT_SECONDS", 300),
-        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            ocrmypdf_directory = Path(temporary_directory)
+            output_pdf = ocrmypdf_directory / f"{input_path.stem}.ocr.pdf"
+            sidecar = ocrmypdf_directory / f"{input_path.stem}.txt"
+            try:
+                subprocess.run(
+                    [
+                        ocrmypdf,
+                        "--skip-text",
+                        "--sidecar",
+                        str(sidecar),
+                        "-l",
+                        language,
+                        str(input_path),
+                        str(output_pdf),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=getattr(settings, "OCR_COMMAND_TIMEOUT_SECONDS", 300),
+                )
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                return self._extract_pdf_images(input_path=input_path, language=language)
+
+            sidecar_text = sidecar.read_text(encoding="utf-8", errors="replace")
+        if not sidecar_text.strip():
+            return self._extract_pdf_images(input_path=input_path, language=language)
+
         return OcrExtraction(
-            text=sidecar.read_text(encoding="utf-8", errors="replace"),
+            text=sidecar_text,
             engine="ocrmypdf",
             language=language,
         )
@@ -237,6 +245,69 @@ class LocalOcrProvider:
         if result.returncode != 0:
             return ""
         return result.stdout
+
+    def _extract_pdf_images(self, input_path: Path, language: str) -> OcrExtraction:
+        tesseract = shutil.which("tesseract")
+        if tesseract is None:
+            raise RuntimeError(
+                "Kein Text gefunden und weder ocrmypdf noch tesseract ist verfügbar."
+            )
+
+        text = ""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            rendered_paths = self._render_pdf_pages_for_ocr(
+                input_path=input_path,
+                output_directory=Path(temporary_directory),
+            )
+            for page_path in rendered_paths:
+                page_text = self._run_tesseract(
+                    tesseract=tesseract,
+                    input_path=page_path,
+                    language=language,
+                )
+                text = self._merge_ocr_text(text, page_text)
+        return OcrExtraction(
+            text=text,
+            engine="pypdfium2+tesseract",
+            language=language,
+        )
+
+    def _render_pdf_pages_for_ocr(
+        self,
+        input_path: Path,
+        output_directory: Path,
+    ) -> list[Path]:
+        try:
+            import pypdfium2 as pdfium
+        except ImportError as error:
+            raise RuntimeError("PDF-Rendering für OCR ist nicht verfügbar.") from error
+
+        max_pages = getattr(settings, "OCR_IMAGE_MAX_PAGES", 25)
+        max_edge = getattr(settings, "OCR_IMAGE_MAX_EDGE", 3000)
+        rendered_paths = []
+        pdf = pdfium.PdfDocument(input_path.read_bytes())
+        try:
+            for page_index in range(min(len(pdf), max_pages)):
+                page = pdf[page_index]
+                try:
+                    bitmap = page.render(scale=3)
+                    image = bitmap.to_pil()
+                finally:
+                    page.close()
+
+                if max(image.size) > max_edge:
+                    image.thumbnail((max_edge, max_edge))
+                if image.mode != "RGB":
+                    image = image.convert("RGB")
+
+                page_path = output_directory / (
+                    f"{input_path.stem}.pdf-ocr-p{page_index + 1:03}.png"
+                )
+                image.save(page_path, format="PNG", optimize=True)
+                rendered_paths.append(page_path)
+        finally:
+            pdf.close()
+        return rendered_paths
 
     def _extract_image(self, input_path: Path, language: str) -> OcrExtraction:
         tesseract = shutil.which("tesseract")

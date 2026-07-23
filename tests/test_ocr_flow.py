@@ -179,6 +179,51 @@ def test_local_ocr_provider_converts_tiff_pages_before_tesseract(
         assert max(prepared.size) == 1000
 
 
+def test_local_ocr_provider_uses_rendered_pdf_pages_when_scan_pdf_has_no_text(
+    monkeypatch,
+    tmp_path,
+):
+    input_path = tmp_path / "scan.pdf"
+    input_path.write_bytes(b"%PDF scan")
+    page_1 = tmp_path / "scan.pdf-ocr-p001.png"
+    page_2 = tmp_path / "scan.pdf-ocr-p002.png"
+    commands = []
+
+    def fake_which(command):
+        if command == "pdftotext":
+            return "/usr/bin/pdftotext"
+        if command == "tesseract":
+            return "/usr/bin/tesseract"
+        return None
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        if command[0] == "/usr/bin/pdftotext":
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[1] == str(page_1):
+            return subprocess.CompletedProcess(command, 0, "Seite 1", "")
+        return subprocess.CompletedProcess(command, 0, "Seite 2", "")
+
+    provider = LocalOcrProvider()
+    monkeypatch.setattr("doksio.ocr.services.shutil.which", fake_which)
+    monkeypatch.setattr("doksio.ocr.services.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        provider,
+        "_render_pdf_pages_for_ocr",
+        lambda input_path, output_directory: [page_1, page_2],
+    )
+
+    extraction = provider._extract_pdf(input_path=input_path, language="deu+eng")
+
+    assert extraction.engine == "pypdfium2+tesseract"
+    assert extraction.text.strip() == "Seite 1\n\nSeite 2"
+    assert commands == [
+        ["/usr/bin/pdftotext", str(input_path), "-"],
+        ["/usr/bin/tesseract", str(page_1), "stdout", "-l", "deu+eng"],
+        ["/usr/bin/tesseract", str(page_2), "stdout", "-l", "deu+eng"],
+    ]
+
+
 def test_extract_document_title_joins_hyphenated_line_breaks():
     assert (
         extract_document_title("Arbeitsunfähigkeits-\nbescheinigung\n\nWeitere Daten")
