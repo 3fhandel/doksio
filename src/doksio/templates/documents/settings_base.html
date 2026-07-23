@@ -28,6 +28,9 @@
             <a class="list-group-item list-group-item-action {% if active_settings_section == 'import' %}active{% endif %}" href="{% url 'documents:settings_import_sources' tenant.slug %}">
               Import
             </a>
+            <a class="list-group-item list-group-item-action {% if active_settings_section == 'title_rules' %}active{% endif %}" href="{% url 'documents:settings_title_rules' tenant.slug %}">
+              Titelfindung
+            </a>
             <a class="list-group-item list-group-item-action {% if active_settings_section == 'smtp' %}active{% endif %}" href="{% url 'documents:settings_smtp' tenant.slug %}">
               SMTP
             </a>

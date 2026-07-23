@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-
 from django import forms
 
 from doksio.documents.models import DocumentSpace
@@ -368,28 +366,6 @@ class ImportSourceForm(forms.Form):
         initial=True,
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
-    ocr_title_strategy = forms.ChoiceField(
-        label="Dokumententitel",
-        choices=ImportSource.OcrTitleStrategy.choices,
-        required=False,
-        initial=ImportSource.OcrTitleStrategy.AUTOMATIC,
-        widget=forms.Select(attrs={"class": "form-select"}),
-    )
-    ocr_title_regex_search = forms.CharField(
-        label="RegEx-Suche",
-        required=False,
-        help_text=(
-            "Regulärer Ausdruck auf dem OCR-Volltext. Gruppen können in der "
-            "Ersetzung verwendet werden, z. B. \\1."
-        ),
-        widget=forms.TextInput(attrs={"class": "form-control"}),
-    )
-    ocr_title_regex_replace = forms.CharField(
-        label="Ersetzung",
-        required=False,
-        help_text="Zum Beispiel Rechnung \\1 oder \\g<nummer>.",
-        widget=forms.TextInput(attrs={"class": "form-control"}),
-    )
     default_tags_text = forms.CharField(
         label="Tags",
         required=False,
@@ -415,7 +391,6 @@ class ImportSourceForm(forms.Form):
     def initial_from_source(cls, source: ImportSource) -> dict:
         settings = source.settings or {}
         common = settings.get("common", {})
-        title = settings.get("title", {})
         folder = settings.get("folder", {})
         email = settings.get("email", {})
         return {
@@ -489,12 +464,6 @@ class ImportSourceForm(forms.Form):
             ),
             "auto_start_ocr": source.auto_start_ocr,
             "start_workflows": source.start_workflows,
-            "ocr_title_strategy": title.get(
-                "strategy",
-                ImportSource.OcrTitleStrategy.AUTOMATIC,
-            ),
-            "ocr_title_regex_search": title.get("regex_search", ""),
-            "ocr_title_regex_replace": title.get("regex_replace", ""),
             "default_tags_text": "\n".join(source.default_tags),
             "is_active": source.is_active,
         }
@@ -558,8 +527,6 @@ class ImportSourceForm(forms.Form):
 
     def clean(self) -> dict:
         cleaned_data = super().clean()
-        if not cleaned_data.get("ocr_title_strategy"):
-            cleaned_data["ocr_title_strategy"] = ImportSource.OcrTitleStrategy.AUTOMATIC
         source_type = cleaned_data.get("source_type")
         target_strategy = cleaned_data.get("target_strategy")
         if (
@@ -616,25 +583,6 @@ class ImportSourceForm(forms.Form):
                     "Für automatische Antworten ist ein Antworttext erforderlich.",
                 )
 
-        if (
-            cleaned_data.get("ocr_title_strategy")
-            == ImportSource.OcrTitleStrategy.REGEX
-        ):
-            regex_search = cleaned_data.get("ocr_title_regex_search", "")
-            if not regex_search:
-                self.add_error(
-                    "ocr_title_regex_search",
-                    "Für RegEx-Titel ist ein Suchmuster erforderlich.",
-                )
-            else:
-                try:
-                    re.compile(regex_search)
-                except re.error as error:
-                    self.add_error(
-                        "ocr_title_regex_search",
-                        f"Ungültiger regulärer Ausdruck: {error}",
-                    )
-
         return cleaned_data
 
     @property
@@ -648,18 +596,8 @@ class ImportSourceForm(forms.Form):
                 self.cleaned_data.get("allowed_content_types_text", "")
             ),
         }
-        title_settings = {
-            "strategy": (
-                self.cleaned_data.get("ocr_title_strategy")
-                or ImportSource.OcrTitleStrategy.AUTOMATIC
-            ),
-            "regex_search": self.cleaned_data.get("ocr_title_regex_search", ""),
-            "regex_replace": self.cleaned_data.get("ocr_title_regex_replace", ""),
-        }
         routing_rules = self.cleaned_data["routing_rules_text"]
-        settings = {
-            "title": title_settings,
-        }
+        settings = {}
         if routing_rules:
             settings["routing_rules"] = routing_rules
         source_type = self.cleaned_data["source_type"]

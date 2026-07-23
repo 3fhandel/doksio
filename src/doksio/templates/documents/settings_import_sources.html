@@ -52,13 +52,6 @@
               </td>
               <td class="small">
                 {% if import_source.auto_start_ocr %}<span class="badge text-bg-light me-1">OCR</span>{% endif %}
-                {% if import_source.settings.title.strategy == "regex" %}
-                  <span class="badge text-bg-light me-1">OCR-Titel RegEx</span>
-                {% elif import_source.settings.title.strategy == "disabled" %}
-                  <span class="badge text-bg-light me-1">OCR-Titel aus</span>
-                {% else %}
-                  <span class="badge text-bg-light me-1">OCR-Titel Auto</span>
-                {% endif %}
                 <span class="badge text-bg-light me-1">eRechnung</span>
                 {% if import_source.start_workflows %}<span class="badge text-bg-light me-1">Workflows</span>{% endif %}
                 {% if import_source.source_type == "email" and import_source.settings.email.success_reply_enabled %}

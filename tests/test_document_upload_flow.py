@@ -27,6 +27,7 @@ from doksio.documents.models import (
     DocumentMetadataField,
     DocumentRelation,
     DocumentSpace,
+    DocumentTitleRule,
 )
 from doksio.documents.services import (
     AddDocumentComment,
@@ -356,7 +357,7 @@ def test_create_document_from_upload_attaches_zugferd_invoice_data():
 
     document.refresh_from_db()
     assert document.title == "Muster GmbH: RE-4711 vom 07.07.2026"
-    assert document.title_source == Document.TitleSource.OCR
+    assert document.title_source == Document.TitleSource.EINVOICE
     assert document.einvoice_data["source"] == "zugferd"
     assert document.einvoice_data["syntax"] == "CII"
     assert document.einvoice_data["profile"] == "urn:factur-x.eu:1p0:basic"
@@ -403,6 +404,36 @@ def test_create_document_from_upload_keeps_manual_title_for_einvoice():
     assert document.title == "Manueller Titel"
     assert document.title_source == Document.TitleSource.MANUAL
     assert document.einvoice_data["invoice_number"] == "RE-4711"
+
+
+@pytest.mark.django_db
+def test_create_document_from_upload_uses_custom_einvoice_title_format():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    DocumentTitleRule.objects.create(
+        tenant=tenant,
+        document_space=space,
+        strategy=DocumentTitleRule.Strategy.EINVOICE,
+        einvoice_format=(
+            "{invoice_number} - {seller_name} - "
+            "{grand_total_amount} {currency}"
+        ),
+        fallback_strategy=DocumentTitleRule.FallbackStrategy.AUTOMATIC,
+    )
+
+    document, _document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="",
+        space=space,
+        file_obj=BytesIO(_zugferd_pdf_bytes()),
+        original_filename="invoice.pdf",
+        content_type="application/pdf",
+        auto_start_ocr=False,
+    ).execute()
+
+    document.refresh_from_db()
+    assert document.title == "RE-4711 - Muster GmbH - 345.00 EUR"
+    assert document.title_source == Document.TitleSource.EINVOICE
 
 
 @pytest.mark.django_db

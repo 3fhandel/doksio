@@ -1,0 +1,34 @@
+<div class="list-group">
+  <a
+    class="list-group-item list-group-item-action {% if maintenance_section == 'scan_storage' %}active{% endif %}"
+    href="{% url 'documents:settings_maintenance' tenant.slug %}"
+    {% if maintenance_section == "scan_storage" %}aria-current="page"{% endif %}
+  >
+    <div class="fw-semibold">Scan-Speicher</div>
+    <div class="small {% if maintenance_section != 'scan_storage' %}text-secondary{% else %}opacity-75{% endif %}">
+      PDFs kompakt speichern
+    </div>
+  </a>
+  <a
+    class="list-group-item list-group-item-action {% if maintenance_section == 'titles' %}active{% endif %}"
+    href="{% url 'documents:settings_title_refresh' tenant.slug %}"
+    {% if maintenance_section == "titles" %}aria-current="page"{% endif %}
+  >
+    <div class="fw-semibold">Dokumenttitel</div>
+    <div class="small {% if maintenance_section != 'titles' %}text-secondary{% else %}opacity-75{% endif %}">
+      Titel neu berechnen
+    </div>
+  </a>
+  <button class="list-group-item list-group-item-action" type="button" disabled>
+    <div class="fw-semibold">Suchindex</div>
+    <div class="small text-secondary">Für später vorbereitet</div>
+  </button>
+  <button class="list-group-item list-group-item-action" type="button" disabled>
+    <div class="fw-semibold">OCR</div>
+    <div class="small text-secondary">Für später vorbereitet</div>
+  </button>
+  <button class="list-group-item list-group-item-action" type="button" disabled>
+    <div class="fw-semibold">Vorschaubilder</div>
+    <div class="small text-secondary">Für später vorbereitet</div>
+  </button>
+</div>

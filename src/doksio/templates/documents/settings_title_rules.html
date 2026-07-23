@@ -1,0 +1,117 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+      <h2 class="h4 mb-1">Titelfindung</h2>
+      <p class="text-secondary mb-0">
+        Zentrale Regeln für automatisch ermittelte Dokumententitel.
+      </p>
+    </div>
+    {% if available_box_count or not default_rule %}
+      <a class="btn btn-primary" href="{% url 'documents:settings_title_rule_create' tenant.slug %}">
+        Neue Regel
+      </a>
+    {% endif %}
+  </div>
+
+  <section class="app-card p-4 mb-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+      <div>
+        <div class="small text-uppercase text-secondary mb-1">Tenant-Standard</div>
+        {% if default_rule %}
+          <div class="fw-semibold">{{ default_rule.get_strategy_display }}</div>
+          {% if default_rule.strategy == "regex" %}
+            <div class="small text-secondary hash-value mt-1">{{ default_rule.regex_search }}</div>
+          {% elif default_rule.strategy == "einvoice" %}
+            <div class="small text-secondary hash-value mt-1">{{ default_rule.einvoice_format }}</div>
+            <div class="small text-secondary mt-1">Fallback: {{ default_rule.get_fallback_strategy_display }}</div>
+          {% endif %}
+        {% else %}
+          <div class="fw-semibold">Automatisch aus dem OCR-Volltext</div>
+          <div class="small text-secondary mt-1">Integrierter Standard ohne eigene Konfiguration.</div>
+        {% endif %}
+      </div>
+      <div class="d-flex gap-2">
+        {% if default_rule %}
+          <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:settings_title_rule_edit' tenant.slug default_rule.id %}">
+            Bearbeiten
+          </a>
+          <a class="btn btn-sm btn-outline-danger" href="{% url 'documents:settings_title_rule_delete' tenant.slug default_rule.id %}">
+            Zurücksetzen
+          </a>
+        {% else %}
+          <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:settings_title_rule_create' tenant.slug %}">
+            Konfigurieren
+          </a>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h3 class="h5 mb-0">Regeln je Dokumentenbox</h3>
+    <span class="small text-secondary">Box-Regeln überschreiben den Tenant-Standard.</span>
+  </div>
+
+  <div class="app-card">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Dokumentenbox</th>
+            <th>Strategie</th>
+            <th>Konfiguration</th>
+            <th class="text-end">Aktionen</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for rule in box_rules_page_obj %}
+            <tr>
+              <td class="fw-semibold">{{ rule.document_space.path }}</td>
+              <td>{{ rule.get_strategy_display }}</td>
+              <td class="small text-secondary hash-value">
+                {% if rule.strategy == "regex" %}
+                  {{ rule.regex_search }}
+                {% elif rule.strategy == "einvoice" %}
+                  {{ rule.einvoice_format }}
+                  <div class="mt-1">Fallback: {{ rule.get_fallback_strategy_display }}</div>
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+              <td class="text-end text-nowrap">
+                <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:settings_title_rule_edit' tenant.slug rule.id %}">
+                  Bearbeiten
+                </a>
+                <a class="btn btn-sm btn-outline-danger" href="{% url 'documents:settings_title_rule_delete' tenant.slug rule.id %}">
+                  Löschen
+                </a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="4" class="text-secondary">
+                Keine Box-Regeln definiert. Für alle Dokumentenboxen gilt der Tenant-Standard.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% include "includes/pagination.html" with page_obj=box_rules_page_obj page_param="page" %}
+
+  <div class="alert alert-light border mt-4 mb-0">
+    Ein beim manuellen Upload oder später in den Kerndaten gesetzter Titel hat immer Vorrang und wird durch OCR nicht verändert.
+  </div>
+{% endblock %}

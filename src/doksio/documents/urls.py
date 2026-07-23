@@ -161,6 +161,36 @@ urlpatterns = [
         name="settings_import_sources",
     ),
     path(
+        "t/<slug:tenant_slug>/settings/title-finding/",
+        views.tenant_settings_title_rules,
+        name="settings_title_rules",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/title-finding/new/",
+        views.tenant_settings_title_rule_create,
+        name="settings_title_rule_create",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/title-finding/regex-test/",
+        views.tenant_settings_title_regex_test,
+        name="settings_title_regex_test",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/title-finding/einvoice-format-test/",
+        views.tenant_settings_title_einvoice_format_test,
+        name="settings_title_einvoice_format_test",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/title-finding/<int:rule_id>/edit/",
+        views.tenant_settings_title_rule_edit,
+        name="settings_title_rule_edit",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/title-finding/<int:rule_id>/delete/",
+        views.tenant_settings_title_rule_delete,
+        name="settings_title_rule_delete",
+    ),
+    path(
         "t/<slug:tenant_slug>/settings/smtp/",
         views.tenant_settings_smtp,
         name="settings_smtp",
@@ -179,14 +209,22 @@ urlpatterns = [
         name="settings_scan_optimization_resume",
     ),
     path(
+        "t/<slug:tenant_slug>/settings/maintenance/titles/",
+        views.tenant_settings_title_refresh,
+        name="settings_title_refresh",
+    ),
+    path(
+        (
+            "t/<slug:tenant_slug>/settings/maintenance/"
+            "titles/<int:job_id>/resume/"
+        ),
+        views.tenant_settings_title_refresh_resume,
+        name="settings_title_refresh_resume",
+    ),
+    path(
         "t/<slug:tenant_slug>/settings/import/new/",
         views.tenant_settings_import_source_create,
         name="settings_import_source_create",
-    ),
-    path(
-        "t/<slug:tenant_slug>/settings/import/regex-test/",
-        views.tenant_settings_import_regex_test,
-        name="settings_import_regex_test",
     ),
     path(
         "t/<slug:tenant_slug>/settings/import/<int:source_id>/edit/",

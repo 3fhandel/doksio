@@ -12,6 +12,7 @@ from django.db import connection
 from django.db.models import Count, DecimalField, F, Q, QuerySet
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast
+from django.utils import timezone
 
 from doksio.accounts.permissions import TenantPermissions
 from doksio.documents.models import Document, DocumentMetadataField, DocumentSpace
@@ -25,10 +26,7 @@ def _split_terms(query: str) -> list[str]:
 
 
 def _fulltext_query(term: str) -> Q:
-    return (
-        Q(search_index__combined_text__icontains=term)
-        | Q(title__icontains=term)
-    )
+    return Q(search_index__combined_text__icontains=term) | Q(title__icontains=term)
 
 
 def _postgres_search_query(query: str) -> SearchQuery:
@@ -209,9 +207,7 @@ class SearchDocuments:
             documents = documents.filter(
                 _box_filter(
                     box=box,
-                    include_child_boxes=bool(
-                        self.filters.get("include_child_boxes")
-                    ),
+                    include_child_boxes=bool(self.filters.get("include_child_boxes")),
                 )
             )
 
@@ -345,10 +341,7 @@ class RebuildDocumentSearchIndex:
             ]
         )
         tags_text = _join_search_parts(
-            *[
-                assignment.tag.name
-                for assignment in document.tag_assignments.all()
-            ]
+            *[assignment.tag.name for assignment in document.tag_assignments.all()]
         )
         comments_text = _join_search_parts(
             *[comment.body for comment in document.comments.all()]
@@ -394,8 +387,63 @@ class RebuildDocumentSearchIndex:
         )
 
 
+@dataclass(frozen=True)
+class RefreshDocumentSearchTitles:
+    documents: list[Document]
+
+    def execute(self) -> int:
+        if not self.documents:
+            return 0
+
+        documents_by_id = {document.id: document for document in self.documents}
+        indexes = list(
+            DocumentSearchIndex.objects.filter(
+                document_id__in=documents_by_id,
+            )
+        )
+        now = timezone.now()
+        for search_index in indexes:
+            document = documents_by_id[search_index.document_id]
+            search_index.title = document.title
+            search_index.combined_text = _join_search_parts(
+                document.title,
+                search_index.filenames_text,
+                search_index.tags_text,
+                search_index.comments_text,
+                search_index.ocr_text,
+                search_index.metadata_text,
+            )
+            search_index.updated_at = now
+        DocumentSearchIndex.objects.bulk_update(
+            indexes,
+            ["title", "combined_text", "updated_at"],
+        )
+
+        indexed_document_ids = {search_index.document_id for search_index in indexes}
+        for document_id in documents_by_id.keys() - indexed_document_ids:
+            RebuildDocumentSearchIndex(
+                document=documents_by_id[document_id],
+            ).execute()
+
+        if connection.vendor == "postgresql" and indexes:
+            DocumentSearchIndex.objects.filter(
+                id__in=[search_index.id for search_index in indexes]
+            ).update(
+                search_vector=(
+                    SearchVector("title", weight="A", config="german")
+                    + SearchVector("filenames_text", weight="B", config="german")
+                    + SearchVector("tags_text", weight="B", config="german")
+                    + SearchVector("metadata_text", weight="B", config="german")
+                    + SearchVector("comments_text", weight="C", config="german")
+                    + SearchVector("ocr_text", weight="D", config="german")
+                )
+            )
+        return len(self.documents)
+
+
 __all__ = [
     "RebuildDocumentSearchIndex",
+    "RefreshDocumentSearchTitles",
     "SearchDocuments",
     "build_search_match",
 ]

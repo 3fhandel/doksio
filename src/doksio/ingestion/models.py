@@ -23,11 +23,6 @@ class ImportSource(models.Model):
         RULES = "rules", "Regeln"
         INTELLIGENT = "intelligent", "Intelligent"
 
-    class OcrTitleStrategy(models.TextChoices):
-        AUTOMATIC = "automatic", "Titel durch OCR setzen (Automatik)"
-        REGEX = "regex", "Titel durch OCR setzen (RegEx)"
-        DISABLED = "disabled", "Titel nicht durch OCR setzen"
-
     tenant = models.ForeignKey(
         "tenancy.Tenant",
         on_delete=models.CASCADE,

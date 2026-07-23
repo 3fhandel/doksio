@@ -1,0 +1,24 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  <div class="app-card p-4">
+    <h2 class="h4 mb-2">Regel löschen</h2>
+    <p class="mb-1">
+      Soll die Regel für
+      <strong>{% if rule.document_space %}{{ rule.document_space.path }}{% else %}den Tenant-Standard{% endif %}</strong>
+      wirklich gelöscht werden?
+    </p>
+    <p class="text-secondary">
+      {% if rule.document_space %}
+        Anschließend gilt für diese Dokumentenbox wieder der Tenant-Standard.
+      {% else %}
+        Anschließend verwendet Doksio wieder die integrierte automatische Titelfindung.
+      {% endif %}
+    </p>
+    <form method="post" class="d-flex gap-2">
+      {% csrf_token %}
+      <button class="btn btn-danger" type="submit">Regel löschen</button>
+      <a class="btn btn-outline-secondary" href="{% url 'documents:settings_title_rules' tenant.slug %}">Abbrechen</a>
+    </form>
+  </div>
+{% endblock %}

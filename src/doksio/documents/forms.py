@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from django import forms
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
@@ -13,8 +14,10 @@ from doksio.documents.models import (
     DocumentImportBatchItem,
     DocumentMetadataField,
     DocumentSpace,
+    DocumentTitleRule,
 )
 from doksio.documents.policies import filter_document_spaces_for_user
+from doksio.documents.title_rules import DEFAULT_EINVOICE_TITLE_FORMAT
 from doksio.tenancy.models import Tenant
 
 
@@ -67,9 +70,7 @@ class DocumentUploadForm(forms.Form):
         queryset=DocumentSpace.objects.none(),
         required=False,
         empty_label="Bitte wählen",
-        help_text=(
-            "Optional, wenn für Uploads eine Importstrategie hinterlegt ist."
-        ),
+        help_text=("Optional, wenn für Uploads eine Importstrategie hinterlegt ist."),
         widget=forms.Select(attrs={"class": "form-select"}),
     )
     file = MultipleFileField(
@@ -78,6 +79,142 @@ class DocumentUploadForm(forms.Form):
             attrs={"class": "form-control", "multiple": True},
         ),
     )
+
+
+class DocumentTitleRuleForm(forms.ModelForm):
+    class Meta:
+        model = DocumentTitleRule
+        fields = [
+            "document_space",
+            "strategy",
+            "regex_search",
+            "regex_replace",
+            "einvoice_format",
+            "fallback_strategy",
+        ]
+        labels = {
+            "document_space": "Geltungsbereich",
+            "strategy": "Strategie",
+            "regex_search": "RegEx-Suche",
+            "regex_replace": "Ersetzung",
+            "einvoice_format": "Format-String",
+            "fallback_strategy": "Fallback",
+        }
+        help_texts = {
+            "regex_search": (
+                "Regulärer Ausdruck auf dem OCR-Volltext. Gruppen können in "
+                "der Ersetzung verwendet werden, z. B. \\1."
+            ),
+            "regex_replace": "Zum Beispiel Rechnung \\1 oder \\g<nummer>.",
+            "einvoice_format": (
+                "Platzhalter werden in geschweiften Klammern angegeben. "
+                "Mit :.12 kann ein Wert auf zwölf Zeichen gekürzt werden."
+            ),
+        }
+        widgets = {
+            "document_space": forms.Select(attrs={"class": "form-select"}),
+            "strategy": forms.Select(attrs={"class": "form-select"}),
+            "regex_search": forms.TextInput(attrs={"class": "form-control"}),
+            "regex_replace": forms.TextInput(attrs={"class": "form-control"}),
+            "einvoice_format": forms.TextInput(attrs={"class": "form-control"}),
+            "fallback_strategy": forms.Select(attrs={"class": "form-select"}),
+        }
+
+    def __init__(
+        self,
+        *args,
+        tenant: Tenant,
+        lock_scope: bool = False,
+        **kwargs,
+    ) -> None:
+        self.tenant = tenant
+        super().__init__(*args, **kwargs)
+        used_rules = DocumentTitleRule.objects.filter(
+            tenant=tenant,
+            document_space__isnull=False,
+        )
+        if self.instance.pk:
+            used_rules = used_rules.exclude(pk=self.instance.pk)
+        self.fields["document_space"].queryset = (
+            DocumentSpace.objects.filter(
+                tenant=tenant,
+                is_active=True,
+                deleted_at__isnull=True,
+            )
+            .exclude(id__in=used_rules.values("document_space_id"))
+            .order_by("path")
+        )
+        self.fields["document_space"].required = False
+        self.fields["document_space"].empty_label = "Tenant-Standard"
+        self.fields["fallback_strategy"].required = False
+        if lock_scope:
+            self.fields["document_space"].disabled = True
+
+    def clean_document_space(self) -> DocumentSpace | None:
+        document_space = self.cleaned_data.get("document_space")
+        if document_space is not None and document_space.tenant_id != self.tenant.id:
+            raise forms.ValidationError(
+                "Die Dokumentenbox gehört nicht zu diesem Tenant."
+            )
+        if (
+            document_space is None
+            and DocumentTitleRule.objects.filter(
+                tenant=self.tenant,
+                document_space__isnull=True,
+            )
+            .exclude(pk=self.instance.pk)
+            .exists()
+        ):
+            raise forms.ValidationError(
+                "Für diesen Tenant ist bereits eine Standardregel vorhanden."
+            )
+        return document_space
+
+    def clean(self) -> dict:
+        cleaned_data = super().clean()
+        strategy = cleaned_data.get("strategy")
+        if not cleaned_data.get("fallback_strategy"):
+            cleaned_data["fallback_strategy"] = (
+                DocumentTitleRule.FallbackStrategy.AUTOMATIC
+            )
+        uses_regex = strategy == DocumentTitleRule.Strategy.REGEX or (
+            strategy == DocumentTitleRule.Strategy.EINVOICE
+            and cleaned_data.get("fallback_strategy")
+            == DocumentTitleRule.FallbackStrategy.REGEX
+        )
+        if uses_regex:
+            pattern = cleaned_data.get("regex_search", "").strip()
+            if not pattern:
+                self.add_error(
+                    "regex_search",
+                    "Für die RegEx-Strategie ist ein Suchmuster erforderlich.",
+                )
+            else:
+                try:
+                    re.compile(pattern)
+                except re.error as error:
+                    self.add_error(
+                        "regex_search",
+                        f"Ungültiger regulärer Ausdruck: {error}",
+                    )
+        return cleaned_data
+
+    def save(self, commit: bool = True) -> DocumentTitleRule:
+        rule = super().save(commit=False)
+        rule.tenant = self.tenant
+        uses_regex = rule.strategy == DocumentTitleRule.Strategy.REGEX or (
+            rule.strategy == DocumentTitleRule.Strategy.EINVOICE
+            and rule.fallback_strategy == DocumentTitleRule.FallbackStrategy.REGEX
+        )
+        if not uses_regex:
+            rule.regex_search = ""
+            rule.regex_replace = ""
+        if rule.strategy != DocumentTitleRule.Strategy.EINVOICE:
+            rule.einvoice_format = DEFAULT_EINVOICE_TITLE_FORMAT
+            rule.fallback_strategy = DocumentTitleRule.FallbackStrategy.AUTOMATIC
+        if commit:
+            rule.save()
+        return rule
 
 
 class DocumentImportBatchUploadForm(forms.Form):
@@ -134,6 +271,28 @@ class DocumentImportBatchItemForm(forms.Form):
 
 
 class DocumentBoxScanOptimizationForm(forms.Form):
+    def __init__(self, *args, tenant: Tenant, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["space"].queryset = DocumentSpace.objects.filter(
+            tenant=tenant,
+            is_active=True,
+            deleted_at__isnull=True,
+        ).order_by("path")
+
+    space = forms.ModelChoiceField(
+        label="Dokumentenbox",
+        queryset=DocumentSpace.objects.none(),
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    include_children = forms.BooleanField(
+        label="Kindboxen einschließen",
+        required=False,
+        initial=True,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+
+
+class DocumentBoxTitleRefreshForm(forms.Form):
     def __init__(self, *args, tenant: Tenant, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.fields["space"].queryset = DocumentSpace.objects.filter(
@@ -434,9 +593,13 @@ class DocumentSpaceUpdateForm(DocumentSpaceForm):
     ) -> None:
         self.document_space = document_space
         super().__init__(*args, tenant=tenant, **kwargs)
-        self.fields["parent"].queryset = self.fields["parent"].queryset.exclude(
-            path__startswith=f"{document_space.path.rstrip('/')}/",
-        ).exclude(id=document_space.id)
+        self.fields["parent"].queryset = (
+            self.fields["parent"]
+            .queryset.exclude(
+                path__startswith=f"{document_space.path.rstrip('/')}/",
+            )
+            .exclude(id=document_space.id)
+        )
 
     def clean(self) -> dict:
         cleaned_data = super(DocumentSpaceForm, self).clean()
@@ -643,9 +806,7 @@ class DocumentMetadataFieldForm(forms.Form):
         field_type = cleaned_data.get("field_type")
         choices_text = cleaned_data.get("choices_text", "")
         choices = [
-            choice.strip()
-            for choice in choices_text.splitlines()
-            if choice.strip()
+            choice.strip() for choice in choices_text.splitlines() if choice.strip()
         ]
         if field_type == DocumentMetadataField.FieldType.CHOICE and not choices:
             self.add_error(
@@ -805,10 +966,7 @@ class DocumentMetadataForm(forms.Form):
                 continue
             if field_definition.field_type == DocumentMetadataField.FieldType.DATE:
                 metadata[field_definition.slug] = value.isoformat()
-            elif (
-                field_definition.field_type
-                == DocumentMetadataField.FieldType.NUMBER
-            ):
+            elif field_definition.field_type == DocumentMetadataField.FieldType.NUMBER:
                 metadata[field_definition.slug] = str(value)
             else:
                 metadata[field_definition.slug] = value

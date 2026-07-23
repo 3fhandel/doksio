@@ -5,12 +5,14 @@ from django.contrib import admin
 from doksio.documents.models import (
     Document,
     DocumentBoxScanOptimizationJob,
+    DocumentBoxTitleRefreshJob,
     DocumentComment,
     DocumentFile,
     DocumentMetadataField,
     DocumentSpace,
     DocumentTag,
     DocumentTagAssignment,
+    DocumentTitleRule,
 )
 
 
@@ -20,6 +22,13 @@ class DocumentSpaceAdmin(admin.ModelAdmin):
     list_filter = ["tenant", "space_kind", "is_active"]
     search_fields = ["name", "slug", "path"]
     readonly_fields = ["path", "created_at", "updated_at"]
+
+
+@admin.register(DocumentTitleRule)
+class DocumentTitleRuleAdmin(admin.ModelAdmin):
+    list_display = ["tenant", "document_space", "strategy", "updated_at"]
+    list_filter = ["tenant", "strategy"]
+    search_fields = ["document_space__path", "regex_search", "regex_replace"]
 
 
 class DocumentFileInline(admin.TabularInline):
@@ -160,6 +169,49 @@ class DocumentBoxScanOptimizationJobAdmin(admin.ModelAdmin):
         "bytes_before",
         "bytes_after",
         "batch_size",
+        "error_message",
+        "created_by",
+        "started_at",
+        "completed_at",
+        "heartbeat_at",
+        "lease_token",
+        "lease_expires_at",
+        "created_at",
+        "updated_at",
+    ]
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+
+@admin.register(DocumentBoxTitleRefreshJob)
+class DocumentBoxTitleRefreshJobAdmin(admin.ModelAdmin):
+    list_display = [
+        "document_space",
+        "tenant",
+        "status",
+        "processed_documents",
+        "total_documents",
+        "updated_titles",
+        "errors",
+        "created_at",
+    ]
+    list_filter = ["tenant", "status", "include_children"]
+    search_fields = ["document_space__path", "error_message"]
+    readonly_fields = [
+        "tenant",
+        "document_space",
+        "include_children",
+        "status",
+        "total_documents",
+        "processed_documents",
+        "last_document_id",
+        "max_document_id",
+        "updated_titles",
+        "unchanged_titles",
+        "errors",
+        "batch_size",
+        "rule_snapshot",
         "error_message",
         "created_by",
         "started_at",

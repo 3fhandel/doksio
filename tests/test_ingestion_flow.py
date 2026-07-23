@@ -11,7 +11,12 @@ from django.urls import reverse
 from doksio.accounts.models import Notification, TenantMembership
 from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
-from doksio.documents.models import Document, DocumentFile, DocumentTagAssignment
+from doksio.documents.models import (
+    Document,
+    DocumentFile,
+    DocumentTagAssignment,
+    DocumentTitleRule,
+)
 from doksio.documents.services import CreateDocumentSpace, DuplicateDocumentError
 from doksio.ingestion.models import (
     EmailAutoReplyRecipient,
@@ -596,11 +601,6 @@ def test_tenant_admin_can_create_import_source_from_import_settings(client):
     assert import_source.document_space == space
     assert import_source.default_tags == ["api", "eingang"]
     assert import_source.settings == {
-        "title": {
-            "strategy": ImportSource.OcrTitleStrategy.AUTOMATIC,
-            "regex_search": "",
-            "regex_replace": "",
-        },
         "common": {
             "max_file_size_mb": 25,
             "allowed_content_types": ["application/pdf"],
@@ -690,7 +690,7 @@ def test_tenant_admin_can_test_import_ocr_title_regex(client):
 
     response = client.post(
         reverse(
-            "documents:settings_import_regex_test",
+            "documents:settings_title_regex_test",
             kwargs={"tenant_slug": tenant.slug},
         ),
         data={
@@ -727,7 +727,7 @@ def test_import_ocr_title_regex_test_reports_no_match(client):
 
     response = client.post(
         reverse(
-            "documents:settings_import_regex_test",
+            "documents:settings_title_regex_test",
             kwargs={"tenant_slug": tenant.slug},
         ),
         data={
@@ -759,7 +759,7 @@ def test_import_ocr_title_regex_test_reports_invalid_regex(client):
 
     response = client.post(
         reverse(
-            "documents:settings_import_regex_test",
+            "documents:settings_title_regex_test",
             kwargs={"tenant_slug": tenant.slug},
         ),
         data={
@@ -921,7 +921,7 @@ def test_http_import_endpoint_routes_document_space_by_filename_rule(client):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_import_document_passes_source_ocr_title_policy_to_ocr_job(monkeypatch):
+def test_import_document_uses_document_box_title_policy_for_ocr_job(monkeypatch):
     monkeypatch.setattr("doksio.ocr.tasks.run_ocr_job.delay", lambda job_id: None)
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
@@ -930,16 +930,17 @@ def test_import_document_passes_source_ocr_title_policy_to_ocr_job(monkeypatch):
         document_space=space,
         name="API Eingang",
         source_type=ImportSource.SourceType.HTTP_API,
-        settings={
-            "title": {
-                "strategy": ImportSource.OcrTitleStrategy.REGEX,
-                "regex_search": r"Rechnung Nr\. (\d+)",
-                "regex_replace": r"Rechnung \1",
-            }
-        },
+        settings={},
         auto_start_ocr=True,
         extract_einvoice=False,
         start_workflows=False,
+    )
+    title_rule = DocumentTitleRule.objects.create(
+        tenant=tenant,
+        document_space=space,
+        strategy=DocumentTitleRule.Strategy.REGEX,
+        regex_search=r"Rechnung Nr\. (\d+)",
+        regex_replace=r"Rechnung \1",
     )
 
     document, _import_job = ImportDocument(
@@ -952,7 +953,7 @@ def test_import_document_passes_source_ocr_title_policy_to_ocr_job(monkeypatch):
     ).execute()
 
     ocr_job = OcrJob.objects.get(document_file__document=document)
-    assert ocr_job.metadata["title_policy"] == source.settings["title"]
+    assert ocr_job.metadata["title_policy"] == title_rule.as_policy()
 
 
 @pytest.mark.django_db

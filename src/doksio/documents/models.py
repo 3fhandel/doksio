@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 
 from django.conf import settings
@@ -70,6 +71,120 @@ class DocumentSpace(models.Model):
         return self.path
 
 
+class DocumentTitleRule(models.Model):
+    """Tenant default or document-space override for automatic title discovery."""
+
+    class Strategy(models.TextChoices):
+        AUTOMATIC = "automatic", "Automatisch aus dem OCR-Volltext"
+        REGEX = "regex", "RegEx auf dem OCR-Volltext"
+        EINVOICE = "einvoice", "Aus eRechnungsdaten"
+        DISABLED = "disabled", "Keine automatische Titelfindung"
+
+    class FallbackStrategy(models.TextChoices):
+        AUTOMATIC = "automatic", "OCR-Automatik"
+        REGEX = "regex", "OCR-RegEx"
+        DISABLED = "disabled", "Dateiname beibehalten"
+
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="document_title_rules",
+    )
+    document_space = models.ForeignKey(
+        DocumentSpace,
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE,
+        related_name="title_rules",
+    )
+    strategy = models.CharField(
+        max_length=20,
+        choices=Strategy.choices,
+        default=Strategy.AUTOMATIC,
+    )
+    regex_search = models.CharField(max_length=1000, blank=True)
+    regex_replace = models.CharField(max_length=1000, blank=True)
+    einvoice_format = models.CharField(
+        max_length=1000,
+        blank=True,
+        default="{seller_name:.12}: {invoice_number}{invoice_date_suffix}",
+    )
+    fallback_strategy = models.CharField(
+        max_length=20,
+        choices=FallbackStrategy.choices,
+        default=FallbackStrategy.AUTOMATIC,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["document_space__path", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "document_space"],
+                name="unique_tenant_document_space_title_rule",
+            ),
+            models.UniqueConstraint(
+                fields=["tenant"],
+                condition=models.Q(document_space__isnull=True),
+                name="unique_tenant_default_title_rule",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "document_space"]),
+        ]
+
+    def __str__(self) -> str:
+        scope = self.document_space.path if self.document_space else "Standard"
+        return f"{self.tenant}: {scope} ({self.get_strategy_display()})"
+
+    def clean(self) -> None:
+        super().clean()
+        if (
+            self.document_space_id
+            and self.tenant_id
+            and self.document_space.tenant_id != self.tenant_id
+        ):
+            raise ValidationError(
+                {"document_space": "Die Dokumentenbox gehört nicht zu diesem Tenant."}
+            )
+        uses_regex = self.strategy == self.Strategy.REGEX or (
+            self.strategy == self.Strategy.EINVOICE
+            and self.fallback_strategy == self.FallbackStrategy.REGEX
+        )
+        if uses_regex:
+            if not self.regex_search.strip():
+                raise ValidationError(
+                    {
+                        "regex_search": (
+                            "Für die RegEx-Strategie ist ein Suchmuster erforderlich."
+                        )
+                    }
+                )
+            try:
+                re.compile(self.regex_search)
+            except re.error as error:
+                raise ValidationError(
+                    {"regex_search": f"Ungültiger regulärer Ausdruck: {error}"}
+                ) from error
+        if self.strategy == self.Strategy.EINVOICE:
+            from doksio.documents.title_rules import validate_einvoice_title_format
+
+            try:
+                validate_einvoice_title_format(self.einvoice_format)
+            except ValueError as error:
+                raise ValidationError({"einvoice_format": str(error)}) from error
+
+    def as_policy(self) -> dict[str, str]:
+        return {
+            "strategy": self.strategy,
+            "regex_search": self.regex_search,
+            "regex_replace": self.regex_replace,
+            "einvoice_format": self.einvoice_format,
+            "fallback_strategy": self.fallback_strategy,
+        }
+
+
 class Document(models.Model):
     """Logical document container around immutable files and mutable metadata."""
 
@@ -81,6 +196,7 @@ class Document(models.Model):
         MANUAL = "manual", "Manuell"
         FILENAME = "filename", "Dateiname"
         OCR = "ocr", "OCR"
+        EINVOICE = "einvoice", "eRechnung"
 
     tenant = models.ForeignKey(
         "tenancy.Tenant",
@@ -663,6 +779,9 @@ class DocumentBoxScanOptimizationJob(models.Model):
             models.Index(fields=["tenant", "document_space", "status"]),
         ]
 
+    def __str__(self) -> str:
+        return f"{self.document_space.path} {self.get_status_display()}"
+
     @property
     def saved_bytes(self) -> int:
         return max(self.bytes_before - self.bytes_after, 0)
@@ -690,5 +809,86 @@ class DocumentBoxScanOptimizationJob(models.Model):
         last_activity = self.heartbeat_at or self.updated_at
         return last_activity <= now - stale_after
 
+
+class DocumentBoxTitleRefreshJob(models.Model):
+    """Tenant maintenance job for recalculating document titles in one box."""
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Wartet"
+        RUNNING = "running", "Läuft"
+        COMPLETED = "completed", "Abgeschlossen"
+        FAILED = "failed", "Fehlgeschlagen"
+
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="document_box_title_refresh_jobs",
+    )
+    document_space = models.ForeignKey(
+        DocumentSpace,
+        on_delete=models.CASCADE,
+        related_name="title_refresh_jobs",
+    )
+    include_children = models.BooleanField(default=True)
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.QUEUED,
+    )
+    total_documents = models.PositiveIntegerField(default=0)
+    processed_documents = models.PositiveIntegerField(default=0)
+    last_document_id = models.PositiveIntegerField(default=0)
+    max_document_id = models.PositiveIntegerField(default=0)
+    updated_titles = models.PositiveIntegerField(default=0)
+    unchanged_titles = models.PositiveIntegerField(default=0)
+    errors = models.PositiveIntegerField(default=0)
+    batch_size = models.PositiveIntegerField(default=100)
+    rule_snapshot = models.JSONField(default=dict, blank=True)
+    error_message = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="created_title_refresh_jobs",
+    )
+    started_at = models.DateTimeField(blank=True, null=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    heartbeat_at = models.DateTimeField(blank=True, null=True)
+    lease_token = models.UUIDField(blank=True, null=True, editable=False)
+    lease_expires_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["tenant", "status", "-created_at"]),
+            models.Index(fields=["tenant", "document_space", "status"]),
+        ]
+
     def __str__(self) -> str:
         return f"{self.document_space.path} {self.get_status_display()}"
+
+    @property
+    def progress_percent(self) -> int:
+        if not self.total_documents:
+            return 0
+        return min(100, round(self.processed_documents / self.total_documents * 100))
+
+    @property
+    def is_resumable(self) -> bool:
+        if self.status not in {self.Status.QUEUED, self.Status.RUNNING}:
+            return False
+        now = timezone.now()
+        if self.lease_expires_at is not None:
+            return self.lease_expires_at <= now
+        stale_after = timedelta(
+            seconds=getattr(
+                settings,
+                "TITLE_REFRESH_STALE_AFTER_SECONDS",
+                120,
+            )
+        )
+        last_activity = self.heartbeat_at or self.updated_at
+        return last_activity <= now - stale_after

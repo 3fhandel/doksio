@@ -8,12 +8,19 @@ from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
-from doksio.documents.models import DocumentBoxScanOptimizationJob, DocumentSpace
+from doksio.documents.models import (
+    DocumentBoxScanOptimizationJob,
+    DocumentBoxTitleRefreshJob,
+    DocumentSpace,
+)
 from doksio.documents.services import (
     ClaimDocumentBoxScanOptimizationJob,
+    ClaimDocumentBoxTitleRefreshJob,
     CreateDocumentBoxScanOptimizationJob,
+    CreateDocumentBoxTitleRefreshJob,
     OptimizeDocumentBoxScans,
     RunDocumentBoxScanOptimizationBatch,
+    RunDocumentBoxTitleRefreshBatch,
 )
 
 
@@ -24,11 +31,7 @@ def process_document_box_scan_optimization_job(
     resume_reason: str = "",
     lease_token_value: str = "",
 ) -> dict:
-    lease_token = (
-        uuid.UUID(lease_token_value)
-        if lease_token_value
-        else uuid.uuid4()
-    )
+    lease_token = uuid.UUID(lease_token_value) if lease_token_value else uuid.uuid4()
     job = ClaimDocumentBoxScanOptimizationJob(
         job_id=job_id,
         lease_token=lease_token,
@@ -123,6 +126,103 @@ def resume_stale_scan_optimization_jobs() -> dict:
 
 
 @shared_task
+def process_document_box_title_refresh_job(
+    job_id: int,
+    *,
+    resume_reason: str = "",
+    lease_token_value: str = "",
+) -> dict:
+    lease_token = uuid.UUID(lease_token_value) if lease_token_value else uuid.uuid4()
+    job = ClaimDocumentBoxTitleRefreshJob(
+        job_id=job_id,
+        lease_token=lease_token,
+        resume_reason=resume_reason,
+    ).execute()
+    if job is None:
+        current_job = DocumentBoxTitleRefreshJob.objects.get(id=job_id)
+        return _title_refresh_job_result(current_job, claimed=False)
+
+    job = RunDocumentBoxTitleRefreshBatch(
+        job=job,
+        actor=job.created_by,
+        lease_token=lease_token,
+    ).execute()
+    should_continue = (
+        job.status == DocumentBoxTitleRefreshJob.Status.RUNNING
+        and job.processed_documents < job.total_documents
+    )
+    if should_continue:
+        process_document_box_title_refresh_job.delay(job.id)
+    return _title_refresh_job_result(job, claimed=True)
+
+
+def _title_refresh_job_result(
+    job: DocumentBoxTitleRefreshJob,
+    *,
+    claimed: bool,
+) -> dict:
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "claimed": claimed,
+        "processed_documents": job.processed_documents,
+        "total_documents": job.total_documents,
+        "updated_titles": job.updated_titles,
+        "unchanged_titles": job.unchanged_titles,
+        "errors": job.errors,
+    }
+
+
+@shared_task
+def resume_stale_title_refresh_jobs() -> dict:
+    now = timezone.now()
+    cutoff = now - timedelta(
+        seconds=getattr(
+            settings,
+            "TITLE_REFRESH_STALE_AFTER_SECONDS",
+            120,
+        )
+    )
+    recoverable_jobs = (
+        DocumentBoxTitleRefreshJob.objects.filter(
+            status__in=[
+                DocumentBoxTitleRefreshJob.Status.QUEUED,
+                DocumentBoxTitleRefreshJob.Status.RUNNING,
+            ]
+        )
+        .filter(
+            Q(lease_expires_at__lte=now)
+            | Q(
+                lease_expires_at__isnull=True,
+                heartbeat_at__lte=cutoff,
+            )
+            | Q(
+                lease_expires_at__isnull=True,
+                heartbeat_at__isnull=True,
+                updated_at__lte=cutoff,
+            )
+        )
+        .order_by("id")
+    )
+    job_ids = []
+    for job_id in recoverable_jobs.values_list("id", flat=True):
+        lease_token = uuid.uuid4()
+        claimed_job = ClaimDocumentBoxTitleRefreshJob(
+            job_id=job_id,
+            lease_token=lease_token,
+            resume_reason="automatic",
+        ).execute()
+        if claimed_job is None:
+            continue
+        process_document_box_title_refresh_job.delay(
+            job_id,
+            lease_token_value=str(lease_token),
+        )
+        job_ids.append(job_id)
+    return {"resumed_job_ids": job_ids, "count": len(job_ids)}
+
+
+@shared_task
 def start_document_box_scan_optimization(
     document_space_id: int,
     *,
@@ -144,6 +244,31 @@ def start_document_box_scan_optimization(
         actor=actor,
     ).execute()
     process_document_box_scan_optimization_job.delay(job.id)
+    return {"job_id": job.id, "status": job.status}
+
+
+@shared_task
+def start_document_box_title_refresh(
+    document_space_id: int,
+    *,
+    include_children: bool = True,
+    actor_id: int | None = None,
+) -> dict:
+    from django.contrib.auth import get_user_model
+
+    document_space = DocumentSpace.objects.select_related("tenant").get(
+        id=document_space_id,
+    )
+    actor = None
+    if actor_id is not None:
+        actor = get_user_model().objects.filter(id=actor_id).first()
+    job = CreateDocumentBoxTitleRefreshJob(
+        tenant=document_space.tenant,
+        document_space=document_space,
+        include_children=include_children,
+        actor=actor,
+    ).execute()
+    process_document_box_title_refresh_job.delay(job.id)
     return {"job_id": job.id, "status": job.status}
 
 

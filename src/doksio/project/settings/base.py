@@ -125,8 +125,7 @@ DATABASES = {
 AUTH_PASSWORD_VALIDATORS = [
     {
         "NAME": (
-            "django.contrib.auth.password_validation."
-            "UserAttributeSimilarityValidator"
+            "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
         ),
     },
     {
@@ -177,6 +176,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "doksio.documents.tasks.resume_stale_scan_optimization_jobs",
         "schedule": 60.0,
     },
+    "resume-stale-title-refresh-jobs": {
+        "task": "doksio.documents.tasks.resume_stale_title_refresh_jobs",
+        "schedule": 60.0,
+    },
 }
 
 OCR_LANGUAGE = os.getenv("OCR_LANGUAGE", "deu+eng")
@@ -195,6 +198,15 @@ SCAN_OPTIMIZATION_STALE_AFTER_SECONDS = env_int(
 SCAN_OPTIMIZATION_LEASE_SECONDS = env_int(
     "SCAN_OPTIMIZATION_LEASE_SECONDS",
     32 * 60,
+)
+TITLE_REFRESH_BATCH_SIZE = env_int("TITLE_REFRESH_BATCH_SIZE", 100)
+TITLE_REFRESH_STALE_AFTER_SECONDS = env_int(
+    "TITLE_REFRESH_STALE_AFTER_SECONDS",
+    120,
+)
+TITLE_REFRESH_LEASE_SECONDS = env_int(
+    "TITLE_REFRESH_LEASE_SECONDS",
+    10 * 60,
 )
 
 STORAGES = {

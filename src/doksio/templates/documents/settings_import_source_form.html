@@ -314,46 +314,6 @@
           </div>
         </div>
 
-      <hr class="my-4">
-      <h3 class="h6 mb-3">Dokumententitel</h3>
-      <div class="row g-3">
-        <div class="col-md-4">
-          <label class="form-label" for="{{ form.ocr_title_strategy.id_for_label }}">Strategie</label>
-          {{ form.ocr_title_strategy }}
-          {{ form.ocr_title_strategy.errors }}
-        </div>
-        <div class="col-md-4" data-ocr-title-regex-field>
-          <label class="form-label" for="{{ form.ocr_title_regex_search.id_for_label }}">RegEx-Suche</label>
-          {{ form.ocr_title_regex_search }}
-          <div class="form-text">{{ form.ocr_title_regex_search.help_text }}</div>
-          {{ form.ocr_title_regex_search.errors }}
-        </div>
-        <div class="col-md-4" data-ocr-title-regex-field>
-          <label class="form-label" for="{{ form.ocr_title_regex_replace.id_for_label }}">Ersetzung</label>
-          {{ form.ocr_title_regex_replace }}
-          <div class="form-text">{{ form.ocr_title_regex_replace.help_text }}</div>
-          {{ form.ocr_title_regex_replace.errors }}
-        </div>
-        <div class="col-12" data-ocr-title-regex-field>
-          <div class="border rounded p-3 bg-light">
-            <div class="row g-3 align-items-end">
-              <div class="col-md-8">
-                <label class="form-label" for="ocr-title-regex-test-text">OCR-Beispieltext</label>
-                <textarea class="form-control" id="ocr-title-regex-test-text" rows="4" placeholder="Hier OCR-Volltext einfügen"></textarea>
-              </div>
-              <div class="col-md-4">
-                <button class="btn btn-outline-primary w-100" type="button" id="ocr-title-regex-test-button">
-                  RegEx testen
-                </button>
-              </div>
-              <div class="col-12">
-                <div class="small" id="ocr-title-regex-test-result" aria-live="polite"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div class="mt-3">
         <label class="form-label" for="{{ form.default_tags_text.id_for_label }}">Tags</label>
         {{ form.default_tags_text }}
@@ -474,16 +434,8 @@
     (() => {
       const sourceTypeField = document.getElementById("{{ form.source_type.id_for_label }}");
       const targetStrategyField = document.getElementById("{{ form.target_strategy.id_for_label }}");
-      const ocrTitleStrategyField = document.getElementById("{{ form.ocr_title_strategy.id_for_label }}");
       const sections = document.querySelectorAll("[data-import-settings-section]");
       const targetSections = document.querySelectorAll("[data-target-strategy-section]");
-      const ocrTitleRegexFields = document.querySelectorAll("[data-ocr-title-regex-field]");
-      const regexSearchField = document.getElementById("{{ form.ocr_title_regex_search.id_for_label }}");
-      const regexReplaceField = document.getElementById("{{ form.ocr_title_regex_replace.id_for_label }}");
-      const regexTestTextField = document.getElementById("ocr-title-regex-test-text");
-      const regexTestButton = document.getElementById("ocr-title-regex-test-button");
-      const regexTestResult = document.getElementById("ocr-title-regex-test-result");
-      const csrfToken = document.querySelector("[name=csrfmiddlewaretoken]").value;
       function syncImportSettingsSections() {
         sections.forEach((section) => {
           const sectionNames = section.dataset.importSettingsSection.split(" ");
@@ -495,60 +447,10 @@
           section.hidden = section.dataset.targetStrategySection !== targetStrategyField.value;
         });
       }
-      function syncOcrTitleStrategyFields() {
-        ocrTitleRegexFields.forEach((field) => {
-          field.hidden = ocrTitleStrategyField.value !== "regex";
-        });
-      }
-      function showRegexTestResult(className, text, title = "") {
-        regexTestResult.className = `small ${className}`;
-        regexTestResult.textContent = text;
-        if (title) {
-          const strongTitle = document.createElement("strong");
-          strongTitle.textContent = title;
-          regexTestResult.append(" ");
-          regexTestResult.append(strongTitle);
-        }
-      }
-      async function testOcrTitleRegex() {
-        regexTestButton.disabled = true;
-        showRegexTestResult("text-secondary", "Teste RegEx...");
-        try {
-          const response = await fetch("{% url 'documents:settings_import_regex_test' tenant.slug %}", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-CSRFToken": csrfToken,
-            },
-            body: JSON.stringify({
-              regex_search: regexSearchField.value,
-              regex_replace: regexReplaceField.value,
-              sample_text: regexTestTextField.value,
-            }),
-          });
-          const data = await response.json();
-          if (!response.ok || !data.ok) {
-            showRegexTestResult("text-danger", data.error || "Der Test ist fehlgeschlagen.");
-          } else if (!data.matched) {
-            showRegexTestResult("text-warning", "Kein Treffer im Beispieltext.");
-          } else if (data.title) {
-            showRegexTestResult("text-success", "Ermittelter Titel:", data.title);
-          } else {
-            showRegexTestResult("text-warning", "Treffer gefunden, aber daraus entsteht kein Titel.");
-          }
-        } catch (_error) {
-          showRegexTestResult("text-danger", "Der Test konnte nicht ausgeführt werden.");
-        } finally {
-          regexTestButton.disabled = false;
-        }
-      }
       sourceTypeField.addEventListener("change", syncImportSettingsSections);
       targetStrategyField.addEventListener("change", syncTargetStrategySections);
-      ocrTitleStrategyField.addEventListener("change", syncOcrTitleStrategyFields);
-      regexTestButton.addEventListener("click", testOcrTitleRegex);
       syncImportSettingsSections();
       syncTargetStrategySections();
-      syncOcrTitleStrategyFields();
     })();
   </script>
 {% endblock %}

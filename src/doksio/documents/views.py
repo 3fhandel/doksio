@@ -45,6 +45,7 @@ from doksio.audit.models import AuditEvent
 from doksio.audit.services import RecordAuditEvent
 from doksio.documents.forms import (
     DocumentBoxScanOptimizationForm,
+    DocumentBoxTitleRefreshForm,
     DocumentCommentForm,
     DocumentCoreMetadataForm,
     DocumentDeleteForm,
@@ -60,6 +61,7 @@ from doksio.documents.forms import (
     DocumentSpaceUpdateForm,
     DocumentSplitForm,
     DocumentTagForm,
+    DocumentTitleRuleForm,
     DocumentUploadForm,
 )
 from doksio.documents.mentions import mention_suggestions_for_tenant
@@ -67,12 +69,14 @@ from doksio.documents.metadata import effective_metadata_fields
 from doksio.documents.models import (
     Document,
     DocumentBoxScanOptimizationJob,
+    DocumentBoxTitleRefreshJob,
     DocumentFile,
     DocumentImportBatch,
     DocumentImportBatchItem,
     DocumentMetadataField,
     DocumentRelation,
     DocumentSpace,
+    DocumentTitleRule,
 )
 from doksio.documents.policies import (
     can_administer_tenant,
@@ -113,6 +117,10 @@ from doksio.documents.services import (
     UpdateDocumentSpace,
     pdf_page_count,
 )
+from doksio.documents.title_rules import (
+    EINVOICE_TITLE_PLACEHOLDERS,
+    title_from_einvoice_data,
+)
 from doksio.ingestion.forms import (
     ImportSourceForm,
     TenantSmtpSettingsForm,
@@ -124,14 +132,13 @@ from doksio.ingestion.models import (
     ImportSource,
     TenantSmtpSettings,
 )
-from doksio.ingestion.services import (
-    ResolveManualUploadDocumentSpace,
-    ocr_title_policy_from_source,
-)
+from doksio.ingestion.services import ResolveManualUploadDocumentSpace
 from doksio.ocr.services import StartOcrForDocumentFile, title_from_ocr_policy
 from doksio.pagination import paginate_queryset
 from doksio.project.email import (
     BrandedEmailMultiAlternatives as EmailMultiAlternatives,
+)
+from doksio.project.email import (
     attach_branded_html,
 )
 from doksio.project.url_helpers import build_public_url
@@ -739,6 +746,16 @@ def _document_log_entries(document: Document):
 
 AUDIT_EVENT_LABELS = DOCUMENT_LOG_EVENT_LABELS | {
     "export_run.created": "Exportlauf erzeugt",
+    "document_title_rule.created": "Titelfindungsregel erstellt",
+    "document_title_rule.updated": "Titelfindungsregel aktualisiert",
+    "document_title_rule.deleted": "Titelfindungsregel gelöscht",
+    "document_box.title_refresh.started": "Titelneuberechnung gestartet",
+    "document_box.title_refresh.resumed": "Titelneuberechnung fortgesetzt",
+    "document_box.title_refresh.resume_requested": (
+        "Fortsetzung der Titelneuberechnung angefordert"
+    ),
+    "document_box.title_refresh.completed": "Titelneuberechnung abgeschlossen",
+    "document_box.title_refresh.failed": "Titelneuberechnung fehlgeschlagen",
 }
 
 
@@ -1048,10 +1065,7 @@ def dashboard(request: HttpRequest, tenant_slug: str) -> HttpResponse:
         per_page=10,
     )
     workflow_documents_count = (
-        workflow_tasks_queryset.order_by()
-        .values("document_id")
-        .distinct()
-        .count()
+        workflow_tasks_queryset.order_by().values("document_id").distinct().count()
     )
     document_nav = _document_nav_param(
         document.id for document in documents_page_obj.object_list
@@ -1104,10 +1118,7 @@ def task_list(request: HttpRequest, tenant_slug: str) -> HttpResponse:
         per_page=25,
     )
     workflow_documents_count = (
-        workflow_tasks_queryset.order_by()
-        .values("document_id")
-        .distinct()
-        .count()
+        workflow_tasks_queryset.order_by().values("document_id").distinct().count()
     )
     workflow_task_document_nav = _document_nav_param(
         dict.fromkeys(task.document_id for task in workflow_tasks_page_obj.object_list)
@@ -1256,7 +1267,6 @@ def document_upload(request: HttpRequest, tenant_slug: str) -> HttpResponse:
                             if upload_source is not None
                             else None
                         ),
-                        ocr_title_policy=ocr_title_policy_from_source(upload_source),
                         auto_start_workflows=(
                             upload_source.start_workflows
                             if upload_source is not None
@@ -1307,10 +1317,7 @@ def document_upload(request: HttpRequest, tenant_slug: str) -> HttpResponse:
                 if imported_documents:
                     messages.success(
                         request,
-                        (
-                            f"{len(imported_documents)} Dokumente wurden "
-                            "gespeichert."
-                        ),
+                        (f"{len(imported_documents)} Dokumente wurden gespeichert."),
                     )
                 return redirect("documents:dashboard", tenant_slug=tenant.slug)
     else:
@@ -1737,9 +1744,7 @@ def document_detail(
     share_mail_subject = f"Doksio Dokument: {document.title}"
     share_mail_body = f"Link zum Dokument:\n{document_share_url}"
     share_mailto_url = (
-        "mailto:"
-        f"?subject={quote(share_mail_subject)}"
-        f"&body={quote(share_mail_body)}"
+        f"mailto:?subject={quote(share_mail_subject)}&body={quote(share_mail_body)}"
     )
 
     if request.method == "POST":
@@ -1785,11 +1790,10 @@ def document_detail(
                 tenant=tenant,
             )
             related_document = relation.other_document(document)
-            if (
-                document.id
-                not in {relation.first_document_id, relation.second_document_id}
-                or not can_view_document(request.user, related_document)
-            ):
+            if document.id not in {
+                relation.first_document_id,
+                relation.second_document_id,
+            } or not can_view_document(request.user, related_document):
                 raise PermissionDenied
             RemoveDocumentRelation(relation=relation, actor=request.user).execute()
             messages.success(request, "Dokumentverknüpfung wurde entfernt.")
@@ -1919,11 +1923,15 @@ def document_detail(
         for instance in workflow_instances
         if instance.status == WorkflowInstance.Status.RUNNING
     ]
-    open_workflow_tasks_queryset = document.workflow_tasks.filter(
-        status=WorkflowTask.Status.OPEN,
-    ).select_related("step", "assigned_role", "instance__template").prefetch_related(
-        "step__required_metadata_fields",
-        "step__required_related_document_spaces",
+    open_workflow_tasks_queryset = (
+        document.workflow_tasks.filter(
+            status=WorkflowTask.Status.OPEN,
+        )
+        .select_related("step", "assigned_role", "instance__template")
+        .prefetch_related(
+            "step__required_metadata_fields",
+            "step__required_related_document_spaces",
+        )
     )
     open_workflow_tasks = [
         task
@@ -2376,9 +2384,7 @@ def document_relation_picker_search(
             "title": candidate.title,
             "space": candidate.space.path,
             "document_date": (
-                candidate.document_date.isoformat()
-                if candidate.document_date
-                else ""
+                candidate.document_date.isoformat() if candidate.document_date else ""
             ),
             "created_at": timezone.localtime(candidate.created_at).strftime(
                 "%d.%m.%Y %H:%M"
@@ -2419,6 +2425,7 @@ def document_file_download(
         filename=document_file.original_filename,
         content_type=document_file.content_type,
     )
+
 
 def document_file_viewer_settings(
     request: HttpRequest,
@@ -2850,7 +2857,10 @@ def tenant_settings_smtp(
                 if smtp_settings is None or not smtp_settings.is_active:
                     messages.error(
                         request,
-                        "Für diesen Mandanten ist kein aktiver SMTP-Versand konfiguriert.",
+                        (
+                            "Für diesen Mandanten ist kein aktiver "
+                            "SMTP-Versand konfiguriert."
+                        ),
                     )
                 else:
                     recipient = test_form.cleaned_data["recipient"]
@@ -2957,7 +2967,9 @@ def tenant_settings_maintenance(
         form = DocumentBoxScanOptimizationForm(request.POST, tenant=tenant)
         if form.is_valid():
             from doksio.documents.services import CreateDocumentBoxScanOptimizationJob
-            from doksio.documents.tasks import process_document_box_scan_optimization_job
+            from doksio.documents.tasks import (
+                process_document_box_scan_optimization_job,
+            )
 
             document_space = form.cleaned_data["space"]
             job = CreateDocumentBoxScanOptimizationJob(
@@ -2990,6 +3002,7 @@ def tenant_settings_maintenance(
                     "created_by",
                 )[:8]
             ),
+            "maintenance_section": "scan_storage",
             "active_settings_section": "maintenance",
         },
     )
@@ -3050,6 +3063,344 @@ def tenant_settings_scan_optimization_resume(
     return redirect("documents:settings_maintenance", tenant_slug=tenant.slug)
 
 
+def tenant_settings_title_refresh(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    if request.method == "POST":
+        form = DocumentBoxTitleRefreshForm(request.POST, tenant=tenant)
+        if form.is_valid():
+            from doksio.documents.services import CreateDocumentBoxTitleRefreshJob
+            from doksio.documents.tasks import process_document_box_title_refresh_job
+
+            document_space = form.cleaned_data["space"]
+            job = CreateDocumentBoxTitleRefreshJob(
+                tenant=tenant,
+                document_space=document_space,
+                include_children=form.cleaned_data["include_children"],
+                actor=request.user,
+            ).execute()
+            process_document_box_title_refresh_job.delay(job.id)
+            messages.success(
+                request,
+                (
+                    "Titelneuberechnung wurde gestartet. "
+                    "Der Fortschritt ist hier sichtbar."
+                ),
+            )
+            return redirect(
+                "documents:settings_title_refresh",
+                tenant_slug=tenant.slug,
+            )
+    else:
+        form = DocumentBoxTitleRefreshForm(tenant=tenant)
+
+    return render(
+        request,
+        "documents/settings_maintenance_titles.html",
+        {
+            "tenant": tenant,
+            "form": form,
+            "title_refresh_jobs": (
+                tenant.document_box_title_refresh_jobs.select_related(
+                    "document_space",
+                    "created_by",
+                )[:8]
+            ),
+            "maintenance_section": "titles",
+            "active_settings_section": "maintenance",
+        },
+    )
+
+
+def tenant_settings_title_refresh_resume(
+    request: HttpRequest,
+    tenant_slug: str,
+    job_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    job = get_object_or_404(
+        DocumentBoxTitleRefreshJob.objects.select_related("document_space"),
+        id=job_id,
+        tenant=tenant,
+    )
+    if job.is_resumable:
+        from doksio.documents.tasks import process_document_box_title_refresh_job
+
+        process_document_box_title_refresh_job.delay(
+            job.id,
+            resume_reason="manual",
+        )
+        RecordAuditEvent(
+            tenant=tenant,
+            actor=request.user,
+            event_type="document_box.title_refresh.resume_requested",
+            object_type="documents.DocumentBoxTitleRefreshJob",
+            object_id=str(job.id),
+            data={
+                "space_path": job.document_space.path,
+                "processed_documents": job.processed_documents,
+                "total_documents": job.total_documents,
+            },
+        ).execute()
+        messages.success(
+            request,
+            "Die Fortsetzung der Titelneuberechnung wurde angefordert.",
+        )
+    elif job.status in {
+        DocumentBoxTitleRefreshJob.Status.COMPLETED,
+        DocumentBoxTitleRefreshJob.Status.FAILED,
+    }:
+        messages.info(request, "Dieser Wartungsjob ist bereits beendet.")
+    else:
+        messages.info(request, "Der Wartungsjob wird derzeit noch verarbeitet.")
+
+    return redirect(
+        "documents:settings_title_refresh",
+        tenant_slug=tenant.slug,
+    )
+
+
+def tenant_settings_title_rules(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    rules = DocumentTitleRule.objects.filter(tenant=tenant).select_related(
+        "document_space"
+    )
+    default_rule = rules.filter(document_space__isnull=True).first()
+    box_rules = rules.filter(document_space__isnull=False).order_by(
+        "document_space__path",
+        "id",
+    )
+    available_box_count = (
+        DocumentSpace.objects.filter(
+            tenant=tenant,
+            is_active=True,
+            deleted_at__isnull=True,
+        )
+        .exclude(
+            id__in=box_rules.values("document_space_id"),
+        )
+        .count()
+    )
+    return render(
+        request,
+        "documents/settings_title_rules.html",
+        {
+            "tenant": tenant,
+            "default_rule": default_rule,
+            "box_rules_page_obj": paginate_queryset(
+                request,
+                box_rules,
+                page_param="page",
+                per_page=25,
+            ),
+            "available_box_count": available_box_count,
+            "active_settings_section": "title_rules",
+        },
+    )
+
+
+def tenant_settings_title_rule_create(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    if request.method == "POST":
+        form = DocumentTitleRuleForm(request.POST, tenant=tenant)
+        if form.is_valid():
+            rule = form.save()
+            RecordAuditEvent(
+                tenant=tenant,
+                actor=request.user,
+                event_type="document_title_rule.created",
+                object_type="documents.DocumentTitleRule",
+                object_id=str(rule.id),
+                data={
+                    "document_space_id": rule.document_space_id,
+                    "strategy": rule.strategy,
+                    "einvoice_format": rule.einvoice_format,
+                    "fallback_strategy": rule.fallback_strategy,
+                },
+            ).execute()
+            messages.success(request, "Regel zur Titelfindung wurde erstellt.")
+            return redirect(
+                "documents:settings_title_rules",
+                tenant_slug=tenant.slug,
+            )
+    else:
+        form = DocumentTitleRuleForm(
+            tenant=tenant,
+            initial={"strategy": DocumentTitleRule.Strategy.AUTOMATIC},
+        )
+
+    return render(
+        request,
+        "documents/settings_title_rule_form.html",
+        {
+            "tenant": tenant,
+            "form": form,
+            "form_title": "Regel erstellen",
+            "submit_label": "Regel erstellen",
+            "einvoice_title_placeholders": EINVOICE_TITLE_PLACEHOLDERS,
+            "active_settings_section": "title_rules",
+        },
+    )
+
+
+def tenant_settings_title_rule_edit(
+    request: HttpRequest,
+    tenant_slug: str,
+    rule_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    rule = get_object_or_404(
+        DocumentTitleRule.objects.select_related("document_space"),
+        id=rule_id,
+        tenant=tenant,
+    )
+    if request.method == "POST":
+        form = DocumentTitleRuleForm(
+            request.POST,
+            tenant=tenant,
+            instance=rule,
+            lock_scope=True,
+        )
+        if form.is_valid():
+            rule = form.save()
+            RecordAuditEvent(
+                tenant=tenant,
+                actor=request.user,
+                event_type="document_title_rule.updated",
+                object_type="documents.DocumentTitleRule",
+                object_id=str(rule.id),
+                data={
+                    "document_space_id": rule.document_space_id,
+                    "strategy": rule.strategy,
+                    "einvoice_format": rule.einvoice_format,
+                    "fallback_strategy": rule.fallback_strategy,
+                },
+            ).execute()
+            messages.success(request, "Regel zur Titelfindung wurde aktualisiert.")
+            return redirect(
+                "documents:settings_title_rules",
+                tenant_slug=tenant.slug,
+            )
+    else:
+        form = DocumentTitleRuleForm(
+            tenant=tenant,
+            instance=rule,
+            lock_scope=True,
+        )
+
+    scope_name = rule.document_space.path if rule.document_space else "Tenant-Standard"
+    return render(
+        request,
+        "documents/settings_title_rule_form.html",
+        {
+            "tenant": tenant,
+            "form": form,
+            "rule": rule,
+            "form_title": f"Regel bearbeiten: {scope_name}",
+            "submit_label": "Regel speichern",
+            "einvoice_title_placeholders": EINVOICE_TITLE_PLACEHOLDERS,
+            "active_settings_section": "title_rules",
+        },
+    )
+
+
+def tenant_settings_title_rule_delete(
+    request: HttpRequest,
+    tenant_slug: str,
+    rule_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    rule = get_object_or_404(
+        DocumentTitleRule.objects.select_related("document_space"),
+        id=rule_id,
+        tenant=tenant,
+    )
+    if request.method == "POST":
+        scope_name = (
+            rule.document_space.path if rule.document_space else "Tenant-Standard"
+        )
+        rule_id_value = rule.id
+        document_space_id = rule.document_space_id
+        rule.delete()
+        RecordAuditEvent(
+            tenant=tenant,
+            actor=request.user,
+            event_type="document_title_rule.deleted",
+            object_type="documents.DocumentTitleRule",
+            object_id=str(rule_id_value),
+            data={
+                "document_space_id": document_space_id,
+                "scope": scope_name,
+            },
+        ).execute()
+        messages.success(
+            request,
+            "Regel wurde entfernt. Es gilt wieder die übergeordnete Automatik.",
+        )
+        return redirect(
+            "documents:settings_title_rules",
+            tenant_slug=tenant.slug,
+        )
+    if request.method != "GET":
+        return HttpResponseNotAllowed(["GET", "POST"])
+
+    return render(
+        request,
+        "documents/settings_title_rule_delete.html",
+        {
+            "tenant": tenant,
+            "rule": rule,
+            "active_settings_section": "title_rules",
+        },
+    )
+
+
 def tenant_settings_import_source_create(
     request: HttpRequest,
     tenant_slug: str,
@@ -3099,7 +3450,7 @@ def tenant_settings_import_source_create(
     )
 
 
-def tenant_settings_import_regex_test(
+def tenant_settings_title_regex_test(
     request: HttpRequest,
     tenant_slug: str,
 ) -> JsonResponse:
@@ -3159,6 +3510,58 @@ def tenant_settings_import_regex_test(
             "matched": True,
             "title": title or "",
             "match": match.group(0),
+        }
+    )
+
+
+def tenant_settings_title_einvoice_format_test(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> JsonResponse:
+    if not request.user.is_authenticated:
+        raise PermissionDenied
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse(
+            {"ok": False, "error": "Ungültige Testdaten."},
+            status=400,
+        )
+
+    format_string = str(payload.get("einvoice_format", ""))
+    sample_data = {
+        "invoice_number": "RE-4711",
+        "invoice_date": "20260707",
+        "seller_name": "Musterlieferant GmbH",
+        "buyer_name": tenant.name,
+        "currency": "EUR",
+        "line_total_amount": "290.00",
+        "tax_basis_total_amount": "290.00",
+        "tax_total_amount": "55.10",
+        "grand_total_amount": "345.10",
+        "due_payable_amount": "345.10",
+        "syntax": "CII",
+        "profile": "EN 16931",
+    }
+    try:
+        title = title_from_einvoice_data(sample_data, format_string)
+    except ValueError as error:
+        return JsonResponse(
+            {"ok": False, "error": str(error)},
+            status=400,
+        )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "title": title or "",
         }
     )
 
@@ -3279,9 +3682,7 @@ def tenant_settings_import_source_auto_reply_recipients_reset(
             raise Http404
         recipients = recipients.filter(id=recipient_id)
 
-    deleted_recipients = list(
-        recipients.values("recipient", "reply_type")
-    )
+    deleted_recipients = list(recipients.values("recipient", "reply_type"))
     recipients.delete()
     RecordAuditEvent(
         tenant=tenant,
@@ -3602,8 +4003,9 @@ def tenant_settings_member_edit(
         raise PermissionDenied
 
     membership = get_object_or_404(
-        TenantMembership.objects.select_related("tenant", "user", "role")
-        .prefetch_related("roles"),
+        TenantMembership.objects.select_related(
+            "tenant", "user", "role"
+        ).prefetch_related("roles"),
         id=membership_id,
         tenant=tenant,
     )
@@ -3804,9 +4206,7 @@ def tenant_settings_role_edit(
                 "name": role.name,
                 "description": role.description,
                 "permissions": role.permissions.all(),
-                "can_access_all_document_spaces": (
-                    role.can_access_all_document_spaces
-                ),
+                "can_access_all_document_spaces": (role.can_access_all_document_spaces),
                 "document_spaces": role.document_spaces.all(),
                 "is_active": role.is_active,
             },

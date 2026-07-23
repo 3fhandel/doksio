@@ -28,8 +28,9 @@ from doksio.documents.mentions import display_name_for_user, mentioned_users_fro
 from doksio.documents.metadata import effective_metadata_fields
 from doksio.documents.models import (
     Document,
-    DocumentComment,
     DocumentBoxScanOptimizationJob,
+    DocumentBoxTitleRefreshJob,
+    DocumentComment,
     DocumentFile,
     DocumentImportBatch,
     DocumentImportBatchItem,
@@ -38,10 +39,16 @@ from doksio.documents.models import (
     DocumentSpace,
     DocumentTag,
     DocumentTagAssignment,
+    DocumentTitleRule,
 )
 from doksio.documents.thumbnails import (
     create_preview_for_document_file,
     create_thumbnail_for_document_file,
+)
+from doksio.documents.title_rules import (
+    DEFAULT_EINVOICE_TITLE_FORMAT,
+    resolve_document_title_policy,
+    title_from_einvoice_data,
 )
 from doksio.storage.services import StoreImmutableFile
 from doksio.tenancy.models import Tenant
@@ -375,29 +382,6 @@ def _metadata_from_einvoice(
             continue
         metadata[field.slug] = _coerce_einvoice_metadata_value(str(value), field)
     return metadata
-
-
-def _format_einvoice_title_date(raw_date: str) -> str:
-    if len(raw_date) == 8 and raw_date.isdigit():
-        return f"{raw_date[6:]}.{raw_date[4:6]}.{raw_date[:4]}"
-    if len(raw_date) == 10 and raw_date[4] == "-" and raw_date[7] == "-":
-        return f"{raw_date[8:]}.{raw_date[5:7]}.{raw_date[:4]}"
-    return raw_date
-
-
-def _title_from_einvoice(einvoice_data: dict) -> str:
-    seller_name = str(einvoice_data.get("seller_name", "")).strip()
-    invoice_number = str(einvoice_data.get("invoice_number", "")).strip()
-    invoice_date = str(einvoice_data.get("invoice_date", "")).strip()
-
-    if not seller_name or not invoice_number:
-        return ""
-
-    name_prefix = seller_name[:12].strip()
-    title = f"{name_prefix}: {invoice_number}"
-    if invoice_date:
-        title = f"{title} vom {_format_einvoice_title_date(invoice_date)}"
-    return title
 
 
 def _schedule_search_index_rebuild(document: Document) -> None:
@@ -889,7 +873,6 @@ class FinalizeDocumentImportBatch:
             return counts
 
         from doksio.ingestion.models import ImportSource
-        from doksio.ingestion.services import ocr_title_policy_from_source
 
         upload_source = (
             ImportSource.objects.filter(
@@ -929,7 +912,6 @@ class FinalizeDocumentImportBatch:
                             if upload_source is not None
                             else None
                         ),
-                        ocr_title_policy=ocr_title_policy_from_source(upload_source),
                         auto_start_workflows=(
                             upload_source.start_workflows
                             if upload_source is not None
@@ -1006,12 +988,14 @@ class DiscardDocumentImportBatch:
         if self.batch.status != DocumentImportBatch.Status.OPEN:
             raise ValueError("Nur offene Stapelimporte können verworfen werden.")
 
-        staged_items = list(self.batch.items.exclude(
-            status__in=[
-                DocumentImportBatchItem.Status.IMPORTED,
-                DocumentImportBatchItem.Status.DUPLICATE,
-            ],
-        ))
+        staged_items = list(
+            self.batch.items.exclude(
+                status__in=[
+                    DocumentImportBatchItem.Status.IMPORTED,
+                    DocumentImportBatchItem.Status.DUPLICATE,
+                ],
+            )
+        )
         deleted_files = 0
         for item in staged_items:
             if item.source_storage_key:
@@ -1202,10 +1186,7 @@ class RunDocumentBoxScanOptimizationBatch:
         }:
             return self.job
 
-        if (
-            self.lease_token is not None
-            and self.job.lease_token != self.lease_token
-        ):
+        if self.lease_token is not None and self.job.lease_token != self.lease_token:
             return self.job
 
         if self.job.document_space.tenant_id != self.job.tenant_id:
@@ -1263,7 +1244,9 @@ class RunDocumentBoxScanOptimizationBatch:
             .values_list("id", flat=True)[: self.job.batch_size]
         )
 
-    def _latest_original_pdf_files(self, document_ids: list[int]) -> dict[int, DocumentFile]:
+    def _latest_original_pdf_files(
+        self, document_ids: list[int]
+    ) -> dict[int, DocumentFile]:
         files = (
             DocumentFile.objects.filter(
                 tenant=self.job.tenant,
@@ -1394,6 +1377,454 @@ class RunDocumentBoxScanOptimizationBatch:
             actor=self.actor or self.job.created_by,
             event_type="document_box.scan_optimization.failed",
             object_type="documents.DocumentBoxScanOptimizationJob",
+            object_id=str(self.job.id),
+            data={
+                "space_path": self.job.document_space.path,
+                "error": message,
+            },
+        ).execute()
+
+
+def _document_box_title_refresh_documents(
+    *,
+    tenant: Tenant,
+    document_space: DocumentSpace,
+    include_children: bool,
+):
+    documents = Document.objects.filter(
+        tenant=tenant,
+        status=Document.Status.ACTIVE,
+    )
+    if include_children:
+        return documents.filter(
+            Q(space=document_space)
+            | Q(space__path__startswith=f"{document_space.path.rstrip('/')}/")
+        )
+    return documents.filter(space=document_space)
+
+
+@dataclass(frozen=True)
+class CreateDocumentBoxTitleRefreshJob:
+    tenant: Tenant
+    document_space: DocumentSpace
+    include_children: bool = True
+    actor: get_user_model() | None = None
+    batch_size: int | None = None
+
+    @transaction.atomic
+    def execute(self) -> DocumentBoxTitleRefreshJob:
+        if self.document_space.tenant_id != self.tenant.id:
+            raise ValueError("Document space belongs to a different tenant.")
+
+        documents = _document_box_title_refresh_documents(
+            tenant=self.tenant,
+            document_space=self.document_space,
+            include_children=self.include_children,
+        )
+        total_documents = documents.count()
+        max_document_id = documents.aggregate(max_id=Max("id"))["max_id"] or 0
+        space_ids = list(
+            documents.order_by().values_list("space_id", flat=True).distinct()
+        )
+        rules = list(DocumentTitleRule.objects.filter(tenant=self.tenant))
+        default_policy = next(
+            (rule.as_policy() for rule in rules if rule.document_space_id is None),
+            None,
+        )
+        rules_by_space = {
+            rule.document_space_id: rule.as_policy()
+            for rule in rules
+            if rule.document_space_id is not None
+        }
+        rule_snapshot = {
+            str(space_id): rules_by_space.get(space_id)
+            or default_policy
+            or {
+                "strategy": DocumentTitleRule.Strategy.AUTOMATIC,
+                "regex_search": "",
+                "regex_replace": "",
+                "einvoice_format": DEFAULT_EINVOICE_TITLE_FORMAT,
+                "fallback_strategy": DocumentTitleRule.FallbackStrategy.AUTOMATIC,
+            }
+            for space_id in space_ids
+        }
+        job = DocumentBoxTitleRefreshJob.objects.create(
+            tenant=self.tenant,
+            document_space=self.document_space,
+            include_children=self.include_children,
+            total_documents=total_documents,
+            max_document_id=max_document_id,
+            created_by=self.actor,
+            rule_snapshot=rule_snapshot,
+            batch_size=self.batch_size
+            or getattr(settings, "TITLE_REFRESH_BATCH_SIZE", 100),
+        )
+        RecordAuditEvent(
+            tenant=self.tenant,
+            actor=self.actor,
+            event_type="document_box.title_refresh.started",
+            object_type="documents.DocumentBoxTitleRefreshJob",
+            object_id=str(job.id),
+            data={
+                "space_path": self.document_space.path,
+                "include_children": self.include_children,
+                "total_documents": total_documents,
+                "max_document_id": max_document_id,
+                "batch_size": job.batch_size,
+                "rule_snapshot": rule_snapshot,
+            },
+        ).execute()
+        return job
+
+
+@dataclass(frozen=True)
+class ClaimDocumentBoxTitleRefreshJob:
+    job_id: int
+    lease_token: uuid.UUID
+    resume_reason: str = ""
+
+    @transaction.atomic
+    def execute(self) -> DocumentBoxTitleRefreshJob | None:
+        job = (
+            DocumentBoxTitleRefreshJob.objects.select_for_update()
+            .select_related("tenant", "document_space", "created_by")
+            .get(id=self.job_id)
+        )
+        if job.status in {
+            DocumentBoxTitleRefreshJob.Status.COMPLETED,
+            DocumentBoxTitleRefreshJob.Status.FAILED,
+        }:
+            return None
+
+        now = timezone.now()
+        if (
+            job.lease_expires_at is not None
+            and job.lease_expires_at > now
+            and job.lease_token != self.lease_token
+        ):
+            return None
+
+        was_running = job.status == DocumentBoxTitleRefreshJob.Status.RUNNING
+        job.status = DocumentBoxTitleRefreshJob.Status.RUNNING
+        if job.started_at is None:
+            job.started_at = now
+        job.heartbeat_at = now
+        job.lease_token = self.lease_token
+        job.lease_expires_at = now + timedelta(
+            seconds=getattr(settings, "TITLE_REFRESH_LEASE_SECONDS", 10 * 60)
+        )
+        job.save(
+            update_fields=[
+                "status",
+                "started_at",
+                "heartbeat_at",
+                "lease_token",
+                "lease_expires_at",
+                "updated_at",
+            ]
+        )
+        if was_running and self.resume_reason:
+            RecordAuditEvent(
+                tenant=job.tenant,
+                actor=job.created_by,
+                event_type="document_box.title_refresh.resumed",
+                object_type="documents.DocumentBoxTitleRefreshJob",
+                object_id=str(job.id),
+                data={
+                    "space_path": job.document_space.path,
+                    "reason": self.resume_reason,
+                    "processed_documents": job.processed_documents,
+                    "total_documents": job.total_documents,
+                },
+            ).execute()
+        return job
+
+
+@dataclass
+class RunDocumentBoxTitleRefreshBatch:
+    job: DocumentBoxTitleRefreshJob
+    actor: get_user_model() | None = None
+    lease_token: uuid.UUID | None = None
+
+    def execute(self) -> DocumentBoxTitleRefreshJob:
+        self.job.refresh_from_db()
+        if self.job.status in {
+            DocumentBoxTitleRefreshJob.Status.COMPLETED,
+            DocumentBoxTitleRefreshJob.Status.FAILED,
+        }:
+            return self.job
+        if self.lease_token is not None and self.job.lease_token != self.lease_token:
+            return self.job
+        if self.job.document_space.tenant_id != self.job.tenant_id:
+            self._mark_failed("Document space belongs to a different tenant.")
+            return self.job
+
+        self._mark_running()
+        try:
+            document_ids = list(self._next_document_ids())
+            if not document_ids:
+                self._mark_completed()
+                return self.job
+            documents = list(
+                Document.objects.filter(
+                    tenant=self.job.tenant,
+                    id__in=document_ids,
+                ).select_related("space")
+            )
+            updated_documents, unchanged, errors = self._refresh_titles(documents)
+            if updated_documents:
+                now = timezone.now()
+                for document in updated_documents:
+                    document.updated_at = now
+                with transaction.atomic():
+                    Document.objects.bulk_update(
+                        updated_documents,
+                        ["title", "title_source", "updated_at"],
+                    )
+                    from doksio.search.services import RefreshDocumentSearchTitles
+
+                    RefreshDocumentSearchTitles(
+                        documents=updated_documents,
+                    ).execute()
+            self._store_progress(
+                processed_count=len(document_ids),
+                last_document_id=max(document_ids),
+                updated_count=len(updated_documents),
+                unchanged_count=unchanged,
+                error_count=errors,
+            )
+        except Exception as error:
+            self._mark_failed(str(error))
+            return self.job
+
+        self.job.refresh_from_db()
+        if self.job.processed_documents >= self.job.total_documents:
+            self._mark_completed()
+        else:
+            self._release_lease()
+        return self.job
+
+    def _next_document_ids(self):
+        return (
+            _document_box_title_refresh_documents(
+                tenant=self.job.tenant,
+                document_space=self.job.document_space,
+                include_children=self.job.include_children,
+            )
+            .filter(id__gt=self.job.last_document_id)
+            .filter(id__lte=self.job.max_document_id)
+            .order_by("id")
+            .values_list("id", flat=True)[: self.job.batch_size]
+        )
+
+    def _refresh_titles(
+        self,
+        documents: list[Document],
+    ) -> tuple[list[Document], int, int]:
+        from doksio.ocr.models import OcrJob
+        from doksio.ocr.services import title_from_ocr_policy
+
+        document_ids = [document.id for document in documents]
+        original_files = DocumentFile.objects.filter(
+            tenant=self.job.tenant,
+            document_id__in=document_ids,
+            file_kind=DocumentFile.Kind.ORIGINAL,
+        ).order_by("document_id", "-version", "-created_at", "-id")
+        filenames = {}
+        for document_file in original_files:
+            filenames.setdefault(
+                document_file.document_id,
+                document_file.original_filename,
+            )
+
+        ocr_jobs = (
+            OcrJob.objects.filter(
+                tenant=self.job.tenant,
+                document_file__document_id__in=document_ids,
+                status=OcrJob.Status.SUCCEEDED,
+            )
+            .exclude(extracted_text="")
+            .select_related("document_file")
+            .order_by(
+                "document_file__document_id",
+                "-completed_at",
+                "-created_at",
+                "-id",
+            )
+        )
+        ocr_texts = {}
+        for ocr_job in ocr_jobs:
+            ocr_texts.setdefault(
+                ocr_job.document_file.document_id,
+                ocr_job.extracted_text,
+            )
+
+        updated_documents = []
+        unchanged = 0
+        errors = 0
+        for document in documents:
+            try:
+                policy = self.job.rule_snapshot.get(str(document.space_id), {})
+                title, title_source = self._title_for_document(
+                    document=document,
+                    policy=policy,
+                    ocr_text=ocr_texts.get(document.id, ""),
+                    original_filename=filenames.get(document.id, ""),
+                    title_from_ocr_policy=title_from_ocr_policy,
+                )
+                if document.title == title and document.title_source == title_source:
+                    unchanged += 1
+                    continue
+                document.title = title
+                document.title_source = title_source
+                updated_documents.append(document)
+            except Exception:
+                errors += 1
+        return updated_documents, unchanged, errors
+
+    @staticmethod
+    def _title_for_document(
+        *,
+        document: Document,
+        policy: dict[str, str],
+        ocr_text: str,
+        original_filename: str,
+        title_from_ocr_policy,
+    ) -> tuple[str, str]:
+        strategy = policy.get(
+            "strategy",
+            DocumentTitleRule.Strategy.AUTOMATIC,
+        )
+        einvoice_title = None
+        if strategy == DocumentTitleRule.Strategy.AUTOMATIC and document.einvoice_data:
+            einvoice_title = title_from_einvoice_data(
+                document.einvoice_data,
+                DEFAULT_EINVOICE_TITLE_FORMAT,
+            )
+        elif strategy == DocumentTitleRule.Strategy.EINVOICE:
+            einvoice_title = title_from_einvoice_data(
+                document.einvoice_data,
+                policy.get("einvoice_format", DEFAULT_EINVOICE_TITLE_FORMAT),
+            )
+        if einvoice_title:
+            return einvoice_title, Document.TitleSource.EINVOICE
+
+        ocr_title = title_from_ocr_policy(ocr_text, policy)
+        if ocr_title:
+            return ocr_title, Document.TitleSource.OCR
+
+        fallback_title = _fallback_title_from_filename(original_filename)
+        if not original_filename and document.title:
+            fallback_title = document.title
+        return fallback_title, Document.TitleSource.FILENAME
+
+    @transaction.atomic
+    def _mark_running(self) -> None:
+        if self.job.status == DocumentBoxTitleRefreshJob.Status.QUEUED:
+            self.job.status = DocumentBoxTitleRefreshJob.Status.RUNNING
+            self.job.started_at = timezone.now()
+            self.job.save(update_fields=["status", "started_at", "updated_at"])
+
+    @transaction.atomic
+    def _store_progress(
+        self,
+        *,
+        processed_count: int,
+        last_document_id: int,
+        updated_count: int,
+        unchanged_count: int,
+        error_count: int,
+    ) -> None:
+        self.job.processed_documents += processed_count
+        self.job.last_document_id = last_document_id
+        self.job.updated_titles += updated_count
+        self.job.unchanged_titles += unchanged_count
+        self.job.errors += error_count
+        self.job.heartbeat_at = timezone.now()
+        self.job.save(
+            update_fields=[
+                "processed_documents",
+                "last_document_id",
+                "updated_titles",
+                "unchanged_titles",
+                "errors",
+                "heartbeat_at",
+                "updated_at",
+            ]
+        )
+
+    @transaction.atomic
+    def _release_lease(self) -> None:
+        self.job.heartbeat_at = timezone.now()
+        self.job.lease_token = None
+        self.job.lease_expires_at = None
+        self.job.save(
+            update_fields=[
+                "heartbeat_at",
+                "lease_token",
+                "lease_expires_at",
+                "updated_at",
+            ]
+        )
+
+    @transaction.atomic
+    def _mark_completed(self) -> None:
+        self.job.status = DocumentBoxTitleRefreshJob.Status.COMPLETED
+        self.job.completed_at = timezone.now()
+        self.job.heartbeat_at = self.job.completed_at
+        self.job.lease_token = None
+        self.job.lease_expires_at = None
+        self.job.save(
+            update_fields=[
+                "status",
+                "completed_at",
+                "heartbeat_at",
+                "lease_token",
+                "lease_expires_at",
+                "updated_at",
+            ]
+        )
+        RecordAuditEvent(
+            tenant=self.job.tenant,
+            actor=self.actor or self.job.created_by,
+            event_type="document_box.title_refresh.completed",
+            object_type="documents.DocumentBoxTitleRefreshJob",
+            object_id=str(self.job.id),
+            data={
+                "space_path": self.job.document_space.path,
+                "include_children": self.job.include_children,
+                "total_documents": self.job.total_documents,
+                "processed_documents": self.job.processed_documents,
+                "updated_titles": self.job.updated_titles,
+                "unchanged_titles": self.job.unchanged_titles,
+                "errors": self.job.errors,
+            },
+        ).execute()
+
+    @transaction.atomic
+    def _mark_failed(self, message: str) -> None:
+        self.job.status = DocumentBoxTitleRefreshJob.Status.FAILED
+        self.job.error_message = message
+        self.job.completed_at = timezone.now()
+        self.job.heartbeat_at = self.job.completed_at
+        self.job.lease_token = None
+        self.job.lease_expires_at = None
+        self.job.save(
+            update_fields=[
+                "status",
+                "error_message",
+                "completed_at",
+                "heartbeat_at",
+                "lease_token",
+                "lease_expires_at",
+                "updated_at",
+            ]
+        )
+        RecordAuditEvent(
+            tenant=self.job.tenant,
+            actor=self.actor or self.job.created_by,
+            event_type="document_box.title_refresh.failed",
+            object_type="documents.DocumentBoxTitleRefreshJob",
             object_id=str(self.job.id),
             data={
                 "space_path": self.job.document_space.path,
@@ -1687,7 +2118,6 @@ class CreateDocumentFromUpload:
     content_type: str
     created_by: get_user_model() | None = None
     auto_start_ocr: bool | None = None
-    ocr_title_policy: dict | None = None
     auto_extract_einvoice: bool = True
     auto_start_workflows: bool = True
     document_date: date | None = None
@@ -1818,7 +2248,6 @@ class CreateDocumentFromUpload:
                     lambda: StartOcrForDocumentFile(
                         document_file=document_file,
                         actor=self.created_by,
-                        title_policy=self.ocr_title_policy,
                     ).execute()
                 )
 
@@ -1859,11 +2288,22 @@ class CreateDocumentFromUpload:
             einvoice_data=extracted_invoice.data,
         )
         document.einvoice_data = extracted_invoice.data
-        title_from_einvoice = _title_from_einvoice(extracted_invoice.data)
+        title_policy = resolve_document_title_policy(document.space)
+        title_from_einvoice = None
+        if title_policy["strategy"] == DocumentTitleRule.Strategy.AUTOMATIC:
+            title_from_einvoice = title_from_einvoice_data(
+                extracted_invoice.data,
+                DEFAULT_EINVOICE_TITLE_FORMAT,
+            )
+        elif title_policy["strategy"] == DocumentTitleRule.Strategy.EINVOICE:
+            title_from_einvoice = title_from_einvoice_data(
+                extracted_invoice.data,
+                title_policy["einvoice_format"],
+            )
         update_fields = ["einvoice_data", "metadata", "updated_at"]
         if title_from_einvoice and document.title_source != Document.TitleSource.MANUAL:
             document.title = title_from_einvoice
-            document.title_source = Document.TitleSource.OCR
+            document.title_source = Document.TitleSource.EINVOICE
             update_fields.extend(["title", "title_source"])
         if metadata_from_einvoice:
             document.metadata = {

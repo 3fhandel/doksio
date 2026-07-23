@@ -1,0 +1,211 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+    <div>
+      <h2 class="h4 mb-1">{{ form_title }}</h2>
+      <p class="text-secondary mb-0">
+        Die Regel greift unabhängig davon, über welche Quelle ein Dokument importiert wird.
+      </p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{% url 'documents:settings_title_rules' tenant.slug %}">
+      Zurück
+    </a>
+  </div>
+
+  <form method="post" class="app-card p-4" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger" role="alert">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label" for="{{ form.document_space.id_for_label }}">Geltungsbereich</label>
+        {{ form.document_space }}
+        <div class="form-text">Ohne Dokumentenbox wird die Regel zum Tenant-Standard.</div>
+        {{ form.document_space.errors }}
+      </div>
+      <div class="col-md-6">
+        <label class="form-label" for="{{ form.strategy.id_for_label }}">Strategie</label>
+        {{ form.strategy }}
+        {{ form.strategy.errors }}
+      </div>
+      <div class="col-12" data-title-einvoice-field>
+        <label class="form-label" for="{{ form.einvoice_format.id_for_label }}">Format-String</label>
+        {{ form.einvoice_format }}
+        <div class="form-text">{{ form.einvoice_format.help_text }}</div>
+        {{ form.einvoice_format.errors }}
+      </div>
+      <div class="col-12" data-title-einvoice-field>
+        <div class="small text-secondary mb-2">Verfügbare Platzhalter</div>
+        <div class="d-flex flex-wrap gap-2">
+          {% for placeholder, description in einvoice_title_placeholders.items %}
+            <code class="border rounded bg-light px-2 py-1" title="{{ description }}">&#123;{{ placeholder }}&#125;</code>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="col-md-6" data-title-einvoice-field>
+        <label class="form-label" for="{{ form.fallback_strategy.id_for_label }}">Fallback ohne passende eRechnungsdaten</label>
+        {{ form.fallback_strategy }}
+        <div class="form-text">
+          Greift auch, wenn ein benötigter Platzhalter in der eRechnung leer ist.
+        </div>
+        {{ form.fallback_strategy.errors }}
+      </div>
+      <div class="col-md-6" data-title-einvoice-field>
+        <div class="h-100 d-flex align-items-end">
+          <div class="w-100 border rounded p-3 bg-light">
+            <button class="btn btn-outline-primary w-100" type="button" id="title-einvoice-test-button">
+              Mit Beispieldaten testen
+            </button>
+            <div class="small mt-2" id="title-einvoice-test-result" aria-live="polite"></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6" data-title-regex-field>
+        <label class="form-label" for="{{ form.regex_search.id_for_label }}">RegEx-Suche</label>
+        {{ form.regex_search }}
+        <div class="form-text">{{ form.regex_search.help_text }}</div>
+        {{ form.regex_search.errors }}
+      </div>
+      <div class="col-md-6" data-title-regex-field>
+        <label class="form-label" for="{{ form.regex_replace.id_for_label }}">Ersetzung</label>
+        {{ form.regex_replace }}
+        <div class="form-text">{{ form.regex_replace.help_text }}</div>
+        {{ form.regex_replace.errors }}
+      </div>
+      <div class="col-12" data-title-regex-field>
+        <div class="border rounded p-3 bg-light">
+          <div class="row g-3 align-items-end">
+            <div class="col-md-8">
+              <label class="form-label" for="title-regex-test-text">OCR-Beispieltext</label>
+              <textarea class="form-control" id="title-regex-test-text" rows="5" placeholder="Hier OCR-Volltext einfügen"></textarea>
+            </div>
+            <div class="col-md-4">
+              <button class="btn btn-outline-primary w-100" type="button" id="title-regex-test-button">
+                RegEx testen
+              </button>
+            </div>
+            <div class="col-12">
+              <div class="small" id="title-regex-test-result" aria-live="polite"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-4">
+      <button class="btn btn-primary" type="submit">{{ submit_label }}</button>
+      <a class="btn btn-outline-secondary" href="{% url 'documents:settings_title_rules' tenant.slug %}">Abbrechen</a>
+    </div>
+  </form>
+
+  <script>
+    (() => {
+      const strategyField = document.getElementById("{{ form.strategy.id_for_label }}");
+      const fallbackStrategyField = document.getElementById("{{ form.fallback_strategy.id_for_label }}");
+      const regexFields = document.querySelectorAll("[data-title-regex-field]");
+      const einvoiceFields = document.querySelectorAll("[data-title-einvoice-field]");
+      const regexSearchField = document.getElementById("{{ form.regex_search.id_for_label }}");
+      const regexReplaceField = document.getElementById("{{ form.regex_replace.id_for_label }}");
+      const regexTestTextField = document.getElementById("title-regex-test-text");
+      const regexTestButton = document.getElementById("title-regex-test-button");
+      const regexTestResult = document.getElementById("title-regex-test-result");
+      const einvoiceFormatField = document.getElementById("{{ form.einvoice_format.id_for_label }}");
+      const einvoiceTestButton = document.getElementById("title-einvoice-test-button");
+      const einvoiceTestResult = document.getElementById("title-einvoice-test-result");
+      const csrfToken = document.querySelector("[name=csrfmiddlewaretoken]").value;
+
+      function syncFields() {
+        const usesEinvoice = strategyField.value === "einvoice";
+        einvoiceFields.forEach((field) => {
+          field.hidden = !usesEinvoice;
+        });
+        const usesRegex = strategyField.value === "regex"
+          || (usesEinvoice && fallbackStrategyField.value === "regex");
+        regexFields.forEach((field) => {
+          field.hidden = !usesRegex;
+        });
+      }
+
+      function showResult(target, className, text, title = "") {
+        target.className = `small mt-2 ${className}`;
+        target.textContent = text;
+        if (title) {
+          const strongTitle = document.createElement("strong");
+          strongTitle.textContent = title;
+          target.append(" ", strongTitle);
+        }
+      }
+
+      async function testRegex() {
+        regexTestButton.disabled = true;
+        showResult(regexTestResult, "text-secondary", "Teste RegEx...");
+        try {
+          const response = await fetch("{% url 'documents:settings_title_regex_test' tenant.slug %}", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRFToken": csrfToken,
+            },
+            body: JSON.stringify({
+              regex_search: regexSearchField.value,
+              regex_replace: regexReplaceField.value,
+              sample_text: regexTestTextField.value,
+            }),
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) {
+            showResult(regexTestResult, "text-danger", data.error || "Der Test ist fehlgeschlagen.");
+          } else if (!data.matched) {
+            showResult(regexTestResult, "text-warning", "Kein Treffer im Beispieltext.");
+          } else if (data.title) {
+            showResult(regexTestResult, "text-success", "Ermittelter Titel:", data.title);
+          } else {
+            showResult(regexTestResult, "text-warning", "Treffer gefunden, aber daraus entsteht kein Titel.");
+          }
+        } catch (_error) {
+          showResult(regexTestResult, "text-danger", "Der Test konnte nicht ausgeführt werden.");
+        } finally {
+          regexTestButton.disabled = false;
+        }
+      }
+
+      async function testEinvoiceFormat() {
+        einvoiceTestButton.disabled = true;
+        showResult(einvoiceTestResult, "text-secondary", "Teste Format...");
+        try {
+          const response = await fetch("{% url 'documents:settings_title_einvoice_format_test' tenant.slug %}", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRFToken": csrfToken,
+            },
+            body: JSON.stringify({
+              einvoice_format: einvoiceFormatField.value,
+            }),
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) {
+            showResult(einvoiceTestResult, "text-danger", data.error || "Der Test ist fehlgeschlagen.");
+          } else if (data.title) {
+            showResult(einvoiceTestResult, "text-success", "Ermittelter Titel:", data.title);
+          } else {
+            showResult(einvoiceTestResult, "text-warning", "Aus dem Format entsteht kein Titel.");
+          }
+        } catch (_error) {
+          showResult(einvoiceTestResult, "text-danger", "Der Test konnte nicht ausgeführt werden.");
+        } finally {
+          einvoiceTestButton.disabled = false;
+        }
+      }
+
+      strategyField.addEventListener("change", syncFields);
+      fallbackStrategyField.addEventListener("change", syncFields);
+      regexTestButton.addEventListener("click", testRegex);
+      einvoiceTestButton.addEventListener("click", testEinvoiceFormat);
+      syncFields();
+    })();
+  </script>
+{% endblock %}
