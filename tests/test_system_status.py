@@ -4,6 +4,7 @@ from io import BytesIO
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 from doksio.accounts.models import TenantMembership
 from doksio.accounts.services import EnsureDefaultTenantRoles
@@ -170,3 +171,38 @@ def test_status_storage_usage_is_tenant_scoped(monkeypatch):
     assert global_status["storage"]["used_human"] == "15 B"
     assert tenant_status["storage"]["used_bytes"] == 5
     assert tenant_status["storage"]["used_human"] == "5 B"
+
+
+@pytest.mark.django_db
+def test_status_treats_old_running_ocr_jobs_as_stale(monkeypatch):
+    _disable_external_checks(monkeypatch)
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    _document, document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Beleg",
+        space=space,
+        file_obj=BytesIO(b"content"),
+        original_filename="beleg.pdf",
+        content_type="application/pdf",
+        auto_start_ocr=False,
+    ).execute()
+    stale_job = OcrJob.objects.create(
+        tenant=tenant,
+        document_file=document_file,
+        status=OcrJob.Status.RUNNING,
+        started_at=timezone.now() - timezone.timedelta(hours=2),
+    )
+    OcrJob.objects.filter(id=stale_job.id).update(
+        updated_at=timezone.now() - timezone.timedelta(hours=2),
+    )
+
+    status = build_system_status(tenant=tenant)
+
+    assert status["ocr"]["running"] == 0
+    assert status["ocr"]["stale_running"] == 1
+    assert {
+        "status": "stale_running",
+        "label": "Verwaist",
+        "count": 1,
+    } in status["ocr"]["status_rows"]

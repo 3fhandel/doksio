@@ -9,7 +9,7 @@ from celery.exceptions import CeleryError
 from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import connection
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
 from doksio.documents.models import Document, DocumentFile
@@ -151,6 +151,37 @@ def _format_bytes(byte_count: int) -> str:
     return f"{value:.1f} TB"
 
 
+def _ocr_status_summary(ocr_jobs, *, now) -> dict[str, Any]:
+    stale_after_minutes = getattr(settings, "OCR_STALE_RUNNING_AFTER_MINUTES", 30)
+    stale_cutoff = now - timedelta(minutes=stale_after_minutes)
+    running_jobs = ocr_jobs.filter(status=OcrJob.Status.RUNNING)
+    stale_running_jobs = running_jobs.filter(
+        Q(started_at__lt=stale_cutoff)
+        | Q(started_at__isnull=True, updated_at__lt=stale_cutoff)
+    )
+    stale_running_count = stale_running_jobs.count()
+    active_running_count = max(running_jobs.count() - stale_running_count, 0)
+
+    counts = _counts_by_status(ocr_jobs, OcrJob.Status.choices)
+    counts[OcrJob.Status.RUNNING] = active_running_count
+    status_rows = _status_rows(counts, OcrJob.Status.choices)
+    if stale_running_count:
+        status_rows.append(
+            {
+                "status": "stale_running",
+                "label": "Verwaist",
+                "count": stale_running_count,
+            }
+        )
+
+    return {
+        "status_rows": status_rows,
+        "pending": counts.get(OcrJob.Status.PENDING, 0),
+        "running": active_running_count,
+        "stale_running": stale_running_count,
+    }
+
+
 def build_system_status(*, tenant: Tenant | None = None) -> dict[str, Any]:
     now = timezone.now()
     last_24h = now - timedelta(hours=24)
@@ -175,7 +206,7 @@ def build_system_status(*, tenant: Tenant | None = None) -> dict[str, Any]:
         tenants = tenants.filter(id=tenant.id)
 
     import_counts = _counts_by_status(import_jobs, ImportJob.Status.choices)
-    ocr_counts = _counts_by_status(ocr_jobs, OcrJob.Status.choices)
+    ocr_summary = _ocr_status_summary(ocr_jobs, now=now)
     workflow_counts = _counts_by_status(
         workflow_instances,
         WorkflowInstance.Status.choices,
@@ -234,9 +265,10 @@ def build_system_status(*, tenant: Tenant | None = None) -> dict[str, Any]:
             "failed_recent": recent_failed_imports,
         },
         "ocr": {
-            "status_rows": _status_rows(ocr_counts, OcrJob.Status.choices),
-            "pending": ocr_counts.get(OcrJob.Status.PENDING, 0),
-            "running": ocr_counts.get(OcrJob.Status.RUNNING, 0),
+            "status_rows": ocr_summary["status_rows"],
+            "pending": ocr_summary["pending"],
+            "running": ocr_summary["running"],
+            "stale_running": ocr_summary["stale_running"],
             "failed_recent": recent_failed_ocr_jobs,
         },
         "workflows": {

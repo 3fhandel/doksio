@@ -59,7 +59,9 @@
         <div class="reports-kpi reports-kpi-warm">
           <div class="metadata-label">OCR läuft</div>
           <div class="reports-kpi-value">{{ status.ocr.running }}</div>
-          <div class="reports-kpi-note">{{ status.ocr.pending }} warten</div>
+          <div class="reports-kpi-note">
+            {{ status.ocr.pending }} warten{% if status.ocr.stale_running %}, {{ status.ocr.stale_running }} verwaist{% endif %}
+          </div>
         </div>
         <div class="reports-kpi reports-kpi-green">
           <div class="metadata-label">Offene Aufgaben</div>

@@ -18,7 +18,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Max, Q
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.text import slugify
@@ -29,6 +29,7 @@ from doksio.documents.metadata import effective_metadata_fields
 from doksio.documents.models import (
     Document,
     DocumentComment,
+    DocumentBoxScanOptimizationJob,
     DocumentFile,
     DocumentImportBatch,
     DocumentImportBatchItem,
@@ -1053,6 +1054,244 @@ class DocumentBoxScanOptimizationResult:
         return max(self.bytes_before - self.bytes_after, 0)
 
 
+def _document_box_scan_optimization_documents(
+    *,
+    tenant: Tenant,
+    document_space: DocumentSpace,
+    include_children: bool,
+):
+    documents = Document.objects.filter(
+        tenant=tenant,
+        status=Document.Status.ACTIVE,
+    )
+    if include_children:
+        return documents.filter(
+            Q(space=document_space)
+            | Q(space__path__startswith=f"{document_space.path.rstrip('/')}/")
+        )
+    return documents.filter(space=document_space)
+
+
+@dataclass(frozen=True)
+class CreateDocumentBoxScanOptimizationJob:
+    tenant: Tenant
+    document_space: DocumentSpace
+    include_children: bool = True
+    actor: get_user_model() | None = None
+    batch_size: int | None = None
+
+    @transaction.atomic
+    def execute(self) -> DocumentBoxScanOptimizationJob:
+        if self.document_space.tenant_id != self.tenant.id:
+            raise ValueError("Document space belongs to a different tenant.")
+
+        documents = _document_box_scan_optimization_documents(
+            tenant=self.tenant,
+            document_space=self.document_space,
+            include_children=self.include_children,
+        )
+        total_documents = documents.count()
+        max_document_id = documents.aggregate(max_id=Max("id"))["max_id"] or 0
+        job = DocumentBoxScanOptimizationJob.objects.create(
+            tenant=self.tenant,
+            document_space=self.document_space,
+            include_children=self.include_children,
+            total_documents=total_documents,
+            max_document_id=max_document_id,
+            created_by=self.actor,
+            batch_size=self.batch_size
+            or getattr(settings, "SCAN_OPTIMIZATION_BATCH_SIZE", 100),
+        )
+        RecordAuditEvent(
+            tenant=self.tenant,
+            actor=self.actor,
+            event_type="document_box.scan_optimization.started",
+            object_type="documents.DocumentBoxScanOptimizationJob",
+            object_id=str(job.id),
+            data={
+                "space_path": self.document_space.path,
+                "include_children": self.include_children,
+                "total_documents": total_documents,
+                "max_document_id": max_document_id,
+                "batch_size": job.batch_size,
+            },
+        ).execute()
+        return job
+
+
+@dataclass(frozen=True)
+class RunDocumentBoxScanOptimizationBatch:
+    job: DocumentBoxScanOptimizationJob
+    actor: get_user_model() | None = None
+    dpi: int = 300
+    min_savings_ratio: float = 0.05
+
+    def execute(self) -> DocumentBoxScanOptimizationJob:
+        self.job.refresh_from_db()
+        if self.job.status in {
+            DocumentBoxScanOptimizationJob.Status.COMPLETED,
+            DocumentBoxScanOptimizationJob.Status.FAILED,
+        }:
+            return self.job
+
+        if self.job.document_space.tenant_id != self.job.tenant_id:
+            self._mark_failed("Document space belongs to a different tenant.")
+            return self.job
+
+        self._mark_running()
+        try:
+            document_ids = list(self._next_document_ids())
+            if not document_ids:
+                self._mark_completed()
+                return self.job
+
+            pdf_files = self._latest_original_pdf_files(document_ids)
+            counters = DocumentBoxScanOptimizationResult()
+            for document_id in document_ids:
+                document_file = pdf_files.get(document_id)
+                if document_file is None:
+                    continue
+                counters = OptimizeDocumentBoxScans(
+                    tenant=self.job.tenant,
+                    document_space=self.job.document_space,
+                    include_children=self.job.include_children,
+                    actor=self.actor or self.job.created_by,
+                    dpi=self.dpi,
+                    min_savings_ratio=self.min_savings_ratio,
+                )._optimize_one(document_file, counters)
+
+            self._store_progress(
+                processed_count=len(document_ids),
+                last_document_id=max(document_ids),
+                counters=counters,
+            )
+        except Exception as error:
+            self._mark_failed(str(error))
+            return self.job
+
+        self.job.refresh_from_db()
+        if self.job.processed_documents >= self.job.total_documents:
+            self._mark_completed()
+        return self.job
+
+    def _next_document_ids(self):
+        return (
+            _document_box_scan_optimization_documents(
+                tenant=self.job.tenant,
+                document_space=self.job.document_space,
+                include_children=self.job.include_children,
+            )
+            .filter(id__gt=self.job.last_document_id)
+            .filter(id__lte=self.job.max_document_id)
+            .order_by("id")
+            .values_list("id", flat=True)[: self.job.batch_size]
+        )
+
+    def _latest_original_pdf_files(self, document_ids: list[int]) -> dict[int, DocumentFile]:
+        files = (
+            DocumentFile.objects.filter(
+                tenant=self.job.tenant,
+                document_id__in=document_ids,
+                file_kind=DocumentFile.Kind.ORIGINAL,
+                content_type="application/pdf",
+            )
+            .order_by("document_id", "-version", "-created_at", "-id")
+            .select_related("tenant", "document")
+        )
+        latest_files = {}
+        for document_file in files:
+            latest_files.setdefault(document_file.document_id, document_file)
+        return latest_files
+
+    @transaction.atomic
+    def _mark_running(self) -> None:
+        if self.job.status == DocumentBoxScanOptimizationJob.Status.QUEUED:
+            self.job.status = DocumentBoxScanOptimizationJob.Status.RUNNING
+            self.job.started_at = timezone.now()
+            self.job.save(update_fields=["status", "started_at", "updated_at"])
+
+    @transaction.atomic
+    def _store_progress(
+        self,
+        *,
+        processed_count: int,
+        last_document_id: int,
+        counters: DocumentBoxScanOptimizationResult,
+    ) -> None:
+        self.job.processed_documents += processed_count
+        self.job.last_document_id = last_document_id
+        self.job.candidates += counters.candidates
+        self.job.optimized += counters.optimized
+        self.job.skipped += counters.skipped
+        self.job.errors += counters.errors
+        self.job.bytes_before += counters.bytes_before
+        self.job.bytes_after += counters.bytes_after
+        self.job.save(
+            update_fields=[
+                "processed_documents",
+                "last_document_id",
+                "candidates",
+                "optimized",
+                "skipped",
+                "errors",
+                "bytes_before",
+                "bytes_after",
+                "updated_at",
+            ]
+        )
+
+    @transaction.atomic
+    def _mark_completed(self) -> None:
+        self.job.status = DocumentBoxScanOptimizationJob.Status.COMPLETED
+        self.job.completed_at = timezone.now()
+        self.job.save(update_fields=["status", "completed_at", "updated_at"])
+        RecordAuditEvent(
+            tenant=self.job.tenant,
+            actor=self.actor or self.job.created_by,
+            event_type="document_box.scan_optimization.completed",
+            object_type="documents.DocumentBoxScanOptimizationJob",
+            object_id=str(self.job.id),
+            data={
+                "space_path": self.job.document_space.path,
+                "include_children": self.job.include_children,
+                "total_documents": self.job.total_documents,
+                "processed_documents": self.job.processed_documents,
+                "candidates": self.job.candidates,
+                "optimized": self.job.optimized,
+                "skipped": self.job.skipped,
+                "errors": self.job.errors,
+                "bytes_before": self.job.bytes_before,
+                "bytes_after": self.job.bytes_after,
+                "saved_bytes": self.job.saved_bytes,
+            },
+        ).execute()
+
+    @transaction.atomic
+    def _mark_failed(self, message: str) -> None:
+        self.job.status = DocumentBoxScanOptimizationJob.Status.FAILED
+        self.job.error_message = message
+        self.job.completed_at = timezone.now()
+        self.job.save(
+            update_fields=[
+                "status",
+                "error_message",
+                "completed_at",
+                "updated_at",
+            ]
+        )
+        RecordAuditEvent(
+            tenant=self.job.tenant,
+            actor=self.actor or self.job.created_by,
+            event_type="document_box.scan_optimization.failed",
+            object_type="documents.DocumentBoxScanOptimizationJob",
+            object_id=str(self.job.id),
+            data={
+                "space_path": self.job.document_space.path,
+                "error": message,
+            },
+        ).execute()
+
+
 @dataclass(frozen=True)
 class OptimizeDocumentBoxScans:
     tenant: Tenant
@@ -1101,16 +1340,11 @@ class OptimizeDocumentBoxScans:
         return result
 
     def _documents(self):
-        documents = Document.objects.filter(
+        return _document_box_scan_optimization_documents(
             tenant=self.tenant,
-            status=Document.Status.ACTIVE,
-        ).prefetch_related("files")
-        if self.include_children:
-            return documents.filter(
-                Q(space=self.document_space)
-                | Q(space__path__startswith=f"{self.document_space.path.rstrip('/')}/")
-            )
-        return documents.filter(space=self.document_space)
+            document_space=self.document_space,
+            include_children=self.include_children,
+        )
 
     def _optimize_one(
         self,

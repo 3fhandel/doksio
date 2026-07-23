@@ -4,6 +4,7 @@ from django.contrib import admin
 
 from doksio.documents.models import (
     Document,
+    DocumentBoxScanOptimizationJob,
     DocumentComment,
     DocumentFile,
     DocumentMetadataField,
@@ -126,6 +127,45 @@ class DocumentFileAdmin(admin.ModelAdmin):
         "derivative_of",
         "created_by",
         "created_at",
+    ]
+
+
+@admin.register(DocumentBoxScanOptimizationJob)
+class DocumentBoxScanOptimizationJobAdmin(admin.ModelAdmin):
+    list_display = [
+        "document_space",
+        "tenant",
+        "status",
+        "processed_documents",
+        "total_documents",
+        "optimized",
+        "errors",
+        "created_at",
+    ]
+    list_filter = ["tenant", "status", "include_children"]
+    search_fields = ["document_space__path", "error_message"]
+    readonly_fields = [
+        "tenant",
+        "document_space",
+        "include_children",
+        "status",
+        "total_documents",
+        "processed_documents",
+        "last_document_id",
+        "max_document_id",
+        "candidates",
+        "optimized",
+        "skipped",
+        "errors",
+        "bytes_before",
+        "bytes_after",
+        "batch_size",
+        "error_message",
+        "created_by",
+        "started_at",
+        "completed_at",
+        "created_at",
+        "updated_at",
     ]
 
     def has_add_permission(self, request) -> bool:

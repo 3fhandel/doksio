@@ -17,6 +17,7 @@ from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
 from doksio.documents.models import (
     Document,
+    DocumentBoxScanOptimizationJob,
     DocumentComment,
     DocumentFile,
     DocumentImportBatch,
@@ -30,6 +31,7 @@ from doksio.documents.services import (
     CreateDocumentFromUpload,
     CreateDocumentMetadataField,
     CreateDocumentSpace,
+    CreateDocumentBoxScanOptimizationJob,
     OptimizeDocumentBoxScans,
     SetDocumentTags,
     UpdateDocumentMetadata,
@@ -2828,7 +2830,7 @@ def test_document_core_metadata_edit_prefills_fields(client):
     assert 'name="title"' in content
     assert 'value="Invoice 4711"' in content
     assert 'name="document_date"' in content
-    assert 'value="2026-03-14"' in content
+    assert 'value="14.03.2026"' in content
     assert 'name="space"' in content
 
 
@@ -3491,6 +3493,74 @@ def test_optimize_document_box_scans_replaces_bloated_scan_pdf(
 
 
 @pytest.mark.django_db
+def test_scan_optimization_job_processes_documents_in_batches(monkeypatch):
+    from doksio.documents.tasks import process_document_box_scan_optimization_job
+
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    for index in range(3):
+        CreateDocumentFromUpload(
+            tenant=tenant,
+            title=f"Scan {index}",
+            space=space,
+            file_obj=BytesIO(f"%PDF scan {index}".encode()),
+            original_filename=f"scan-{index}.pdf",
+            content_type="application/pdf",
+            auto_start_ocr=False,
+        ).execute()
+    job = CreateDocumentBoxScanOptimizationJob(
+        tenant=tenant,
+        document_space=space,
+        batch_size=2,
+    ).execute()
+    CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Nachzügler",
+        space=space,
+        file_obj=BytesIO(b"%PDF scan later"),
+        original_filename="scan-later.pdf",
+        content_type="application/pdf",
+        auto_start_ocr=False,
+    ).execute()
+    scheduled_job_ids = []
+    monkeypatch.setattr(
+        "doksio.documents.services._optimize_scanned_pdf_bytes",
+        lambda document_file, dpi: None,
+    )
+    monkeypatch.setattr(
+        "doksio.documents.tasks.process_document_box_scan_optimization_job.delay",
+        lambda job_id: scheduled_job_ids.append(job_id),
+    )
+
+    first_result = process_document_box_scan_optimization_job(job.id)
+
+    job.refresh_from_db()
+    assert first_result["processed_documents"] == 2
+    assert job.status == DocumentBoxScanOptimizationJob.Status.RUNNING
+    assert job.processed_documents == 2
+    assert job.total_documents == 3
+    assert job.candidates == 2
+    assert job.skipped == 2
+    assert scheduled_job_ids == [job.id]
+
+    scheduled_job_ids.clear()
+    second_result = process_document_box_scan_optimization_job(job.id)
+
+    job.refresh_from_db()
+    assert second_result["processed_documents"] == 3
+    assert job.status == DocumentBoxScanOptimizationJob.Status.COMPLETED
+    assert job.processed_documents == 3
+    assert job.total_documents == 3
+    assert job.candidates == 3
+    assert job.skipped == 3
+    assert scheduled_job_ids == []
+    assert AuditEvent.objects.filter(
+        event_type="document_box.scan_optimization.completed",
+        object_id=str(job.id),
+    ).exists()
+
+
+@pytest.mark.django_db
 def test_document_list_shows_einvoice_signal_in_document_row(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
@@ -3581,13 +3651,13 @@ def test_tenant_admin_can_start_scan_optimization_from_maintenance(
         user=user,
         role=roles["admin"],
     )
-    scheduled_jobs = []
+    scheduled_job_ids = []
 
-    def fake_delay(document_space_id, **kwargs):
-        scheduled_jobs.append((document_space_id, kwargs))
+    def fake_delay(job_id):
+        scheduled_job_ids.append(job_id)
 
     monkeypatch.setattr(
-        "doksio.documents.tasks.optimize_document_box_scans.delay",
+        "doksio.documents.tasks.process_document_box_scan_optimization_job.delay",
         fake_delay,
     )
     client.force_login(user)
@@ -3604,15 +3674,11 @@ def test_tenant_admin_can_start_scan_optimization_from_maintenance(
     )
 
     assert response.status_code == 302
-    assert scheduled_jobs == [
-        (
-            space.id,
-            {
-                "include_children": True,
-                "actor_id": user.id,
-            },
-        )
-    ]
+    job = DocumentBoxScanOptimizationJob.objects.get()
+    assert job.document_space == space
+    assert job.include_children is True
+    assert job.created_by == user
+    assert scheduled_job_ids == [job.id]
 
     get_response = client.get(
         reverse(
@@ -3625,6 +3691,8 @@ def test_tenant_admin_can_start_scan_optimization_from_maintenance(
     assert "Wartung" in content
     assert "Scan-Speicher" in content
     assert "Scan-Speicher optimieren" in content
+    assert "Letzte Optimierungen" in content
+    assert "0 / 0 Dokumente geprüft" in content
 
 
 @pytest.mark.django_db

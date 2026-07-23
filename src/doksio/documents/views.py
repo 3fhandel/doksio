@@ -2915,19 +2915,22 @@ def tenant_settings_maintenance(
     if request.method == "POST":
         form = DocumentBoxScanOptimizationForm(request.POST, tenant=tenant)
         if form.is_valid():
-            from doksio.documents.tasks import optimize_document_box_scans
+            from doksio.documents.services import CreateDocumentBoxScanOptimizationJob
+            from doksio.documents.tasks import process_document_box_scan_optimization_job
 
             document_space = form.cleaned_data["space"]
-            optimize_document_box_scans.delay(
-                document_space.id,
+            job = CreateDocumentBoxScanOptimizationJob(
+                tenant=tenant,
+                document_space=document_space,
                 include_children=form.cleaned_data["include_children"],
-                actor_id=request.user.id,
-            )
+                actor=request.user,
+            ).execute()
+            process_document_box_scan_optimization_job.delay(job.id)
             messages.success(
                 request,
                 (
                     "Scan-Optimierung wurde gestartet. "
-                    "Das Ergebnis landet nach Abschluss im Audit-Log."
+                    "Der Fortschritt ist hier sichtbar."
                 ),
             )
             return redirect("documents:settings_maintenance", tenant_slug=tenant.slug)
@@ -2940,6 +2943,12 @@ def tenant_settings_maintenance(
         {
             "tenant": tenant,
             "form": form,
+            "scan_optimization_jobs": (
+                tenant.document_box_scan_optimization_jobs.select_related(
+                    "document_space",
+                    "created_by",
+                )[:8]
+            ),
             "active_settings_section": "maintenance",
         },
     )

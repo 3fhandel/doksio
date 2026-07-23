@@ -329,9 +329,18 @@ class DocumentRelation(models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=["tenant", "first_document"]),
-            models.Index(fields=["tenant", "second_document"]),
-            models.Index(fields=["tenant", "created_at"]),
+            models.Index(
+                fields=["tenant", "first_document"],
+                name="documents_d_tenant__91d4fa_idx",
+            ),
+            models.Index(
+                fields=["tenant", "second_document"],
+                name="documents_d_tenant__a02a1d_idx",
+            ),
+            models.Index(
+                fields=["tenant", "created_at"],
+                name="documents_d_tenant__e08d0c_idx",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -590,3 +599,73 @@ class DocumentImportBatchItem(models.Model):
 
     def __str__(self) -> str:
         return self.original_filename
+
+
+class DocumentBoxScanOptimizationJob(models.Model):
+    """Tenant maintenance job for compacting stored scan PDFs in one box."""
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Wartet"
+        RUNNING = "running", "Läuft"
+        COMPLETED = "completed", "Abgeschlossen"
+        FAILED = "failed", "Fehlgeschlagen"
+
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="document_box_scan_optimization_jobs",
+    )
+    document_space = models.ForeignKey(
+        DocumentSpace,
+        on_delete=models.CASCADE,
+        related_name="scan_optimization_jobs",
+    )
+    include_children = models.BooleanField(default=True)
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.QUEUED,
+    )
+    total_documents = models.PositiveIntegerField(default=0)
+    processed_documents = models.PositiveIntegerField(default=0)
+    last_document_id = models.PositiveIntegerField(default=0)
+    max_document_id = models.PositiveIntegerField(default=0)
+    candidates = models.PositiveIntegerField(default=0)
+    optimized = models.PositiveIntegerField(default=0)
+    skipped = models.PositiveIntegerField(default=0)
+    errors = models.PositiveIntegerField(default=0)
+    bytes_before = models.PositiveBigIntegerField(default=0)
+    bytes_after = models.PositiveBigIntegerField(default=0)
+    batch_size = models.PositiveIntegerField(default=100)
+    error_message = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="created_scan_optimization_jobs",
+    )
+    started_at = models.DateTimeField(blank=True, null=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["tenant", "status", "-created_at"]),
+            models.Index(fields=["tenant", "document_space", "status"]),
+        ]
+
+    @property
+    def saved_bytes(self) -> int:
+        return max(self.bytes_before - self.bytes_after, 0)
+
+    @property
+    def progress_percent(self) -> int:
+        if not self.total_documents:
+            return 0
+        return min(100, round(self.processed_documents / self.total_documents * 100))
+
+    def __str__(self) -> str:
+        return f"{self.document_space.path} {self.get_status_display()}"
