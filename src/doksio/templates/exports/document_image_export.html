@@ -3,6 +3,13 @@
 
 {% block title %}Exporte | Doksio{% endblock %}
 
+{% block extra_head %}
+  {{ block.super }}
+  {% if has_processing_export %}
+    <meta http-equiv="refresh" content="10">
+  {% endif %}
+{% endblock %}
+
 {% block body %}
   <main class="app-page">
     <div class="container-fluid px-4">
@@ -89,6 +96,7 @@
                   <tr>
                     <th>Zeitpunkt</th>
                     <th>Status</th>
+                    <th>Fortschritt</th>
                     <th class="text-end">Exportiert</th>
                     <th class="text-end">Warnungen</th>
                     <th>Datei</th>
@@ -103,6 +111,24 @@
                         <span class="badge text-bg-{% if run.status == "completed" %}success{% elif run.status == "completed_with_warnings" %}warning{% elif run.status == "failed" %}danger{% else %}secondary{% endif %}">
                           {{ run.get_status_display }}
                         </span>
+                      </td>
+                      <td style="min-width: 9rem;">
+                        {% with progress=run.processed_count|percent_of:run.total_count %}
+                          <div class="d-flex justify-content-between small text-secondary mb-1">
+                            <span>{{ run.processed_count }} / {{ run.total_count }}</span>
+                            <span>{{ progress }}%</span>
+                          </div>
+                          <div class="progress" style="height: 0.45rem;">
+                            <div
+                              class="progress-bar {% if run.status == "failed" %}bg-danger{% elif run.status == "completed_with_warnings" %}bg-warning{% elif run.status == "completed" %}bg-success{% endif %}"
+                              role="progressbar"
+                              style="width: {{ progress }}%;"
+                              aria-valuenow="{{ progress }}"
+                              aria-valuemin="0"
+                              aria-valuemax="100"
+                            ></div>
+                          </div>
+                        {% endwith %}
                       </td>
                       <td class="text-end">{{ run.exported_count }}</td>
                       <td class="text-end">{{ run.warning_count }}</td>
@@ -134,7 +160,7 @@
                     </tr>
                   {% empty %}
                     <tr>
-                      <td colspan="6" class="text-secondary">Noch keine Exportläufe vorhanden.</td>
+                      <td colspan="7" class="text-secondary">Noch keine Exportläufe vorhanden.</td>
                     </tr>
                   {% endfor %}
                 </tbody>

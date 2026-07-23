@@ -29,7 +29,7 @@
             </div>
           </div>
 
-          <details class="search-filter-drawer" {% if form.tags.value or form.document_date_from.value or form.document_date_to.value or form.box.value or form.workflow_status.value or form.document_status.value != "active" %}open{% endif %}>
+          <details class="search-filter-drawer" {% if form.tags.value or form.document_date_from.value or form.document_date_to.value or form.box.value or form.workflow_status.value or form.fulltext_status.value or form.document_status.value != "active" %}open{% endif %}>
             <summary>
               <span class="details-summary-title">Filter</span>
               <span class="details-summary-meta">Ablage, Zeitraum, Status und Sortierung</span>
@@ -67,6 +67,10 @@
                   <div>
                     <label class="form-label" for="{{ form.workflow_status.id_for_label }}">{{ form.workflow_status.label }}</label>
                     {{ form.workflow_status }}
+                  </div>
+                  <div>
+                    <label class="form-label" for="{{ form.fulltext_status.id_for_label }}">{{ form.fulltext_status.label }}</label>
+                    {{ form.fulltext_status }}
                   </div>
                   <div>
                     <label class="form-label" for="{{ form.document_status.id_for_label }}">{{ form.document_status.label }}</label>

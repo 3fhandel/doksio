@@ -16,7 +16,7 @@ def _assert_smart_date_widget(field):
     attrs = field.widget.attrs
     assert field.widget.input_type == "text"
     assert attrs["data-smart-date"] == "true"
-    assert "today" in attrs["placeholder"]
+    assert attrs["placeholder"] == "TT.MM.JJJJ"
     assert field.widget.format == "%d.%m.%Y"
     assert "%d.%m.%Y" in field.input_formats
 

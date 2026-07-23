@@ -66,6 +66,9 @@ def document_image_export(request: HttpRequest, tenant_slug: str) -> HttpRespons
         tenant=tenant,
         export_type=ExportRun.ExportType.DATEV_DOCUMENT_IMAGES,
     ).select_related("created_by")[:10]
+    has_processing_export = any(
+        run.status == ExportRun.Status.PROCESSING for run in export_runs
+    )
     return render(
         request,
         "exports/document_image_export.html",
@@ -73,6 +76,7 @@ def document_image_export(request: HttpRequest, tenant_slug: str) -> HttpRespons
             "tenant": tenant,
             "form": form,
             "export_runs": export_runs,
+            "has_processing_export": has_processing_export,
         },
     )
 

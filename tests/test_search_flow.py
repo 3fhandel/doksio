@@ -517,6 +517,79 @@ def test_search_documents_filters_by_workflow_status():
 
 
 @pytest.mark.django_db
+def test_search_documents_filters_by_fulltext_status():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    fulltext_document, fulltext_file = _create_document(
+        tenant,
+        space,
+        "Mit Volltext",
+    )
+    missing_document, _missing_file = _create_document(
+        tenant,
+        space,
+        "Ohne Volltext",
+    )
+    OcrJob.objects.create(
+        tenant=tenant,
+        document_file=fulltext_file,
+        status=OcrJob.Status.SUCCEEDED,
+        extracted_text="Maschinenrechnung mit lesbarem Volltext",
+    )
+    RebuildDocumentSearchIndex(document=fulltext_document).execute()
+    RebuildDocumentSearchIndex(document=missing_document).execute()
+
+    available_results = SearchDocuments(
+        tenant=tenant,
+        filters={"fulltext_status": "available"},
+    ).execute()
+    missing_results = SearchDocuments(
+        tenant=tenant,
+        filters={"fulltext_status": "missing"},
+    ).execute()
+
+    assert list(available_results) == [fulltext_document]
+    assert list(missing_results) == [missing_document]
+
+
+@pytest.mark.django_db
+def test_document_search_view_shows_fulltext_indicator_and_filter(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    document, document_file = _create_document(tenant, space, "Eingangsrechnung")
+    OcrJob.objects.create(
+        tenant=tenant,
+        document_file=document_file,
+        status=OcrJob.Status.SUCCEEDED,
+        extracted_text="Spezialmaschine",
+    )
+    RebuildDocumentSearchIndex(document=document).execute()
+    client.force_login(user)
+
+    response = client.get(
+        reverse("search:documents", kwargs={"tenant_slug": tenant.slug}),
+        {"fulltext_status": "available"},
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "Volltext" in content
+    assert "Volltext vorhanden" in content
+    assert "document-row-fulltext-indicator" in content
+    assert list(response.context["documents"]) == [document]
+
+
+@pytest.mark.django_db
 def test_search_documents_blank_query_does_not_order_by_missing_rank(monkeypatch):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()

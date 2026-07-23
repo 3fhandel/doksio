@@ -2053,6 +2053,18 @@ body {
   height: 0.95rem;
 }
 
+.document-row-fulltext-indicator {
+  border: 1px solid #14b8a6;
+  border-radius: 0.5rem;
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
+.document-row-fulltext-indicator svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
 .document-row-meta {
   display: flex;
   flex-wrap: wrap;

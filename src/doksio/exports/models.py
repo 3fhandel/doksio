@@ -36,6 +36,8 @@ class ExportRun(models.Model):
     storage_key = models.CharField(max_length=500, blank=True)
     byte_size = models.PositiveBigIntegerField(default=0)
     sha256 = models.CharField(max_length=64, blank=True)
+    total_count = models.PositiveIntegerField(default=0)
+    processed_count = models.PositiveIntegerField(default=0)
     item_count = models.PositiveIntegerField(default=0)
     exported_count = models.PositiveIntegerField(default=0)
     warning_count = models.PositiveIntegerField(default=0)

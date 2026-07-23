@@ -51,6 +51,13 @@
     {% endif %}
   </div>
   <div class="document-row-indicators">
+    {% if document|document_has_fulltext %}
+      <span class="document-row-indicator document-row-fulltext-indicator" title="Volltext vorhanden" aria-label="Volltext vorhanden">
+        {% include "includes/icons.html" with icon="eye" %}
+      </span>
+    {% else %}
+      <span class="document-row-indicator document-row-indicator-empty" aria-hidden="true"></span>
+    {% endif %}
     {% if document.einvoice_data %}
       <span class="document-row-indicator document-row-einvoice-indicator" title="eRechnungs-Daten vorhanden" aria-label="eRechnungs-Daten vorhanden">
         {% include "includes/icons.html" with icon="receipt" %}

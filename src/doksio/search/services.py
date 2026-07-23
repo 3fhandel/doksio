@@ -217,6 +217,14 @@ class SearchDocuments:
 
         documents = self._apply_metadata_filters(documents)
 
+        fulltext_status = self.filters.get("fulltext_status")
+        if fulltext_status == "available":
+            documents = documents.exclude(search_index__ocr_text="")
+        elif fulltext_status == "missing":
+            documents = documents.filter(
+                Q(search_index__isnull=True) | Q(search_index__ocr_text="")
+            )
+
         documents = documents.distinct()
         documents = documents.annotate(
             workflow_total_count=Count("workflow_instances", distinct=True),

@@ -32,6 +32,18 @@ def widget_attr(bound_field, key):
 
 
 @register.filter
+def percent_of(value, total):
+    try:
+        value = int(value or 0)
+        total = int(total or 0)
+    except (TypeError, ValueError):
+        return 0
+    if total <= 0:
+        return 0
+    return min(100, max(0, round(value / total * 100)))
+
+
+@register.filter
 def document_file_type(document):
     files = [
         file
@@ -58,6 +70,15 @@ def document_thumbnail_file(document):
         if file.file_kind == DocumentFile.Kind.THUMBNAIL:
             return file
     return None
+
+
+@register.filter
+def document_has_fulltext(document):
+    try:
+        search_index = document.search_index
+    except ObjectDoesNotExist:
+        return False
+    return bool(search_index.ocr_text.strip())
 
 
 @register.filter

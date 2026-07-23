@@ -80,6 +80,8 @@ def test_document_image_export_starts_zip_export_for_enabled_boxes(
 
     export_run = ExportRun.objects.get()
     assert export_run.status == ExportRun.Status.COMPLETED
+    assert export_run.total_count == 1
+    assert export_run.processed_count == 1
     assert export_run.exported_count == 1
     assert export_run.warning_count == 0
     assert export_run.filename
@@ -126,6 +128,8 @@ def test_document_image_export_starts_zip_export_for_enabled_boxes(
     assert list_response.status_code == 200
     list_content = list_response.content.decode()
     assert "Herunterladen" in list_content
+    assert "1 / 1" in list_content
+    assert "100%" in list_content
     assert export_run.filename in list_content
 
     download_response = client.get(
@@ -241,6 +245,43 @@ def test_document_image_export_requires_export_permission(client):
 
     assert response.status_code == 403
     assert "Exporte" not in sidebar_response.content.decode()
+
+
+@pytest.mark.django_db
+def test_document_image_export_shows_processing_progress(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    roles["member"].permissions.add(
+        roles["admin"].permissions.get(code=TenantPermissions.DOCUMENTS_EXPORT)
+    )
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    ExportRun.objects.create(
+        tenant=tenant,
+        export_type=ExportRun.ExportType.DATEV_DOCUMENT_IMAGES,
+        status=ExportRun.Status.PROCESSING,
+        total_count=3,
+        processed_count=1,
+        created_by=user,
+    )
+    client.force_login(user)
+
+    response = client.get(
+        reverse("exports:document_images", kwargs={"tenant_slug": tenant.slug})
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "1 / 3" in content
+    assert "33%" in content
+    assert 'http-equiv="refresh"' in content
 
 
 @pytest.mark.django_db

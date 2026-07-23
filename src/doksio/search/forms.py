@@ -16,6 +16,11 @@ class DocumentSearchForm(forms.Form):
         ("completed", "Alle Workflows erledigt"),
         ("none", "Ohne Workflow"),
     ]
+    FULLTEXT_STATUS_CHOICES = [
+        ("", "Alle"),
+        ("available", "Volltext vorhanden"),
+        ("missing", "Ohne Volltext"),
+    ]
     DOCUMENT_STATUS_CHOICES = [
         ("active", "Aktive Dokumente"),
         ("deleted", "Gelöschte Dokumente"),
@@ -109,7 +114,7 @@ class DocumentSearchForm(forms.Form):
                         "class": "form-control",
                         "type": "text",
                         "inputmode": "numeric",
-                        "placeholder": "TT.MM.JJJJ, today, +1week",
+                        "placeholder": "TT.MM.JJJJ",
                         "data-smart-date": "true",
                     },
                     format="%d.%m.%Y",
@@ -124,7 +129,7 @@ class DocumentSearchForm(forms.Form):
                         "class": "form-control",
                         "type": "text",
                         "inputmode": "numeric",
-                        "placeholder": "TT.MM.JJJJ, today, +1week",
+                        "placeholder": "TT.MM.JJJJ",
                         "data-smart-date": "true",
                     },
                     format="%d.%m.%Y",
@@ -239,7 +244,7 @@ class DocumentSearchForm(forms.Form):
                 "class": "form-control",
                 "type": "text",
                 "inputmode": "numeric",
-                "placeholder": "TT.MM.JJJJ, today, +1week",
+                "placeholder": "TT.MM.JJJJ",
                 "data-smart-date": "true",
             },
             format="%d.%m.%Y",
@@ -254,7 +259,7 @@ class DocumentSearchForm(forms.Form):
                 "class": "form-control",
                 "type": "text",
                 "inputmode": "numeric",
-                "placeholder": "TT.MM.JJJJ, today, +1week",
+                "placeholder": "TT.MM.JJJJ",
                 "data-smart-date": "true",
             },
             format="%d.%m.%Y",
@@ -277,6 +282,12 @@ class DocumentSearchForm(forms.Form):
         label="Workflow-Status",
         required=False,
         choices=WORKFLOW_STATUS_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    fulltext_status = forms.ChoiceField(
+        label="Volltext",
+        required=False,
+        choices=FULLTEXT_STATUS_CHOICES,
         widget=forms.Select(attrs={"class": "form-select"}),
     )
     document_status = forms.ChoiceField(
