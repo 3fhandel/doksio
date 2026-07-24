@@ -1111,10 +1111,8 @@ class ClaimDocumentBoxScanOptimizationJob:
 
     @transaction.atomic
     def execute(self) -> DocumentBoxScanOptimizationJob | None:
-        job = (
-            DocumentBoxScanOptimizationJob.objects.select_for_update()
-            .select_related("tenant", "document_space", "created_by")
-            .get(id=self.job_id)
+        job = DocumentBoxScanOptimizationJob.objects.select_for_update().get(
+            id=self.job_id
         )
         if job.status in {
             DocumentBoxScanOptimizationJob.Status.COMPLETED,
@@ -1485,11 +1483,7 @@ class ClaimDocumentBoxTitleRefreshJob:
 
     @transaction.atomic
     def execute(self) -> DocumentBoxTitleRefreshJob | None:
-        job = (
-            DocumentBoxTitleRefreshJob.objects.select_for_update()
-            .select_related("tenant", "document_space", "created_by")
-            .get(id=self.job_id)
-        )
+        job = DocumentBoxTitleRefreshJob.objects.select_for_update().get(id=self.job_id)
         if job.status in {
             DocumentBoxTitleRefreshJob.Status.COMPLETED,
             DocumentBoxTitleRefreshJob.Status.FAILED,
