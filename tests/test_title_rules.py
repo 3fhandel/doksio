@@ -24,7 +24,6 @@ from doksio.documents.title_rules import (
     title_from_einvoice_data,
     title_from_invoice_ocr_text,
 )
-from doksio.ocr.services import title_from_ocr_policy
 from doksio.ocr.models import OcrJob
 from doksio.ocr.services import StartOcrForDocumentFile, title_from_ocr_policy
 from doksio.tenancy.models import Tenant
@@ -100,6 +99,58 @@ def test_invoice_ocr_title_works_without_recognized_seller():
         text,
         DEFAULT_INVOICE_OCR_TITLE_FORMAT,
     ) == "RE-4711 vom 07.07.2026"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            """
+            Unternehmerschaft Siegen-Wittgenstein
+            Unternehmerschaft Siegen-Wittgenstein, Spandauer Straße 25, 57072 Siegen
+            3F Handelsgesellschaft mbH
+            23.07.2026
+            Mitgliedsbeitrag 2026
+            Rechnung-Nr. D85408/26
+            """,
+            "Unternehmers: D85408/26 vom 23.07.2026",
+        ),
+        (
+            """
+            Rechnung
+            Hellwege Spirituosen und Wein Vertriebs-GmbH
+            Rechnungs-Nr. : 26DE00017560
+            Datum : 16-7-2026
+            """,
+            "Hellwege Spi: 26DE00017560 vom 16.07.2026",
+        ),
+        (
+            """
+            Raiffeisen Sauer-Siegerland eG · Am Eckenbach 37-39 · 57439 Attendorn
+            Rechnung
+            3F Handelsgesellschaft mbH
+            Belegnummer: 26RE052561
+            Belegdatum: 20.07.2026
+            """,
+            "Raiffeisen S: 26RE052561 vom 20.07.2026",
+        ),
+        (
+            """
+            Rechnung
+            Zahlbar innerhalb von 30 Tagen
+            Verkauft von Solokraft AB
+            Rechnungsdatum 23 Juli 2026
+            Rechnungsnummer DE6004EOR80LJI
+            """,
+            "Solokraft AB: DE6004EOR80LJI vom 23.07.2026",
+        ),
+    ],
+)
+def test_invoice_ocr_title_supports_real_world_invoice_layouts(text, expected):
+    assert (
+        title_from_invoice_ocr_text(text, DEFAULT_INVOICE_OCR_TITLE_FORMAT)
+        == expected
+    )
 
 
 def test_einvoice_policy_falls_back_to_invoice_ocr_and_then_regex():

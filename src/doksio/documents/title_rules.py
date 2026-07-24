@@ -115,6 +115,39 @@ def _format_einvoice_date(raw_date: str) -> str:
         return f"{raw_date[6:]}.{raw_date[4:6]}.{raw_date[:4]}"
     if len(raw_date) == 10 and raw_date[4] == "-" and raw_date[7] == "-":
         return f"{raw_date[8:]}.{raw_date[5:7]}.{raw_date[:4]}"
+    numeric_date_match = re.fullmatch(
+        r"\s*(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})\s*",
+        raw_date,
+    )
+    if numeric_date_match:
+        year = numeric_date_match.group(3)
+        if len(year) == 2:
+            year = f"20{year}"
+        return (
+            f"{int(numeric_date_match.group(1)):02d}."
+            f"{int(numeric_date_match.group(2)):02d}.{year}"
+        )
+    month_names = {
+        "januar": 1,
+        "februar": 2,
+        "märz": 3,
+        "maerz": 3,
+        "april": 4,
+        "mai": 5,
+        "juni": 6,
+        "juli": 7,
+        "august": 8,
+        "september": 9,
+        "oktober": 10,
+        "november": 11,
+        "dezember": 12,
+    }
+    month_match = re.fullmatch(
+        r"\s*(\d{1,2})\s+([A-Za-zÄÖÜäöüß]+)\s+(\d{4})\s*",
+        raw_date,
+    )
+    if month_match and (month := month_names.get(month_match.group(2).casefold())):
+        return f"{int(month_match.group(1)):02d}.{month:02d}.{month_match.group(3)}"
     return raw_date
 
 
