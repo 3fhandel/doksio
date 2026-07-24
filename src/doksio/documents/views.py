@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shlex
 import uuid
@@ -152,6 +153,8 @@ from doksio.workflows.policies import (
     filter_workflow_tasks_for_user,
 )
 from doksio.workflows.services import CompleteWorkflowTask, StartWorkflowForDocument
+
+logger = logging.getLogger(__name__)
 
 DOCUMENT_LOG_EVENT_LABELS = {
     "document.created": "Dokument erstellt",
@@ -3035,16 +3038,42 @@ def tenant_settings_scan_optimization_resume(
         )
 
         lease_token = uuid.uuid4()
-        claimed_job = ClaimDocumentBoxScanOptimizationJob(
-            job_id=job.id,
-            lease_token=lease_token,
-            resume_reason="manual",
-        ).execute()
-        if claimed_job is not None:
-            process_document_box_scan_optimization_job.delay(
-                job.id,
-                lease_token_value=str(lease_token),
+        try:
+            claimed_job = ClaimDocumentBoxScanOptimizationJob(
+                job_id=job.id,
+                lease_token=lease_token,
+                resume_reason="manual",
+            ).execute()
+            if claimed_job is not None:
+                process_document_box_scan_optimization_job.delay(
+                    job.id,
+                    lease_token_value=str(lease_token),
+                )
+        except Exception:
+            DocumentBoxScanOptimizationJob.objects.filter(
+                id=job.id,
+                lease_token=lease_token,
+            ).update(
+                status=job.status,
+                started_at=job.started_at,
+                heartbeat_at=job.heartbeat_at,
+                lease_token=job.lease_token,
+                lease_expires_at=job.lease_expires_at,
             )
+            logger.exception(
+                "Could not resume scan optimization job %s for tenant %s.",
+                job.id,
+                tenant.slug,
+            )
+            messages.error(
+                request,
+                (
+                    "Die Scan-Optimierung konnte nicht fortgesetzt werden. "
+                    "Bitte Worker- und Redis-Status prüfen."
+                ),
+            )
+            return redirect("documents:settings_maintenance", tenant_slug=tenant.slug)
+        if claimed_job is not None:
             RecordAuditEvent(
                 tenant=tenant,
                 actor=request.user,
@@ -3158,16 +3187,45 @@ def tenant_settings_title_refresh_resume(
         from doksio.documents.tasks import process_document_box_title_refresh_job
 
         lease_token = uuid.uuid4()
-        claimed_job = ClaimDocumentBoxTitleRefreshJob(
-            job_id=job.id,
-            lease_token=lease_token,
-            resume_reason="manual",
-        ).execute()
-        if claimed_job is not None:
-            process_document_box_title_refresh_job.delay(
-                job.id,
-                lease_token_value=str(lease_token),
+        try:
+            claimed_job = ClaimDocumentBoxTitleRefreshJob(
+                job_id=job.id,
+                lease_token=lease_token,
+                resume_reason="manual",
+            ).execute()
+            if claimed_job is not None:
+                process_document_box_title_refresh_job.delay(
+                    job.id,
+                    lease_token_value=str(lease_token),
+                )
+        except Exception:
+            DocumentBoxTitleRefreshJob.objects.filter(
+                id=job.id,
+                lease_token=lease_token,
+            ).update(
+                status=job.status,
+                started_at=job.started_at,
+                heartbeat_at=job.heartbeat_at,
+                lease_token=job.lease_token,
+                lease_expires_at=job.lease_expires_at,
             )
+            logger.exception(
+                "Could not resume title refresh job %s for tenant %s.",
+                job.id,
+                tenant.slug,
+            )
+            messages.error(
+                request,
+                (
+                    "Die Titelneuberechnung konnte nicht fortgesetzt werden. "
+                    "Bitte Worker- und Redis-Status prüfen."
+                ),
+            )
+            return redirect(
+                "documents:settings_title_refresh",
+                tenant_slug=tenant.slug,
+            )
+        if claimed_job is not None:
             RecordAuditEvent(
                 tenant=tenant,
                 actor=request.user,

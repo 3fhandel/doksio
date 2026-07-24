@@ -3915,6 +3915,66 @@ def test_tenant_admin_can_resume_stale_scan_optimization_job(
 
 
 @pytest.mark.django_db
+def test_scan_resume_broker_error_restores_resumable_job(
+    client,
+    monkeypatch,
+):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    job = CreateDocumentBoxScanOptimizationJob(
+        tenant=tenant,
+        document_space=space,
+        actor=user,
+    ).execute()
+    stale_at = timezone.now() - timedelta(minutes=10)
+    DocumentBoxScanOptimizationJob.objects.filter(id=job.id).update(
+        status=DocumentBoxScanOptimizationJob.Status.RUNNING,
+        heartbeat_at=stale_at,
+        lease_token=None,
+        lease_expires_at=None,
+        updated_at=stale_at,
+    )
+
+    def fail_to_enqueue(*args, **kwargs):
+        raise RuntimeError("Redis unavailable")
+
+    monkeypatch.setattr(
+        "doksio.documents.tasks.process_document_box_scan_optimization_job.delay",
+        fail_to_enqueue,
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:settings_scan_optimization_resume",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "job_id": job.id,
+            },
+        ),
+        follow=True,
+    )
+
+    job.refresh_from_db()
+    assert response.status_code == 200
+    assert "konnte nicht fortgesetzt werden" in response.content.decode()
+    assert job.lease_token is None
+    assert job.lease_expires_at is None
+    assert job.heartbeat_at == stale_at
+    assert job.is_resumable is True
+
+
+@pytest.mark.django_db
 def test_tenant_admin_can_update_document_box_from_settings(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()

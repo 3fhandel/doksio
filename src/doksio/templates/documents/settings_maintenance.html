@@ -2,6 +2,14 @@
 
 {% block settings_content %}
   <div class="settings-panel">
+    {% if messages %}
+      {% for message in messages %}
+        <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">
+          {{ message }}
+        </div>
+      {% endfor %}
+    {% endif %}
+
     <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
       <div>
         <h2 class="h4 mb-1">Wartung</h2>
