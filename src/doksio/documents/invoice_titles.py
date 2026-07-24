@@ -21,6 +21,24 @@ _INVOICE_NUMBER_PATTERNS = [
         """,
         re.IGNORECASE | re.VERBOSE,
     ),
+    re.compile(
+        r"""
+        \b
+        lastschrift\s*(?:nummer|nr\.?)
+        \s*[:.]?\s*
+        (?P<value>[A-Z0-9][A-Z0-9._/-]{2,})
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    ),
+    re.compile(
+        r"""
+        auftraggeber\s+fakturanummer\s+rechnungsdatum
+        [^\S\n]*\n[^\S\n]*
+        [^\n]*?\b\d+\s+(?P<value>[A-Z0-9][A-Z0-9._/-]{2,})\s+
+        \d{1,2}[./-]\d{1,2}[./-]\d{2,4}
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    ),
 ]
 _INVOICE_DATE_PATTERNS = [
     re.compile(
@@ -58,6 +76,14 @@ _INVOICE_DATE_PATTERNS = [
         """,
         re.IGNORECASE | re.VERBOSE,
     ),
+    re.compile(
+        r"""
+        zahlungsbeleg\s+datum[^\n]*
+        [^\S\n]*\n[^\S\n]*
+        \S+\s+(?P<value>\d{1,2}[./-]\d{1,2}[./-]\d{2,4})
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    ),
 ]
 _HEADER_DATE_PATTERN = re.compile(
     r"(?<!\d)(?P<value>\d{1,2}[./-]\d{1,2}[./-]\d{4})(?!\d)"
@@ -74,6 +100,7 @@ _COMPANY_SUFFIX_PATTERN = re.compile(
         |ag
         |kg
         |ohg
+        |eg
         |gbr
         |ug(?:\s*\(haftungsbeschränkt\))?
         |e\.?\s*k\.?
@@ -122,13 +149,25 @@ _ADDRESS_ONLY_PATTERN = re.compile(
     """,
     re.IGNORECASE | re.VERBOSE,
 )
+_FIELD_LABEL_VALUES = {
+    "auftraggeber",
+    "belegdatum",
+    "datum",
+    "fakturanummer",
+    "kundennummer",
+    "rechnungsdatum",
+    "rechnungsnummer",
+    "und",
+}
 
 
 def _first_match(text: str, patterns: list[re.Pattern]) -> str:
     for pattern in patterns:
         match = pattern.search(text)
         if match is not None:
-            return match.group("value").strip(" \t:.,")
+            value = match.group("value").strip(" \t:.,")
+            if value.casefold() not in _FIELD_LABEL_VALUES:
+                return value
     return ""
 
 
@@ -143,10 +182,45 @@ def _header_segments(text: str) -> list[str]:
     return segments
 
 
+def _clean_seller_name(candidate: str) -> str:
+    legal_name_match = re.search(r"\bder\s+(.+)$", candidate, re.IGNORECASE)
+    if (
+        legal_name_match is not None
+        and _COMPANY_SUFFIX_PATTERN.search(legal_name_match.group(1))
+    ):
+        candidate = legal_name_match.group(1)
+    return candidate.strip(" \t:.,")
+
+
 def _seller_name(text: str) -> str:
     sold_by_match = _SOLD_BY_PATTERN.search(text)
     if sold_by_match is not None:
-        return sold_by_match.group("value").strip(" \t:.,")
+        return _clean_seller_name(sold_by_match.group("value"))
+
+    header_segments = _header_segments(text)
+    for brand_index, brand in enumerate(header_segments[:4]):
+        if (
+            len(brand) < 3
+            or _HEADER_NOISE_PATTERN.search(brand)
+            or any(character.isdigit() for character in brand)
+        ):
+            continue
+        if _COMPANY_SUFFIX_PATTERN.search(brand):
+            return _clean_seller_name(brand)
+        brand_word = next(
+            (
+                word
+                for word in re.findall(r"[A-Za-zÄÖÜäöüß]{4,}", brand)
+                if word.casefold() not in {"haus", "ihre", "spezialist"}
+            ),
+            "",
+        )
+        if brand_word and any(
+            brand_word.casefold() in candidate.casefold()
+            and _COMPANY_SUFFIX_PATTERN.search(candidate)
+            for candidate in header_segments[brand_index + 1 : 16]
+        ):
+            return _clean_seller_name(brand)
 
     for raw_line in text.splitlines()[:40]:
         line = " ".join(raw_line.split())
@@ -159,7 +233,9 @@ def _seller_name(text: str) -> str:
             line,
         )
         if address_sender is not None:
-            return address_sender.group("value").strip()
+            candidate = address_sender.group("value").strip()
+            if not any(character.isdigit() for character in candidate):
+                return _clean_seller_name(candidate)
 
     candidates = []
     for index, candidate in enumerate(_header_segments(text)):
@@ -186,7 +262,7 @@ def _seller_name(text: str) -> str:
     if not candidates:
         return ""
     score, _negative_index, candidate = max(candidates)
-    return candidate if score >= 4 else ""
+    return _clean_seller_name(candidate) if score >= 4 else ""
 
 
 def extract_invoice_title_data(text: str) -> dict[str, str]:

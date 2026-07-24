@@ -144,6 +144,37 @@ def test_invoice_ocr_title_works_without_recognized_seller():
             """,
             "Solokraft AB: DE6004EOR80LJI vom 23.07.2026",
         ),
+        (
+            """
+            Dickel Entsorgung
+            - Ihr Spezialist für alle (AB)FÄLLE
+            Dickel Entsorgungs-GmbH + Limburgstr. 27 + 57319 Bad Berleburg
+            3F Handelsgesellschaft mbH
+            Rechnungs-Nr. R202600319
+            Rechnungsdatum 23.07.2026
+            """,
+            "Dickel Entso: R202600319 vom 23.07.2026",
+        ),
+        (
+            """
+            3F HANDELSGESELLSCHAFT MBH          Auftraggeber Fakturanummer Rechnungsdatum
+            GROSSHANDEL                        90046126 5471897521 16.07.2026
+            Foodservice-Bereich der Unilever Deutschland GmbH
+            Neue Burg 1, 20457 Hamburg
+            """,
+            "Unilever Deu: 5471897521 vom 16.07.2026",
+        ),
+        (
+            """
+            TIFA EG
+            3 F-Handelsgesellschaft mbH
+            Zahlungsavis Debitor
+            mit Lastschrift Nr. 2000229384 werden wir Ihrem Konto folgende Posten belasten.
+            Zahlungsbeleg Datum Mitglieds-Nr. Kreditlimit OP-Saldo Zahlbetrag EUR
+            2000229384 24.07.26 105050 100.000,00 35.995,35 6.721,27
+            """,
+            "TIFA EG: 2000229384 vom 24.07.2026",
+        ),
     ],
 )
 def test_invoice_ocr_title_supports_real_world_invoice_layouts(text, expected):

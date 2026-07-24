@@ -22,3 +22,4 @@ media/
 postgres-data/
 redis-data/
 minio-data/
+tmp/
