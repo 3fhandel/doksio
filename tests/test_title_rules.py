@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import uuid
+from datetime import timedelta
 from io import BytesIO
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django.utils import timezone
 
 from doksio.accounts.models import TenantMembership
 from doksio.accounts.services import EnsureDefaultTenantRoles
@@ -418,6 +421,63 @@ def test_tenant_admin_can_start_title_refresh_from_maintenance(
     assert "Dokumenttitel neu berechnen" in content
     assert "manuell vergeben wurden" in content
     assert "0 / 0 Dokumente verarbeitet" in content
+
+
+@pytest.mark.django_db
+def test_tenant_admin_claims_stale_title_refresh_before_queueing(
+    client,
+    monkeypatch,
+):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    job = CreateDocumentBoxTitleRefreshJob(
+        tenant=tenant,
+        document_space=space,
+        actor=user,
+    ).execute()
+    DocumentBoxTitleRefreshJob.objects.filter(id=job.id).update(
+        status=DocumentBoxTitleRefreshJob.Status.RUNNING,
+        heartbeat_at=None,
+        lease_token=None,
+        lease_expires_at=None,
+        updated_at=timezone.now() - timedelta(minutes=10),
+    )
+    scheduled_jobs = []
+    monkeypatch.setattr(
+        "doksio.documents.tasks.process_document_box_title_refresh_job.delay",
+        lambda job_id, **kwargs: scheduled_jobs.append((job_id, kwargs)),
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:settings_title_refresh_resume",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "job_id": job.id,
+            },
+        )
+    )
+
+    assert response.status_code == 302
+    assert len(scheduled_jobs) == 1
+    scheduled_job_id, scheduled_kwargs = scheduled_jobs[0]
+    assert scheduled_job_id == job.id
+    assert uuid.UUID(scheduled_kwargs["lease_token_value"])
+    job.refresh_from_db()
+    assert job.status == DocumentBoxTitleRefreshJob.Status.RUNNING
+    assert job.lease_token is not None
+    assert job.is_resumable is False
 
 
 @pytest.mark.django_db

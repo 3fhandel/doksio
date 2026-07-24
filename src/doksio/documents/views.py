@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import uuid
 from urllib.parse import quote, urlencode
 
 from django.contrib import messages
@@ -3028,30 +3029,43 @@ def tenant_settings_scan_optimization_resume(
         tenant=tenant,
     )
     if job.is_resumable:
+        from doksio.documents.services import ClaimDocumentBoxScanOptimizationJob
         from doksio.documents.tasks import (
             process_document_box_scan_optimization_job,
         )
 
-        process_document_box_scan_optimization_job.delay(
-            job.id,
+        lease_token = uuid.uuid4()
+        claimed_job = ClaimDocumentBoxScanOptimizationJob(
+            job_id=job.id,
+            lease_token=lease_token,
             resume_reason="manual",
-        )
-        RecordAuditEvent(
-            tenant=tenant,
-            actor=request.user,
-            event_type="document_box.scan_optimization.resume_requested",
-            object_type="documents.DocumentBoxScanOptimizationJob",
-            object_id=str(job.id),
-            data={
-                "space_path": job.document_space.path,
-                "processed_documents": job.processed_documents,
-                "total_documents": job.total_documents,
-            },
         ).execute()
-        messages.success(
-            request,
-            "Die Fortsetzung der Scan-Optimierung wurde angefordert.",
-        )
+        if claimed_job is not None:
+            process_document_box_scan_optimization_job.delay(
+                job.id,
+                lease_token_value=str(lease_token),
+            )
+            RecordAuditEvent(
+                tenant=tenant,
+                actor=request.user,
+                event_type="document_box.scan_optimization.resume_requested",
+                object_type="documents.DocumentBoxScanOptimizationJob",
+                object_id=str(job.id),
+                data={
+                    "space_path": job.document_space.path,
+                    "processed_documents": job.processed_documents,
+                    "total_documents": job.total_documents,
+                },
+            ).execute()
+            messages.success(
+                request,
+                "Die Scan-Optimierung wird fortgesetzt.",
+            )
+        else:
+            messages.info(
+                request,
+                "Der Wartungsjob wurde bereits von einem Worker übernommen.",
+            )
     elif job.status in {
         DocumentBoxScanOptimizationJob.Status.COMPLETED,
         DocumentBoxScanOptimizationJob.Status.FAILED,
@@ -3140,28 +3154,41 @@ def tenant_settings_title_refresh_resume(
         tenant=tenant,
     )
     if job.is_resumable:
+        from doksio.documents.services import ClaimDocumentBoxTitleRefreshJob
         from doksio.documents.tasks import process_document_box_title_refresh_job
 
-        process_document_box_title_refresh_job.delay(
-            job.id,
+        lease_token = uuid.uuid4()
+        claimed_job = ClaimDocumentBoxTitleRefreshJob(
+            job_id=job.id,
+            lease_token=lease_token,
             resume_reason="manual",
-        )
-        RecordAuditEvent(
-            tenant=tenant,
-            actor=request.user,
-            event_type="document_box.title_refresh.resume_requested",
-            object_type="documents.DocumentBoxTitleRefreshJob",
-            object_id=str(job.id),
-            data={
-                "space_path": job.document_space.path,
-                "processed_documents": job.processed_documents,
-                "total_documents": job.total_documents,
-            },
         ).execute()
-        messages.success(
-            request,
-            "Die Fortsetzung der Titelneuberechnung wurde angefordert.",
-        )
+        if claimed_job is not None:
+            process_document_box_title_refresh_job.delay(
+                job.id,
+                lease_token_value=str(lease_token),
+            )
+            RecordAuditEvent(
+                tenant=tenant,
+                actor=request.user,
+                event_type="document_box.title_refresh.resume_requested",
+                object_type="documents.DocumentBoxTitleRefreshJob",
+                object_id=str(job.id),
+                data={
+                    "space_path": job.document_space.path,
+                    "processed_documents": job.processed_documents,
+                    "total_documents": job.total_documents,
+                },
+            ).execute()
+            messages.success(
+                request,
+                "Die Titelneuberechnung wird fortgesetzt.",
+            )
+        else:
+            messages.info(
+                request,
+                "Der Wartungsjob wurde bereits von einem Worker übernommen.",
+            )
     elif job.status in {
         DocumentBoxTitleRefreshJob.Status.COMPLETED,
         DocumentBoxTitleRefreshJob.Status.FAILED,

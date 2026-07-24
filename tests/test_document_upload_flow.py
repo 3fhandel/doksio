@@ -31,10 +31,10 @@ from doksio.documents.models import (
 )
 from doksio.documents.services import (
     AddDocumentComment,
+    CreateDocumentBoxScanOptimizationJob,
     CreateDocumentFromUpload,
     CreateDocumentMetadataField,
     CreateDocumentSpace,
-    CreateDocumentBoxScanOptimizationJob,
     OptimizeDocumentBoxScans,
     SetDocumentTags,
     UpdateDocumentMetadata,
@@ -415,8 +415,7 @@ def test_create_document_from_upload_uses_custom_einvoice_title_format():
         document_space=space,
         strategy=DocumentTitleRule.Strategy.EINVOICE,
         einvoice_format=(
-            "{invoice_number} - {seller_name} - "
-            "{grand_total_amount} {currency}"
+            "{invoice_number} - {seller_name} - {grand_total_amount} {currency}"
         ),
         fallback_strategy=DocumentTitleRule.FallbackStrategy.AUTOMATIC,
     )
@@ -533,9 +532,13 @@ def test_document_batch_import_permission_defaults():
 
     assert roles["admin"].permissions.filter(code="documents.batch_import").exists()
     assert roles["member"].permissions.filter(code="documents.batch_import").exists()
-    assert not roles["viewer"].permissions.filter(
-        code="documents.batch_import",
-    ).exists()
+    assert (
+        not roles["viewer"]
+        .permissions.filter(
+            code="documents.batch_import",
+        )
+        .exists()
+    )
     assert roles["admin"].permissions.filter(code="documents.split").exists()
     assert roles["member"].permissions.filter(code="documents.split").exists()
     assert not roles["viewer"].permissions.filter(code="documents.split").exists()
@@ -722,10 +725,13 @@ def test_document_import_batch_list_shows_open_batches(client):
     assert response.status_code == 200
     assert "Offener Stapel" in content
     assert "Wieder aufnehmen" in content
-    assert reverse(
-        "documents:import_batch_detail",
-        kwargs={"tenant_slug": tenant.slug, "batch_id": batch.id},
-    ) in content
+    assert (
+        reverse(
+            "documents:import_batch_detail",
+            kwargs={"tenant_slug": tenant.slug, "batch_id": batch.id},
+        )
+        in content
+    )
 
 
 @pytest.mark.django_db
@@ -1329,8 +1335,7 @@ def test_document_detail_can_send_original_file_as_email_attachment(
     mime_message = email_message.message()
     assert mime_message.get_content_type() == "multipart/mixed"
     assert any(
-        part.get("Content-ID") == "<doksio-logo>"
-        for part in mime_message.walk()
+        part.get("Content-ID") == "<doksio-logo>" for part in mime_message.walk()
     )
     assert any(
         part.get_filename() == "invoice.pdf"
@@ -1598,10 +1603,13 @@ def test_document_detail_links_to_split_view_for_pdf_with_permission(client):
 
     assert response.status_code == 200
     assert "Dokument aufteilen" in response.content.decode()
-    assert reverse(
-        "documents:split",
-        kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
-    ) in response.content.decode()
+    assert (
+        reverse(
+            "documents:split",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        )
+        in response.content.decode()
+    )
 
     split_response = client.get(
         reverse(
@@ -2357,7 +2365,7 @@ def test_document_detail_renders_comment_mention_ui(client):
     assert response.status_code == 200
     assert "document-mentions.js" in content
     assert 'data-mention-input="document-comment"' in content
-    assert 'data-mention-suggestions' in content
+    assert "data-mention-suggestions" in content
     assert "document-comment-mention-users" in content
     assert "document-comment-mention" in content
     assert "@bob" in content
@@ -3106,7 +3114,7 @@ def test_admin_can_soft_delete_document_and_cancel_open_workflows(client):
     content = response.content.decode()
     assert response.status_code == 200
     assert '<select name="reason"' in content
-    assert "<option value=\"Testupload\">Testupload</option>" in content
+    assert '<option value="Testupload">Testupload</option>' in content
     assert "<textarea" not in content
 
     response = client.post(
@@ -3891,9 +3899,14 @@ def test_tenant_admin_can_resume_stale_scan_optimization_job(
     assert "Unterbrochen" in get_response.content.decode()
     assert "Fortsetzen" in get_response.content.decode()
     assert post_response.status_code == 302
-    assert scheduled_jobs == [
-        (job.id, {"resume_reason": "manual"}),
-    ]
+    assert len(scheduled_jobs) == 1
+    scheduled_job_id, scheduled_kwargs = scheduled_jobs[0]
+    assert scheduled_job_id == job.id
+    assert uuid.UUID(scheduled_kwargs["lease_token_value"])
+    job.refresh_from_db()
+    assert job.status == DocumentBoxScanOptimizationJob.Status.RUNNING
+    assert job.lease_token is not None
+    assert job.is_resumable is False
     assert AuditEvent.objects.filter(
         event_type="document_box.scan_optimization.resume_requested",
         actor=user,
