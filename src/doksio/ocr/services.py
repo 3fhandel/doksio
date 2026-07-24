@@ -18,7 +18,11 @@ from django.utils import timezone
 
 from doksio.audit.services import RecordAuditEvent
 from doksio.documents.models import Document, DocumentFile
-from doksio.documents.title_rules import ocr_policy_with_einvoice_fallback
+from doksio.documents.title_rules import (
+    DEFAULT_INVOICE_OCR_TITLE_FORMAT,
+    ocr_policy_with_einvoice_fallback,
+    title_from_invoice_ocr_text,
+)
 from doksio.ocr.models import OcrJob
 
 DATE_PATTERNS = [
@@ -139,6 +143,19 @@ def extract_document_title(text: str) -> str | None:
 def title_from_ocr_policy(text: str, policy: dict | None) -> str | None:
     policy = ocr_policy_with_einvoice_fallback(policy)
     strategy = policy.get("strategy", "automatic")
+    if strategy == "invoice_ocr":
+        title = title_from_invoice_ocr_text(
+            text,
+            str(
+                policy.get(
+                    "invoice_ocr_format",
+                    DEFAULT_INVOICE_OCR_TITLE_FORMAT,
+                )
+            ),
+        )
+        if title:
+            return title
+        strategy = policy.get("invoice_ocr_fallback_strategy", "automatic")
     if strategy == "disabled":
         return None
     if strategy == "regex":

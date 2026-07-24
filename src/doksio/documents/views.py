@@ -121,7 +121,9 @@ from doksio.documents.services import (
 )
 from doksio.documents.title_rules import (
     EINVOICE_TITLE_PLACEHOLDERS,
+    INVOICE_OCR_TITLE_PLACEHOLDERS,
     title_from_einvoice_data,
+    title_from_invoice_ocr_text,
 )
 from doksio.ingestion.forms import (
     ImportSourceForm,
@@ -193,6 +195,7 @@ BROWSER_IMAGE_PREVIEW_CONTENT_TYPES = {
 
 def _with_workflow_counts(documents):
     return documents.annotate(
+        comment_count=Count("comments", distinct=True),
         workflow_total_count=Count("workflow_instances", distinct=True),
         workflow_completed_count=Count(
             "workflow_instances",
@@ -992,6 +995,7 @@ def _open_workflow_tasks_for_user(request: HttpRequest, tenant):
             "step",
         )
         .prefetch_related("document__files")
+        .annotate(document_comment_count=Count("document__comments", distinct=True))
         .order_by("created_at", "id"),
         request.user,
         tenant,
@@ -3335,6 +3339,8 @@ def tenant_settings_title_rule_create(
                     "strategy": rule.strategy,
                     "einvoice_format": rule.einvoice_format,
                     "fallback_strategy": rule.fallback_strategy,
+                    "invoice_ocr_format": rule.invoice_ocr_format,
+                    "invoice_ocr_fallback_strategy": rule.invoice_ocr_fallback_strategy,
                 },
             ).execute()
             messages.success(request, "Regel zur Titelfindung wurde erstellt.")
@@ -3357,6 +3363,7 @@ def tenant_settings_title_rule_create(
             "form_title": "Regel erstellen",
             "submit_label": "Regel erstellen",
             "einvoice_title_placeholders": EINVOICE_TITLE_PLACEHOLDERS,
+            "invoice_ocr_title_placeholders": INVOICE_OCR_TITLE_PLACEHOLDERS,
             "active_settings_section": "title_rules",
         },
     )
@@ -3399,6 +3406,8 @@ def tenant_settings_title_rule_edit(
                     "strategy": rule.strategy,
                     "einvoice_format": rule.einvoice_format,
                     "fallback_strategy": rule.fallback_strategy,
+                    "invoice_ocr_format": rule.invoice_ocr_format,
+                    "invoice_ocr_fallback_strategy": rule.invoice_ocr_fallback_strategy,
                 },
             ).execute()
             messages.success(request, "Regel zur Titelfindung wurde aktualisiert.")
@@ -3424,6 +3433,7 @@ def tenant_settings_title_rule_edit(
             "form_title": f"Regel bearbeiten: {scope_name}",
             "submit_label": "Regel speichern",
             "einvoice_title_placeholders": EINVOICE_TITLE_PLACEHOLDERS,
+            "invoice_ocr_title_placeholders": INVOICE_OCR_TITLE_PLACEHOLDERS,
             "active_settings_section": "title_rules",
         },
     )
@@ -3649,6 +3659,31 @@ def tenant_settings_title_einvoice_format_test(
             "title": title or "",
         }
     )
+
+
+def tenant_settings_title_invoice_ocr_test(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> JsonResponse:
+    if not request.user.is_authenticated:
+        raise PermissionDenied
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+        title = title_from_invoice_ocr_text(
+            str(payload.get("sample_text", "")),
+            str(payload.get("invoice_ocr_format", "")),
+        )
+    except (json.JSONDecodeError, ValueError) as error:
+        return JsonResponse({"ok": False, "error": str(error)}, status=400)
+
+    return JsonResponse({"ok": True, "title": title or ""})
 
 
 def tenant_settings_import_source_edit(

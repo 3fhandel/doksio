@@ -47,6 +47,7 @@ from doksio.documents.thumbnails import (
 )
 from doksio.documents.title_rules import (
     DEFAULT_EINVOICE_TITLE_FORMAT,
+    DEFAULT_INVOICE_OCR_TITLE_FORMAT,
     resolve_document_title_policy,
     title_from_einvoice_data,
 )
@@ -1443,6 +1444,10 @@ class CreateDocumentBoxTitleRefreshJob:
                 "regex_replace": "",
                 "einvoice_format": DEFAULT_EINVOICE_TITLE_FORMAT,
                 "fallback_strategy": DocumentTitleRule.FallbackStrategy.AUTOMATIC,
+                "invoice_ocr_format": DEFAULT_INVOICE_OCR_TITLE_FORMAT,
+                "invoice_ocr_fallback_strategy": (
+                    DocumentTitleRule.InvoiceOcrFallbackStrategy.AUTOMATIC
+                ),
             }
             for space_id in space_ids
         }

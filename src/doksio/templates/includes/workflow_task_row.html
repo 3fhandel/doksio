@@ -45,6 +45,13 @@
       {% else %}
         <span class="document-row-indicator document-row-indicator-empty" aria-hidden="true"></span>
       {% endif %}
+      {% if task.document_comment_count %}
+        <span class="document-row-indicator document-row-comment-indicator" title="{{ task.document_comment_count }} Kommentar{{ task.document_comment_count|pluralize:'e' }} vorhanden" aria-label="{{ task.document_comment_count }} Kommentar{{ task.document_comment_count|pluralize:'e' }} vorhanden">
+          {% include "includes/icons.html" with icon="message-circle" %}
+        </span>
+      {% else %}
+        <span class="document-row-indicator document-row-indicator-empty" aria-hidden="true"></span>
+      {% endif %}
       <span class="document-row-indicator document-row-workflow search-result-workflow search-result-workflow-open" title="Workflow offen" aria-label="Workflow offen">
         {% include "includes/icons.html" with icon="workflow" %}
       </span>

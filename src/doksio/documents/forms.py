@@ -17,7 +17,10 @@ from doksio.documents.models import (
     DocumentTitleRule,
 )
 from doksio.documents.policies import filter_document_spaces_for_user
-from doksio.documents.title_rules import DEFAULT_EINVOICE_TITLE_FORMAT
+from doksio.documents.title_rules import (
+    DEFAULT_EINVOICE_TITLE_FORMAT,
+    DEFAULT_INVOICE_OCR_TITLE_FORMAT,
+)
 from doksio.tenancy.models import Tenant
 
 
@@ -91,6 +94,8 @@ class DocumentTitleRuleForm(forms.ModelForm):
             "regex_replace",
             "einvoice_format",
             "fallback_strategy",
+            "invoice_ocr_format",
+            "invoice_ocr_fallback_strategy",
         ]
         labels = {
             "document_space": "Geltungsbereich",
@@ -99,6 +104,8 @@ class DocumentTitleRuleForm(forms.ModelForm):
             "regex_replace": "Ersetzung",
             "einvoice_format": "Format-String",
             "fallback_strategy": "Fallback",
+            "invoice_ocr_format": "Format-String",
+            "invoice_ocr_fallback_strategy": "Fallback",
         }
         help_texts = {
             "regex_search": (
@@ -110,6 +117,10 @@ class DocumentTitleRuleForm(forms.ModelForm):
                 "Platzhalter werden in geschweiften Klammern angegeben. "
                 "Mit :.12 kann ein Wert auf zwölf Zeichen gekürzt werden."
             ),
+            "invoice_ocr_format": (
+                "Formatiert die aus dem OCR-Volltext erkannten Rechnungsfelder. "
+                "Mit :.12 kann ein Wert auf zwölf Zeichen gekürzt werden."
+            ),
         }
         widgets = {
             "document_space": forms.Select(attrs={"class": "form-select"}),
@@ -118,6 +129,12 @@ class DocumentTitleRuleForm(forms.ModelForm):
             "regex_replace": forms.TextInput(attrs={"class": "form-control"}),
             "einvoice_format": forms.TextInput(attrs={"class": "form-control"}),
             "fallback_strategy": forms.Select(attrs={"class": "form-select"}),
+            "invoice_ocr_format": forms.TextInput(
+                attrs={"class": "form-control"}
+            ),
+            "invoice_ocr_fallback_strategy": forms.Select(
+                attrs={"class": "form-select"}
+            ),
         }
 
     def __init__(
@@ -147,6 +164,7 @@ class DocumentTitleRuleForm(forms.ModelForm):
         self.fields["document_space"].required = False
         self.fields["document_space"].empty_label = "Tenant-Standard"
         self.fields["fallback_strategy"].required = False
+        self.fields["invoice_ocr_fallback_strategy"].required = False
         if lock_scope:
             self.fields["document_space"].disabled = True
 
@@ -177,10 +195,27 @@ class DocumentTitleRuleForm(forms.ModelForm):
             cleaned_data["fallback_strategy"] = (
                 DocumentTitleRule.FallbackStrategy.AUTOMATIC
             )
-        uses_regex = strategy == DocumentTitleRule.Strategy.REGEX or (
+        if not cleaned_data.get("invoice_ocr_fallback_strategy"):
+            cleaned_data["invoice_ocr_fallback_strategy"] = (
+                DocumentTitleRule.InvoiceOcrFallbackStrategy.AUTOMATIC
+            )
+        uses_invoice_ocr = strategy == DocumentTitleRule.Strategy.INVOICE_OCR or (
             strategy == DocumentTitleRule.Strategy.EINVOICE
             and cleaned_data.get("fallback_strategy")
-            == DocumentTitleRule.FallbackStrategy.REGEX
+            == DocumentTitleRule.FallbackStrategy.INVOICE_OCR
+        )
+        uses_regex = (
+            strategy == DocumentTitleRule.Strategy.REGEX
+            or (
+                strategy == DocumentTitleRule.Strategy.EINVOICE
+                and cleaned_data.get("fallback_strategy")
+                == DocumentTitleRule.FallbackStrategy.REGEX
+            )
+            or (
+                uses_invoice_ocr
+                and cleaned_data.get("invoice_ocr_fallback_strategy")
+                == DocumentTitleRule.InvoiceOcrFallbackStrategy.REGEX
+            )
         )
         if uses_regex:
             pattern = cleaned_data.get("regex_search", "").strip()
@@ -202,9 +237,23 @@ class DocumentTitleRuleForm(forms.ModelForm):
     def save(self, commit: bool = True) -> DocumentTitleRule:
         rule = super().save(commit=False)
         rule.tenant = self.tenant
-        uses_regex = rule.strategy == DocumentTitleRule.Strategy.REGEX or (
+        uses_invoice_ocr = rule.strategy == DocumentTitleRule.Strategy.INVOICE_OCR or (
             rule.strategy == DocumentTitleRule.Strategy.EINVOICE
-            and rule.fallback_strategy == DocumentTitleRule.FallbackStrategy.REGEX
+            and rule.fallback_strategy
+            == DocumentTitleRule.FallbackStrategy.INVOICE_OCR
+        )
+        uses_regex = (
+            rule.strategy == DocumentTitleRule.Strategy.REGEX
+            or (
+                rule.strategy == DocumentTitleRule.Strategy.EINVOICE
+                and rule.fallback_strategy
+                == DocumentTitleRule.FallbackStrategy.REGEX
+            )
+            or (
+                uses_invoice_ocr
+                and rule.invoice_ocr_fallback_strategy
+                == DocumentTitleRule.InvoiceOcrFallbackStrategy.REGEX
+            )
         )
         if not uses_regex:
             rule.regex_search = ""
@@ -212,6 +261,11 @@ class DocumentTitleRuleForm(forms.ModelForm):
         if rule.strategy != DocumentTitleRule.Strategy.EINVOICE:
             rule.einvoice_format = DEFAULT_EINVOICE_TITLE_FORMAT
             rule.fallback_strategy = DocumentTitleRule.FallbackStrategy.AUTOMATIC
+        if not uses_invoice_ocr:
+            rule.invoice_ocr_format = DEFAULT_INVOICE_OCR_TITLE_FORMAT
+            rule.invoice_ocr_fallback_strategy = (
+                DocumentTitleRule.InvoiceOcrFallbackStrategy.AUTOMATIC
+            )
         if commit:
             rule.save()
         return rule

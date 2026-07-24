@@ -181,6 +181,11 @@ urlpatterns = [
         name="settings_title_einvoice_format_test",
     ),
     path(
+        "t/<slug:tenant_slug>/settings/title-finding/invoice-ocr-test/",
+        views.tenant_settings_title_invoice_ocr_test,
+        name="settings_title_invoice_ocr_test",
+    ),
+    path(
         "t/<slug:tenant_slug>/settings/title-finding/<int:rule_id>/edit/",
         views.tenant_settings_title_rule_edit,
         name="settings_title_rule_edit",

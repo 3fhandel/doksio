@@ -19,9 +19,12 @@ from doksio.documents.services import (
 )
 from doksio.documents.tasks import process_document_box_title_refresh_job
 from doksio.documents.title_rules import (
+    DEFAULT_INVOICE_OCR_TITLE_FORMAT,
     resolve_document_title_policy,
     title_from_einvoice_data,
+    title_from_invoice_ocr_text,
 )
+from doksio.ocr.services import title_from_ocr_policy
 from doksio.ocr.models import OcrJob
 from doksio.ocr.services import StartOcrForDocumentFile, title_from_ocr_policy
 from doksio.tenancy.models import Tenant
@@ -65,7 +68,57 @@ def test_title_policy_defaults_to_automatic_without_configuration():
         "regex_replace": "",
         "einvoice_format": ("{seller_name:.12}: {invoice_number}{invoice_date_suffix}"),
         "fallback_strategy": DocumentTitleRule.FallbackStrategy.AUTOMATIC,
+        "invoice_ocr_format": DEFAULT_INVOICE_OCR_TITLE_FORMAT,
+        "invoice_ocr_fallback_strategy": (
+            DocumentTitleRule.InvoiceOcrFallbackStrategy.AUTOMATIC
+        ),
     }
+
+
+def test_invoice_ocr_title_extracts_labeled_invoice_fields():
+    text = """
+    CRW-Autoteile e.K.
+    Rechnungsnummer: RE26-1700976
+    Rechnungsdatum: 21.07.2026
+    Rechnung
+    """
+
+    assert title_from_invoice_ocr_text(
+        text,
+        DEFAULT_INVOICE_OCR_TITLE_FORMAT,
+    ) == "CRW-Autoteil: RE26-1700976 vom 21.07.2026"
+
+
+def test_invoice_ocr_title_works_without_recognized_seller():
+    text = """
+    Rechnung
+    Rechnungsnummer: RE-4711
+    Rechnungsdatum: 07.07.2026
+    """
+
+    assert title_from_invoice_ocr_text(
+        text,
+        DEFAULT_INVOICE_OCR_TITLE_FORMAT,
+    ) == "RE-4711 vom 07.07.2026"
+
+
+def test_einvoice_policy_falls_back_to_invoice_ocr_and_then_regex():
+    policy = {
+        "strategy": DocumentTitleRule.Strategy.EINVOICE,
+        "fallback_strategy": DocumentTitleRule.FallbackStrategy.INVOICE_OCR,
+        "invoice_ocr_format": DEFAULT_INVOICE_OCR_TITLE_FORMAT,
+        "invoice_ocr_fallback_strategy": (
+            DocumentTitleRule.InvoiceOcrFallbackStrategy.REGEX
+        ),
+        "regex_search": r"Aktenzeichen:\s*(\S+)",
+        "regex_replace": r"Vorgang \1",
+    }
+
+    assert title_from_ocr_policy(
+        "Muster GmbH\nRechnungsnummer: RE-9\nRechnungsdatum: 07.07.2026",
+        policy,
+    ) == "Muster GmbH: RE-9 vom 07.07.2026"
+    assert title_from_ocr_policy("Aktenzeichen: ABC-42", policy) == "Vorgang ABC-42"
 
 
 def test_title_from_einvoice_data_formats_placeholders():

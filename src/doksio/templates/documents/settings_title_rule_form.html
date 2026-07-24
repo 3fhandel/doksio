@@ -53,6 +53,51 @@
         </div>
         {{ form.fallback_strategy.errors }}
       </div>
+      <div class="col-12" data-title-invoice-ocr-field>
+        <hr class="my-1">
+        <h3 class="h6 mb-1">Rechnungsdaten aus OCR</h3>
+        <p class="small text-secondary mb-0">Erkennt beschriftete Rechnungsnummern, Rechnungsdaten und den Absender im Dokumentkopf.</p>
+      </div>
+      <div class="col-12" data-title-invoice-ocr-field>
+        <label class="form-label" for="{{ form.invoice_ocr_format.id_for_label }}">Format-String für Rechnungsbelege</label>
+        {{ form.invoice_ocr_format }}
+        <div class="form-text">{{ form.invoice_ocr_format.help_text }}</div>
+        {{ form.invoice_ocr_format.errors }}
+      </div>
+      <div class="col-12" data-title-invoice-ocr-field>
+        <div class="small text-secondary mb-2">Verfügbare Platzhalter</div>
+        <div class="d-flex flex-wrap gap-2">
+          {% for placeholder, description in invoice_ocr_title_placeholders.items %}
+            <code class="border rounded bg-light px-2 py-1" title="{{ description }}">&#123;{{ placeholder }}&#125;</code>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="col-md-6" data-title-invoice-ocr-field>
+        <label class="form-label" for="{{ form.invoice_ocr_fallback_strategy.id_for_label }}">Fallback ohne erkannte Rechnungsdaten</label>
+        {{ form.invoice_ocr_fallback_strategy }}
+        {{ form.invoice_ocr_fallback_strategy.errors }}
+      </div>
+      <div class="col-12" data-title-invoice-ocr-field>
+        <div class="border rounded p-3 bg-light">
+          <div class="row g-3 align-items-end">
+            <div class="col-md-8">
+              <label class="form-label" for="title-invoice-ocr-test-text">OCR-Beispieltext</label>
+              <textarea class="form-control" id="title-invoice-ocr-test-text" rows="5">CRW-Autoteile e.K.
+Rechnungsnummer: RE26-1700976
+Rechnungsdatum: 21.07.2026
+Rechnung</textarea>
+            </div>
+            <div class="col-md-4">
+              <button class="btn btn-outline-primary w-100" type="button" id="title-invoice-ocr-test-button">
+                Erkennung testen
+              </button>
+            </div>
+            <div class="col-12">
+              <div class="small" id="title-invoice-ocr-test-result" aria-live="polite"></div>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="col-md-6" data-title-einvoice-field>
         <div class="h-100 d-flex align-items-end">
           <div class="w-100 border rounded p-3 bg-light">
@@ -105,8 +150,10 @@
     (() => {
       const strategyField = document.getElementById("{{ form.strategy.id_for_label }}");
       const fallbackStrategyField = document.getElementById("{{ form.fallback_strategy.id_for_label }}");
+      const invoiceFallbackStrategyField = document.getElementById("{{ form.invoice_ocr_fallback_strategy.id_for_label }}");
       const regexFields = document.querySelectorAll("[data-title-regex-field]");
       const einvoiceFields = document.querySelectorAll("[data-title-einvoice-field]");
+      const invoiceOcrFields = document.querySelectorAll("[data-title-invoice-ocr-field]");
       const regexSearchField = document.getElementById("{{ form.regex_search.id_for_label }}");
       const regexReplaceField = document.getElementById("{{ form.regex_replace.id_for_label }}");
       const regexTestTextField = document.getElementById("title-regex-test-text");
@@ -115,6 +162,10 @@
       const einvoiceFormatField = document.getElementById("{{ form.einvoice_format.id_for_label }}");
       const einvoiceTestButton = document.getElementById("title-einvoice-test-button");
       const einvoiceTestResult = document.getElementById("title-einvoice-test-result");
+      const invoiceOcrFormatField = document.getElementById("{{ form.invoice_ocr_format.id_for_label }}");
+      const invoiceOcrTestTextField = document.getElementById("title-invoice-ocr-test-text");
+      const invoiceOcrTestButton = document.getElementById("title-invoice-ocr-test-button");
+      const invoiceOcrTestResult = document.getElementById("title-invoice-ocr-test-result");
       const csrfToken = document.querySelector("[name=csrfmiddlewaretoken]").value;
 
       function syncFields() {
@@ -122,8 +173,14 @@
         einvoiceFields.forEach((field) => {
           field.hidden = !usesEinvoice;
         });
+        const usesInvoiceOcr = strategyField.value === "invoice_ocr"
+          || (usesEinvoice && fallbackStrategyField.value === "invoice_ocr");
+        invoiceOcrFields.forEach((field) => {
+          field.hidden = !usesInvoiceOcr;
+        });
         const usesRegex = strategyField.value === "regex"
-          || (usesEinvoice && fallbackStrategyField.value === "regex");
+          || (usesEinvoice && fallbackStrategyField.value === "regex")
+          || (usesInvoiceOcr && invoiceFallbackStrategyField.value === "regex");
         regexFields.forEach((field) => {
           field.hidden = !usesRegex;
         });
@@ -201,10 +258,42 @@
         }
       }
 
+      async function testInvoiceOcr() {
+        invoiceOcrTestButton.disabled = true;
+        showResult(invoiceOcrTestResult, "text-secondary", "Analysiere Beispieltext...");
+        try {
+          const response = await fetch("{% url 'documents:settings_title_invoice_ocr_test' tenant.slug %}", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRFToken": csrfToken,
+            },
+            body: JSON.stringify({
+              invoice_ocr_format: invoiceOcrFormatField.value,
+              sample_text: invoiceOcrTestTextField.value,
+            }),
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) {
+            showResult(invoiceOcrTestResult, "text-danger", data.error || "Der Test ist fehlgeschlagen.");
+          } else if (data.title) {
+            showResult(invoiceOcrTestResult, "text-success", "Ermittelter Titel:", data.title);
+          } else {
+            showResult(invoiceOcrTestResult, "text-warning", "Keine eindeutigen Rechnungsdaten erkannt.");
+          }
+        } catch (_error) {
+          showResult(invoiceOcrTestResult, "text-danger", "Der Test konnte nicht ausgeführt werden.");
+        } finally {
+          invoiceOcrTestButton.disabled = false;
+        }
+      }
+
       strategyField.addEventListener("change", syncFields);
       fallbackStrategyField.addEventListener("change", syncFields);
+      invoiceFallbackStrategyField.addEventListener("change", syncFields);
       regexTestButton.addEventListener("click", testRegex);
       einvoiceTestButton.addEventListener("click", testEinvoiceFormat);
+      invoiceOcrTestButton.addEventListener("click", testInvoiceOcr);
       syncFields();
     })();
   </script>

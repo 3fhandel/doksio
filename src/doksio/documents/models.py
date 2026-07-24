@@ -78,9 +78,16 @@ class DocumentTitleRule(models.Model):
         AUTOMATIC = "automatic", "Automatisch aus dem OCR-Volltext"
         REGEX = "regex", "RegEx auf dem OCR-Volltext"
         EINVOICE = "einvoice", "Aus eRechnungsdaten"
+        INVOICE_OCR = "invoice_ocr", "Rechnungsbeleg aus OCR"
         DISABLED = "disabled", "Keine automatische Titelfindung"
 
     class FallbackStrategy(models.TextChoices):
+        AUTOMATIC = "automatic", "OCR-Automatik"
+        INVOICE_OCR = "invoice_ocr", "OCR-Rechnungsbeleg"
+        REGEX = "regex", "OCR-RegEx"
+        DISABLED = "disabled", "Dateiname beibehalten"
+
+    class InvoiceOcrFallbackStrategy(models.TextChoices):
         AUTOMATIC = "automatic", "OCR-Automatik"
         REGEX = "regex", "OCR-RegEx"
         DISABLED = "disabled", "Dateiname beibehalten"
@@ -113,6 +120,16 @@ class DocumentTitleRule(models.Model):
         max_length=20,
         choices=FallbackStrategy.choices,
         default=FallbackStrategy.AUTOMATIC,
+    )
+    invoice_ocr_format = models.CharField(
+        max_length=1000,
+        blank=True,
+        default="{seller_name:.12}: {invoice_number}{invoice_date_suffix}",
+    )
+    invoice_ocr_fallback_strategy = models.CharField(
+        max_length=20,
+        choices=InvoiceOcrFallbackStrategy.choices,
+        default=InvoiceOcrFallbackStrategy.AUTOMATIC,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -148,9 +165,21 @@ class DocumentTitleRule(models.Model):
             raise ValidationError(
                 {"document_space": "Die Dokumentenbox gehört nicht zu diesem Tenant."}
             )
-        uses_regex = self.strategy == self.Strategy.REGEX or (
+        uses_invoice_ocr = self.strategy == self.Strategy.INVOICE_OCR or (
             self.strategy == self.Strategy.EINVOICE
-            and self.fallback_strategy == self.FallbackStrategy.REGEX
+            and self.fallback_strategy == self.FallbackStrategy.INVOICE_OCR
+        )
+        uses_regex = (
+            self.strategy == self.Strategy.REGEX
+            or (
+                self.strategy == self.Strategy.EINVOICE
+                and self.fallback_strategy == self.FallbackStrategy.REGEX
+            )
+            or (
+                uses_invoice_ocr
+                and self.invoice_ocr_fallback_strategy
+                == self.InvoiceOcrFallbackStrategy.REGEX
+            )
         )
         if uses_regex:
             if not self.regex_search.strip():
@@ -174,6 +203,13 @@ class DocumentTitleRule(models.Model):
                 validate_einvoice_title_format(self.einvoice_format)
             except ValueError as error:
                 raise ValidationError({"einvoice_format": str(error)}) from error
+        if uses_invoice_ocr:
+            from doksio.documents.title_rules import validate_invoice_ocr_title_format
+
+            try:
+                validate_invoice_ocr_title_format(self.invoice_ocr_format)
+            except ValueError as error:
+                raise ValidationError({"invoice_ocr_format": str(error)}) from error
 
     def as_policy(self) -> dict[str, str]:
         return {
@@ -182,6 +218,8 @@ class DocumentTitleRule(models.Model):
             "regex_replace": self.regex_replace,
             "einvoice_format": self.einvoice_format,
             "fallback_strategy": self.fallback_strategy,
+            "invoice_ocr_format": self.invoice_ocr_format,
+            "invoice_ocr_fallback_strategy": self.invoice_ocr_fallback_strategy,
         }
 
 

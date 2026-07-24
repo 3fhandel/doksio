@@ -2065,6 +2065,18 @@ body {
   height: 0.95rem;
 }
 
+.document-row-comment-indicator {
+  border: 1px solid #40c057;
+  border-radius: 0.5rem;
+  background: #ebfbee;
+  color: #2b8a3e;
+}
+
+.document-row-comment-indicator svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
 .document-row-meta {
   display: flex;
   flex-wrap: wrap;

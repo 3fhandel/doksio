@@ -34,6 +34,9 @@
           {% elif default_rule.strategy == "einvoice" %}
             <div class="small text-secondary hash-value mt-1">{{ default_rule.einvoice_format }}</div>
             <div class="small text-secondary mt-1">Fallback: {{ default_rule.get_fallback_strategy_display }}</div>
+          {% elif default_rule.strategy == "invoice_ocr" %}
+            <div class="small text-secondary hash-value mt-1">{{ default_rule.invoice_ocr_format }}</div>
+            <div class="small text-secondary mt-1">Fallback: {{ default_rule.get_invoice_ocr_fallback_strategy_display }}</div>
           {% endif %}
         {% else %}
           <div class="fw-semibold">Automatisch aus dem OCR-Volltext</div>
@@ -84,6 +87,9 @@
                 {% elif rule.strategy == "einvoice" %}
                   {{ rule.einvoice_format }}
                   <div class="mt-1">Fallback: {{ rule.get_fallback_strategy_display }}</div>
+                {% elif rule.strategy == "invoice_ocr" %}
+                  {{ rule.invoice_ocr_format }}
+                  <div class="mt-1">Fallback: {{ rule.get_invoice_ocr_fallback_strategy_display }}</div>
                 {% else %}
                   -
                 {% endif %}

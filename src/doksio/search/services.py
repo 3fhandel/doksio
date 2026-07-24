@@ -223,6 +223,7 @@ class SearchDocuments:
 
         documents = documents.distinct()
         documents = documents.annotate(
+            comment_count=Count("comments", distinct=True),
             workflow_total_count=Count("workflow_instances", distinct=True),
             workflow_completed_count=Count(
                 "workflow_instances",

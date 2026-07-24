@@ -65,6 +65,13 @@
     {% else %}
       <span class="document-row-indicator document-row-indicator-empty" aria-hidden="true"></span>
     {% endif %}
+    {% if document.comment_count %}
+      <span class="document-row-indicator document-row-comment-indicator" title="{{ document.comment_count }} Kommentar{{ document.comment_count|pluralize:'e' }} vorhanden" aria-label="{{ document.comment_count }} Kommentar{{ document.comment_count|pluralize:'e' }} vorhanden">
+        {% include "includes/icons.html" with icon="message-circle" %}
+      </span>
+    {% else %}
+      <span class="document-row-indicator document-row-indicator-empty" aria-hidden="true"></span>
+    {% endif %}
     {% if document.workflow_total_count %}
       <div class="document-row-indicator document-row-workflow search-result-workflow {% if document.workflow_open_count %}search-result-workflow-open{% else %}search-result-workflow-done{% endif %}" title="{% if document.workflow_open_count %}Workflow offen{% else %}Workflow erledigt{% endif %} {{ document.workflow_completed_count }}/{{ document.workflow_total_count }}" aria-label="{% if document.workflow_open_count %}Workflow offen{% else %}Workflow erledigt{% endif %} {{ document.workflow_completed_count }}/{{ document.workflow_total_count }}">
         {% include "includes/icons.html" with icon="workflow" %}
