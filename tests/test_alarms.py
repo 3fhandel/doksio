@@ -165,8 +165,18 @@ def test_user_can_manage_only_own_alarms(client):
     list_url = reverse("alarms:list", kwargs={"tenant_slug": tenant.slug})
     response = client.get(list_url)
     assert response.status_code == 200
-    assert "Fremder Alarm" not in response.content.decode()
-    assert "Alarme" in response.content.decode()
+    content = response.content.decode()
+    assert "Fremder Alarm" not in content
+    assert "Alarme" in content
+    assert (
+        f'class="app-sidebar-link active" href="{list_url}"'
+        in content
+    )
+    assert (
+        f'class="app-sidebar-link " href="'
+        f'{reverse("documents:list", kwargs={"tenant_slug": tenant.slug})}"'
+        in content
+    )
 
     create_response = client.post(
         reverse("alarms:create", kwargs={"tenant_slug": tenant.slug}),
@@ -183,6 +193,11 @@ def test_user_can_manage_only_own_alarms(client):
     created_alarm = DocumentAlarm.objects.get(owner=user)
     assert created_alarm.name == "Mein Alarm"
     assert created_alarm.document_space == space
+
+    list_response = client.get(list_url)
+    list_content = list_response.content.decode()
+    assert "<span>Bearbeiten</span>" in list_content
+    assert "<span>Löschen</span>" in list_content
 
     forbidden_response = client.get(
         reverse(

@@ -72,9 +72,11 @@
                     <div class="btn-group btn-group-sm">
                       <a class="btn btn-outline-primary" href="{% url 'alarms:update' tenant.slug alarm.id %}" title="Alarm bearbeiten" aria-label="Alarm bearbeiten">
                         {% include "includes/icons.html" with icon="edit" %}
+                        <span>Bearbeiten</span>
                       </a>
                       <a class="btn btn-outline-danger" href="{% url 'alarms:delete' tenant.slug alarm.id %}" title="Alarm löschen" aria-label="Alarm löschen">
                         {% include "includes/icons.html" with icon="trash" %}
+                        <span>Löschen</span>
                       </a>
                     </div>
                   </td>
