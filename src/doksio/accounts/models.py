@@ -75,6 +75,7 @@ class Notification(models.Model):
             "Kommentar-Erwähnung",
         )
         IMPORT_FAILED = "import_failed", "Importfehler"
+        DOCUMENT_ALARM = "document_alarm", "Dokumentenalarm"
 
     tenant = models.ForeignKey(
         "tenancy.Tenant",

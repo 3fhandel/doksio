@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}{% if alarm %}Alarm bearbeiten{% else %}Alarm anlegen{% endif %} | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container">
+      <div class="mb-4">
+        <a class="small text-decoration-none" href="{% url 'alarms:list' tenant.slug %}">Alarme</a>
+        <h1 class="h3 mt-2 mb-1">{% if alarm %}Alarm bearbeiten{% else %}Alarm anlegen{% endif %}</h1>
+        <p class="text-secondary mb-0">Doksio prüft neue Dokumente nach Import und OCR gegen diese Filter.</p>
+      </div>
+
+      <form method="post" class="app-card">
+        {% csrf_token %}
+        <div class="p-4 border-bottom">
+          {{ form.non_field_errors }}
+          <div class="row g-4">
+            <div class="col-12 col-lg-7">
+              <label class="form-label" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+              {{ form.name }}
+              {{ form.name.errors }}
+            </div>
+            <div class="col-12 col-lg-5 d-flex align-items-end">
+              <div class="form-check form-switch mb-2">
+                {{ form.is_active }}
+                <label class="form-check-label" for="{{ form.is_active.id_for_label }}">{{ form.is_active.label }}</label>
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="{{ form.search_term.id_for_label }}">{{ form.search_term.label }}</label>
+              {{ form.search_term }}
+              <div class="form-text">{{ form.search_term.help_text }}</div>
+              {{ form.search_term.errors }}
+            </div>
+            <div class="col-12 col-lg-7">
+              <label class="form-label" for="{{ form.document_space.id_for_label }}">{{ form.document_space.label }}</label>
+              {{ form.document_space }}
+              {{ form.document_space.errors }}
+            </div>
+            <div class="col-12 col-lg-5 d-flex align-items-end">
+              <div class="form-check mb-2">
+                {{ form.include_child_spaces }}
+                <label class="form-check-label" for="{{ form.include_child_spaces.id_for_label }}">{{ form.include_child_spaces.label }}</label>
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="{{ form.tags.id_for_label }}">{{ form.tags.label }}</label>
+              {{ form.tags }}
+              <div class="form-text">{{ form.tags.help_text }}</div>
+              {{ form.tags.errors }}
+            </div>
+          </div>
+        </div>
+        <div class="p-4 border-bottom">
+          <h2 class="h5 mb-3">Benachrichtigungskanäle</h2>
+          <div class="d-flex flex-wrap gap-4">
+            <div class="form-check form-switch">
+              {{ form.notify_in_app }}
+              <label class="form-check-label" for="{{ form.notify_in_app.id_for_label }}">{{ form.notify_in_app.label }}</label>
+            </div>
+            <div class="form-check form-switch">
+              {{ form.notify_email }}
+              <label class="form-check-label" for="{{ form.notify_email.id_for_label }}">{{ form.notify_email.label }}</label>
+            </div>
+          </div>
+        </div>
+        <div class="d-flex justify-content-end gap-2 p-3">
+          <a class="btn btn-outline-secondary" href="{% url 'alarms:list' tenant.slug %}">Abbrechen</a>
+          <button class="btn btn-primary" type="submit">Speichern</button>
+        </div>
+      </form>
+    </div>
+  </main>
+{% endblock %}

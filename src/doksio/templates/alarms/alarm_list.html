@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% load doksio_extras %}
+
+{% block title %}Alarme | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container">
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+        <div>
+          <h1 class="h3 mb-1">Alarme</h1>
+          <p class="text-secondary mb-0">Automatische Benachrichtigungen für passende neue Dokumente.</p>
+        </div>
+        <a class="btn btn-primary" href="{% url 'alarms:create' tenant.slug %}">
+          {% include "includes/icons.html" with icon="plus" %}
+          <span>Alarm anlegen</span>
+        </a>
+      </div>
+
+      <section class="app-card">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Alarm</th>
+                <th>Filter</th>
+                <th>Kanäle</th>
+                <th>Treffer</th>
+                <th>Status</th>
+                <th class="text-end">Aktionen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for alarm in alarms %}
+                <tr>
+                  <td class="fw-semibold">{{ alarm.name }}</td>
+                  <td class="small">
+                    {% if alarm.search_term %}
+                      <div>Suche: <strong>{{ alarm.search_term }}</strong></div>
+                    {% endif %}
+                    <div>
+                      Box:
+                      {% if alarm.document_space %}
+                        {{ alarm.document_space.path }}{% if alarm.include_child_spaces %} einschließlich Kindboxen{% endif %}
+                      {% else %}
+                        alle zugänglichen Boxen
+                      {% endif %}
+                    </div>
+                    {% if alarm.tags.all %}
+                      <div>Tags: {% for tag in alarm.tags.all %}{{ tag.name }}{% if not forloop.last %}, {% endif %}{% endfor %}</div>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <div class="d-flex gap-1">
+                      {% if alarm.notify_in_app %}
+                        <span class="badge text-bg-primary">In-App</span>
+                      {% endif %}
+                      {% if alarm.notify_email %}
+                        <span class="badge text-bg-info">E-Mail</span>
+                      {% endif %}
+                    </div>
+                  </td>
+                  <td>{{ alarm.matches.count }}</td>
+                  <td>
+                    {% if alarm.is_active %}
+                      <span class="badge text-bg-success">Aktiv</span>
+                    {% else %}
+                      <span class="badge text-bg-secondary">Pausiert</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-end">
+                    <div class="btn-group btn-group-sm">
+                      <a class="btn btn-outline-primary" href="{% url 'alarms:update' tenant.slug alarm.id %}" title="Alarm bearbeiten" aria-label="Alarm bearbeiten">
+                        {% include "includes/icons.html" with icon="edit" %}
+                      </a>
+                      <a class="btn btn-outline-danger" href="{% url 'alarms:delete' tenant.slug alarm.id %}" title="Alarm löschen" aria-label="Alarm löschen">
+                        {% include "includes/icons.html" with icon="trash" %}
+                      </a>
+                    </div>
+                  </td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="6" class="text-center text-secondary py-5">
+                    Noch keine Alarme angelegt.
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% include "includes/pagination.html" with page_obj=alarms_page_obj page_param="page" label="Alarme" %}
+      </section>
+    </div>
+  </main>
+{% endblock %}

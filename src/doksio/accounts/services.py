@@ -26,6 +26,8 @@ from doksio.documents.models import DocumentSpace
 from doksio.ingestion.models import TenantSmtpSettings
 from doksio.project.email import (
     BrandedEmailMultiAlternatives as EmailMultiAlternatives,
+)
+from doksio.project.email import (
     attach_branded_html,
 )
 from doksio.project.url_helpers import build_public_url
@@ -625,12 +627,13 @@ class CreateNotification:
     document: object | None = None
     workflow_task: object | None = None
     document_comment: object | None = None
+    channel_override: dict[str, bool] | None = None
 
     @transaction.atomic
     def execute(self) -> Notification | None:
         profile = UserProfile.objects.filter(user=self.recipient).first()
         preferences = _notification_preferences(profile)
-        channels = preferences.get(
+        channels = self.channel_override or preferences.get(
             self.notification_type,
             {"in_app": True, "email": False},
         )

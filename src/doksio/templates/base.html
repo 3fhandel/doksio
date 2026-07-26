@@ -138,6 +138,10 @@
                   {% include "includes/icons.html" with icon="search" %}
                   <span>Suche</span>
                 </a>
+                <a class="app-sidebar-link {% if app_name == 'alarms' %}active{% endif %}" href="{% url 'alarms:list' tenant.slug %}">
+                  {% include "includes/icons.html" with icon="bell" %}
+                  <span>Alarme</span>
+                </a>
                 {% if can_view_reports %}
                   <a class="app-sidebar-link {% if app_name == 'reports' %}active{% endif %}" href="{% url 'reports:overview' tenant.slug %}">
                     {% include "includes/icons.html" with icon="bar-chart" %}

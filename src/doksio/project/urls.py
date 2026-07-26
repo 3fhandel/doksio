@@ -17,6 +17,7 @@ def health(request: HttpRequest) -> JsonResponse:
 urlpatterns = [
     path("", index, name="index"),
     path("", include("doksio.accounts.urls")),
+    path("", include("doksio.alarms.urls")),
     path("s/admin/", admin.site.urls),
     path("", include("doksio.documents.urls")),
     path("", include("doksio.ingestion.urls")),

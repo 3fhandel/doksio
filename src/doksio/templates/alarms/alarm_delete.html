@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Alarm löschen | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container">
+      <div class="mb-4">
+        <a class="small text-decoration-none" href="{% url 'alarms:list' tenant.slug %}">Alarme</a>
+        <h1 class="h3 mt-2 mb-1">Alarm löschen</h1>
+      </div>
+      <form method="post" class="app-card">
+        {% csrf_token %}
+        <div class="p-4 border-bottom">
+          <p class="mb-1">Soll der Alarm <strong>{{ alarm.name }}</strong> wirklich gelöscht werden?</p>
+          <p class="text-secondary mb-0">Bereits erzeugte Benachrichtigungen bleiben erhalten.</p>
+        </div>
+        <div class="d-flex justify-content-end gap-2 p-3">
+          <a class="btn btn-outline-secondary" href="{% url 'alarms:list' tenant.slug %}">Abbrechen</a>
+          <button class="btn btn-danger" type="submit">Alarm löschen</button>
+        </div>
+      </form>
+    </div>
+  </main>
+{% endblock %}

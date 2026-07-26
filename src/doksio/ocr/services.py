@@ -643,6 +643,11 @@ class RunOcrJob:
         RebuildDocumentSearchIndex(
             document=self.job.document_file.document,
         ).execute()
+        from doksio.alarms.services import EvaluateDocumentAlarms
+
+        EvaluateDocumentAlarms(
+            document=self.job.document_file.document,
+        ).execute()
 
     @transaction.atomic
     def _prefill_document_title(self, extraction: OcrExtraction) -> None:

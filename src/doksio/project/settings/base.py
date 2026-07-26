@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     "doksio.tenancy",
     "doksio.accounts",
     "doksio.audit",
+    "doksio.alarms",
     "doksio.documents",
     "doksio.storage",
     "doksio.ingestion",

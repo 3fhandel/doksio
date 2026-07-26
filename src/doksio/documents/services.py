@@ -393,6 +393,9 @@ def _schedule_search_index_rebuild(document: Document) -> None:
 
         refreshed_document = Document.objects.get(id=document_id)
         RebuildDocumentSearchIndex(document=refreshed_document).execute()
+        from doksio.alarms.services import EvaluateDocumentAlarms
+
+        EvaluateDocumentAlarms(document=refreshed_document).execute()
 
     transaction.on_commit(rebuild)
 

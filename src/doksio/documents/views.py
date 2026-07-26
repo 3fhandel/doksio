@@ -754,6 +754,10 @@ def _document_log_entries(document: Document):
 
 
 AUDIT_EVENT_LABELS = DOCUMENT_LOG_EVENT_LABELS | {
+    "document_alarm.created": "Alarm erstellt",
+    "document_alarm.updated": "Alarm aktualisiert",
+    "document_alarm.deleted": "Alarm gelöscht",
+    "document_alarm.matched": "Dokumentenalarm ausgelöst",
     "export_run.created": "Exportlauf erzeugt",
     "document_title_rule.created": "Titelfindungsregel erstellt",
     "document_title_rule.updated": "Titelfindungsregel aktualisiert",
