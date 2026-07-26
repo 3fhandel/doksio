@@ -1150,6 +1150,9 @@ def test_document_detail_renders_pdf_preview(client):
     assert response.status_code == 200
     content = response.content.decode()
     assert "data-pdf-preview" in content
+    assert "data-pdf-pages" in content
+    assert "data-pdf-prev>" not in content
+    assert "data-pdf-next>" not in content
     assert "data-review-assist-toggle" in content
     assert 'data-viewer-rotation="0"' in content
     assert "data-viewer-rotate-left" in content
@@ -1213,6 +1216,40 @@ def test_document_detail_uses_saved_viewer_rotation(client):
 
 
 @pytest.mark.django_db
+def test_document_detail_includes_saved_pdf_page_rotations(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(username="alice", password="secret")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    client.force_login(user)
+    document, document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Invoice 4711",
+        space=space,
+        file_obj=BytesIO(b"%PDF-1.4\n"),
+        original_filename="invoice.pdf",
+        content_type="application/pdf",
+    ).execute()
+    document_file.viewer_settings = {"page_rotations": {"2": 90}}
+    document_file.save(update_fields=["viewer_settings"])
+
+    response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        )
+    )
+
+    assert response.status_code == 200
+    assert '"2": 90' in response.content.decode()
+
+
+@pytest.mark.django_db
 def test_document_file_viewer_settings_persist_rotation(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
@@ -1260,6 +1297,21 @@ def test_document_file_viewer_settings_persist_rotation(client):
     )
 
     assert response.status_code == 400
+
+    response = client.post(
+        reverse(
+            "documents:file_viewer_settings",
+            kwargs={"tenant_slug": tenant.slug, "file_id": document_file.id},
+        ),
+        data='{"rotation": 270, "page_number": 2}',
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["page_number"] == 2
+    document_file.refresh_from_db()
+    assert document_file.viewer_settings["rotation"] == 90
+    assert document_file.viewer_settings["page_rotations"] == {"2": 270}
 
 
 @pytest.mark.django_db

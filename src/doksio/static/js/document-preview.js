@@ -1,31 +1,32 @@
 function initPreview(root) {
     initReviewAssist(root);
 
-    const canvas = root.querySelector("[data-pdf-canvas]");
+    const stage = root.querySelector(".document-preview-stage");
+    const pages = root.querySelector("[data-pdf-pages]");
     const status = root.querySelector("[data-pdf-status]");
     const pageCurrent = root.querySelector("[data-pdf-page-current]");
     const pageTotal = root.querySelector("[data-pdf-page-total]");
-    const prevButton = root.querySelector("[data-pdf-prev]");
-    const nextButton = root.querySelector("[data-pdf-next]");
     const zoomOutButton = root.querySelector("[data-pdf-zoom-out]");
     const zoomInButton = root.querySelector("[data-pdf-zoom-in]");
     const rotateLeftButton = root.querySelector("[data-viewer-rotate-left]");
     const rotateRightButton = root.querySelector("[data-viewer-rotate-right]");
     const pdfUrl = root.dataset.pdfUrl;
 
-    if (!canvas || !pdfUrl || !window.pdfjsLib) {
+    if (!stage || !pages || !pdfUrl || !window.pdfjsLib) {
       if (status) {
         status.textContent = "PDF.js konnte nicht geladen werden.";
       }
       return;
     }
 
-    const context = canvas.getContext("2d");
     let pdfDocument = null;
     let pageNumber = 1;
     let scale = 1.2;
-    let rotation = viewerRotation(root);
-    let renderTask = null;
+    const defaultRotation = viewerRotation(root);
+    const pageRotations = viewerPageRotations(root);
+    let generation = 0;
+    let pageObserver = null;
+    const renderTasks = new Set();
 
     function setStatus(message) {
       if (status) {
@@ -33,25 +34,29 @@ function initPreview(root) {
       }
     }
 
-    function updateControls() {
+    function updatePageIndicator() {
       if (!pdfDocument) {
         return;
       }
       pageCurrent.textContent = pageNumber;
       pageTotal.textContent = pdfDocument.numPages;
-      prevButton.disabled = pageNumber <= 1;
-      nextButton.disabled = pageNumber >= pdfDocument.numPages;
     }
 
-    async function renderPage() {
-      if (!pdfDocument) {
+    async function renderPage(pageElement, expectedGeneration) {
+      if (
+        !pdfDocument
+        || expectedGeneration !== generation
+        || pageElement.dataset.rendered === "true"
+        || pageElement.dataset.rendering === "true"
+      ) {
         return;
       }
-      if (renderTask) {
-        renderTask.cancel();
-      }
-
-      const page = await pdfDocument.getPage(pageNumber);
+      pageElement.dataset.rendering = "true";
+      const number = Number(pageElement.dataset.pageNumber);
+      const canvas = pageElement.querySelector("canvas");
+      const context = canvas.getContext("2d");
+      const page = await pdfDocument.getPage(number);
+      const rotation = rotationForPage(number);
       const viewport = page.getViewport({ scale, rotation });
       const outputScale = window.devicePixelRatio || 1;
 
@@ -60,53 +65,131 @@ function initPreview(root) {
       canvas.style.width = `${Math.floor(viewport.width)}px`;
       canvas.style.height = `${Math.floor(viewport.height)}px`;
 
-      renderTask = page.render({
+      const renderTask = page.render({
         canvasContext: context,
         transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null,
         viewport,
       });
+      renderTasks.add(renderTask);
 
       try {
         await renderTask.promise;
-        setStatus("");
+        if (expectedGeneration === generation) {
+          pageElement.dataset.rendered = "true";
+        }
       } catch (error) {
         if (error && error.name !== "RenderingCancelledException") {
           setStatus("Vorschau konnte nicht gerendert werden.");
         }
       } finally {
-        renderTask = null;
+        renderTasks.delete(renderTask);
+        delete pageElement.dataset.rendering;
       }
-      updateControls();
     }
 
-    prevButton.addEventListener("click", function () {
-      if (pageNumber > 1) {
-        pageNumber -= 1;
-        renderPage();
+    function updateCurrentPage() {
+      const pageElements = [...pages.querySelectorAll("[data-page-number]")];
+      if (!pageElements.length) {
+        return;
       }
-    });
+      const stageRect = stage.getBoundingClientRect();
+      const viewportCenter = stageRect.top + stage.clientHeight / 2;
+      let nearestPage = pageElements[0];
+      let nearestDistance = Number.POSITIVE_INFINITY;
+      pageElements.forEach(function (pageElement) {
+        const rect = pageElement.getBoundingClientRect();
+        const distance = Math.abs((rect.top + rect.bottom) / 2 - viewportCenter);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestPage = pageElement;
+        }
+      });
+      pageNumber = Number(nearestPage.dataset.pageNumber);
+      updatePageIndicator();
+    }
 
-    nextButton.addEventListener("click", function () {
-      if (pdfDocument && pageNumber < pdfDocument.numPages) {
-        pageNumber += 1;
-        renderPage();
+    async function rebuildPages(restoreCurrentPage) {
+      if (!pdfDocument) {
+        return;
       }
-    });
+      const targetPage = pageNumber;
+      generation += 1;
+      const expectedGeneration = generation;
+      renderTasks.forEach(function (task) {
+        task.cancel();
+      });
+      renderTasks.clear();
+      if (pageObserver) {
+        pageObserver.disconnect();
+      }
+      pages.replaceChildren();
+      setStatus("Seiten werden vorbereitet ...");
+
+      pageObserver = new IntersectionObserver(
+        function (entries) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) {
+              renderPage(entry.target, expectedGeneration);
+            }
+          });
+        },
+        { root: stage, rootMargin: "800px 0px" },
+      );
+
+      for (let number = 1; number <= pdfDocument.numPages; number += 1) {
+        const page = await pdfDocument.getPage(number);
+        if (expectedGeneration !== generation) {
+          return;
+        }
+        const viewport = page.getViewport({
+          scale,
+          rotation: rotationForPage(number),
+        });
+        const pageElement = document.createElement("div");
+        pageElement.className = "document-preview-page";
+        pageElement.dataset.pageNumber = String(number);
+        pageElement.style.width = `${Math.floor(viewport.width)}px`;
+        pageElement.style.height = `${Math.floor(viewport.height)}px`;
+        const canvas = document.createElement("canvas");
+        canvas.className = "document-preview-canvas";
+        canvas.setAttribute("aria-label", `PDF-Seite ${number}`);
+        pageElement.appendChild(canvas);
+        pages.appendChild(pageElement);
+        pageObserver.observe(pageElement);
+      }
+
+      if (restoreCurrentPage) {
+        const target = pages.querySelector(`[data-page-number="${targetPage}"]`);
+        if (target) {
+          stage.scrollTop = Math.max(0, target.offsetTop - 16);
+        }
+      }
+      setStatus("");
+      updateCurrentPage();
+    }
+
+    function rotationForPage(number) {
+      const configuredRotation = pageRotations[String(number)];
+      return configuredRotation === undefined
+        ? defaultRotation
+        : configuredRotation;
+    }
 
     zoomOutButton.addEventListener("click", function () {
       scale = Math.max(0.6, scale - 0.2);
-      renderPage();
+      rebuildPages(true);
     });
 
     zoomInButton.addEventListener("click", function () {
       scale = Math.min(2.4, scale + 0.2);
-      renderPage();
+      rebuildPages(true);
     });
 
     function rotateBy(delta) {
-      rotation = normalizeRotation(rotation + delta);
-      persistViewerRotation(root, rotation);
-      renderPage();
+      const rotation = normalizeRotation(rotationForPage(pageNumber) + delta);
+      pageRotations[String(pageNumber)] = rotation;
+      persistViewerRotation(root, rotation, pageNumber);
+      rebuildPages(true);
     }
 
     if (rotateLeftButton) {
@@ -125,12 +208,23 @@ function initPreview(root) {
     window.pdfjsLib.getDocument({ url: pdfUrl, withCredentials: true }).promise
       .then(function (loadedDocument) {
         pdfDocument = loadedDocument;
-        updateControls();
-        renderPage();
+        updatePageIndicator();
+        rebuildPages(false);
       })
       .catch(function () {
         setStatus("PDF-Vorschau konnte nicht geladen werden.");
       });
+
+    let scrollFrame = null;
+    stage.addEventListener("scroll", function () {
+      if (scrollFrame !== null) {
+        return;
+      }
+      scrollFrame = window.requestAnimationFrame(function () {
+        scrollFrame = null;
+        updateCurrentPage();
+      });
+    });
 }
 
 function initImagePreview(root) {
@@ -281,6 +375,24 @@ function viewerRotation(root) {
   return parsedRotation;
 }
 
+function viewerPageRotations(root) {
+  const dataElement = root.querySelector("#pdf-page-rotations");
+  if (!dataElement) {
+    return {};
+  }
+  try {
+    const rawRotations = JSON.parse(dataElement.textContent);
+    return Object.fromEntries(
+      Object.entries(rawRotations).filter(function ([pageNumber, rotation]) {
+        return Number.parseInt(pageNumber, 10) > 0
+          && [0, 90, 180, 270].includes(rotation);
+      })
+    );
+  } catch (_error) {
+    return {};
+  }
+}
+
 function csrfToken() {
   const tokenInput = document.querySelector("[name=csrfmiddlewaretoken]");
   if (tokenInput) {
@@ -290,8 +402,10 @@ function csrfToken() {
   return cookieMatch ? decodeURIComponent(cookieMatch[1]) : "";
 }
 
-function persistViewerRotation(root, rotation) {
-  root.dataset.viewerRotation = String(rotation);
+function persistViewerRotation(root, rotation, pageNumber = null) {
+  if (pageNumber === null) {
+    root.dataset.viewerRotation = String(rotation);
+  }
   if (!root.dataset.viewerSettingsUrl) {
     return;
   }
@@ -301,7 +415,10 @@ function persistViewerRotation(root, rotation) {
       "Content-Type": "application/json",
       "X-CSRFToken": csrfToken(),
     },
-    body: JSON.stringify({ rotation }),
+    body: JSON.stringify({
+      rotation,
+      ...(pageNumber === null ? {} : { page_number: pageNumber }),
+    }),
   }).catch(function () {
     root.dataset.viewerRotationSaveFailed = "true";
   });

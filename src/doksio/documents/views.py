@@ -824,6 +824,24 @@ def _viewer_rotation(document_file: DocumentFile | None) -> int:
     return rotation
 
 
+def _viewer_page_rotations(document_file: DocumentFile | None) -> dict[str, int]:
+    if document_file is None:
+        return {}
+    raw_rotations = (document_file.viewer_settings or {}).get("page_rotations", {})
+    if not isinstance(raw_rotations, dict):
+        return {}
+    rotations = {}
+    for raw_page_number, raw_rotation in raw_rotations.items():
+        try:
+            page_number = int(raw_page_number)
+            rotation = int(raw_rotation)
+        except (TypeError, ValueError):
+            continue
+        if page_number > 0 and rotation in {0, 90, 180, 270}:
+            rotations[str(page_number)] = rotation
+    return rotations
+
+
 def _document_relations_for_display(document: Document, user) -> list[dict]:
     relations = (
         DocumentRelation.objects.select_related(
@@ -1922,6 +1940,7 @@ def document_detail(
     preview_file, preview_kind = _document_preview(document)
     preview_ocr_job = preview_file.latest_ocr_job if preview_file is not None else None
     preview_rotation = _viewer_rotation(preview_file)
+    preview_page_rotations = _viewer_page_rotations(preview_file)
     workflow_instances = list(
         document.workflow_instances.select_related(
             "template",
@@ -2037,6 +2056,7 @@ def document_detail(
             "preview_kind": preview_kind,
             "preview_ocr_job": preview_ocr_job,
             "preview_rotation": preview_rotation,
+            "preview_page_rotations": preview_page_rotations,
             "comment_form": comment_form,
             "metadata_form": metadata_form,
             "relation_form": relation_form,
@@ -2444,18 +2464,34 @@ def document_file_viewer_settings(
     try:
         payload = json.loads(request.body.decode() or "{}")
         rotation = int(payload.get("rotation", 0))
+        page_number = (
+            int(payload["page_number"])
+            if payload.get("page_number") is not None
+            else None
+        )
     except (TypeError, ValueError, json.JSONDecodeError, UnicodeDecodeError):
         return JsonResponse({"error": "invalid_payload"}, status=400)
 
-    if rotation % 90 != 0:
+    if rotation % 90 != 0 or (page_number is not None and page_number < 1):
         return JsonResponse({"error": "invalid_rotation"}, status=400)
 
     rotation = rotation % 360
     viewer_settings = dict(document_file.viewer_settings or {})
-    viewer_settings["rotation"] = rotation
+    if page_number is None:
+        viewer_settings["rotation"] = rotation
+    else:
+        page_rotations = dict(viewer_settings.get("page_rotations") or {})
+        page_rotations[str(page_number)] = rotation
+        viewer_settings["page_rotations"] = page_rotations
     document_file.viewer_settings = viewer_settings
     document_file.save(update_fields=["viewer_settings"])
-    return JsonResponse({"ok": True, "rotation": rotation})
+    return JsonResponse(
+        {
+            "ok": True,
+            "rotation": rotation,
+            "page_number": page_number,
+        }
+    )
 
 
 def audit_log(

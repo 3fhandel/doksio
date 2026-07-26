@@ -1552,10 +1552,8 @@ body {
 
 .document-preview-stage {
   position: relative;
-  display: grid;
   height: calc(100vh - 12.75rem);
   min-height: 42rem;
-  place-items: start center;
   overflow: auto;
   background: #e7efee;
   border-top: 1px solid var(--doksio-border);
@@ -1643,15 +1641,41 @@ body {
   );
 }
 
-.document-preview-canvas {
-  display: block;
-  max-width: 100%;
-  margin: 1rem;
+.document-preview-pages {
+  display: grid;
+  justify-items: center;
+  width: max-content;
+  min-width: 100%;
+  padding: 1rem;
+  gap: 1rem;
+}
+
+.document-preview-page {
+  position: relative;
+  overflow: hidden;
+  flex: 0 0 auto;
   background: #fff;
   box-shadow: 0 0.5rem 1.5rem rgb(16 24 40 / 14%);
 }
 
+.document-preview-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #fff;
+}
+
+.document-preview-status {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  min-height: 1.5rem;
+  padding: 0.125rem 0.75rem;
+  pointer-events: none;
+}
+
 .document-preview-stage-image {
+  display: grid;
   height: calc(100vh - 12.75rem);
   min-height: 42rem;
   place-items: center;
