@@ -44,6 +44,7 @@ from doksio.accounts.services import (
     UpdateTenantRole,
 )
 from doksio.audit.models import AuditEvent
+from doksio.audit.forms import AuditEventFilterForm
 from doksio.audit.services import RecordAuditEvent
 from doksio.documents.forms import (
     DocumentBoxScanOptimizationForm,
@@ -146,6 +147,7 @@ from doksio.project.email import (
     attach_branded_html,
 )
 from doksio.project.url_helpers import build_public_url
+from doksio.search.services import SearchDocuments, build_search_match
 from doksio.tenancy.services import get_default_tenant_for_user, get_tenant_for_user
 from doksio.workflows.forms import CompleteWorkflowTaskForm, StartWorkflowForm
 from doksio.workflows.models import WorkflowInstance, WorkflowTask, WorkflowTemplate
@@ -2327,15 +2329,7 @@ def document_relation_picker_search(
     space_id = request.GET.get("space", "").strip()
     include_children = request.GET.get("include_children", "1") == "1"
     workflow_status = request.GET.get("workflow_status", "any").strip()
-    documents = _with_workflow_counts(
-        filter_documents_for_user(
-            Document.objects.select_related("space")
-            .prefetch_related("files")
-            .filter(tenant=tenant),
-            request.user,
-            tenant,
-        ).exclude(id=document.id)
-    )
+    selected_space = None
     if space_id:
         selected_space = get_object_or_404(
             DocumentSpace,
@@ -2343,29 +2337,18 @@ def document_relation_picker_search(
             tenant=tenant,
             deleted_at__isnull=True,
         )
-        if include_children:
-            documents = documents.filter(
-                Q(space=selected_space)
-                | Q(space__path__startswith=f"{selected_space.path.rstrip('/')}/")
-            )
-        else:
-            documents = documents.filter(space=selected_space)
-    if workflow_status == "open":
-        documents = documents.filter(workflow_open_count__gt=0)
-    elif workflow_status == "completed":
-        documents = documents.filter(
-            workflow_total_count__gt=0,
-            workflow_open_count=0,
-            workflow_completed_count=F("workflow_total_count"),
-        )
-    elif workflow_status == "none":
-        documents = documents.filter(workflow_total_count=0)
-    if query:
-        documents = documents.filter(
-            Q(title__icontains=query)
-            | Q(space__path__icontains=query)
-            | Q(id=int(query) if query.isdigit() else 0)
-        )
+    documents = SearchDocuments(
+        tenant=tenant,
+        user=request.user,
+        filters={
+            "q": query,
+            "box": selected_space,
+            "include_child_boxes": include_children,
+            "workflow_status": workflow_status,
+            "document_status": "active",
+            "sort": "relevance" if query else "created_desc",
+        },
+    ).execute().exclude(id=document.id)
 
     def thumbnail_url(candidate: Document) -> str:
         thumbnail = next(
@@ -2400,6 +2383,7 @@ def document_relation_picker_search(
             "thumbnail_url": thumbnail_url(candidate),
             "workflow_open_count": candidate.workflow_open_count,
             "workflow_total_count": candidate.workflow_total_count,
+            "search_match": build_search_match(candidate, query),
         }
         for candidate in documents.order_by("-created_at", "-id")[:12]
     ]
@@ -2495,6 +2479,40 @@ def audit_log(
         .select_related("actor")
         .order_by("-created_at", "-id")
     )
+    audit_filter_form = AuditEventFilterForm(
+        request.GET or None,
+        tenant=tenant,
+        event_labels=AUDIT_EVENT_LABELS,
+    )
+    if audit_filter_form.is_valid():
+        query = audit_filter_form.cleaned_data["query"].strip()
+        if query:
+            matching_event_types = [
+                event_type
+                for event_type, label in AUDIT_EVENT_LABELS.items()
+                if query.casefold() in label.casefold()
+            ]
+            audit_events = audit_events.filter(
+                Q(event_type__icontains=query)
+                | Q(event_type__in=matching_event_types)
+                | Q(object_type__icontains=query)
+                | Q(object_id__icontains=query)
+                | Q(actor__username__icontains=query)
+                | Q(actor__email__icontains=query)
+                | Q(actor__doksio_profile__display_name__icontains=query)
+            )
+        if audit_filter_form.cleaned_data["timestamp_from"]:
+            audit_events = audit_events.filter(
+                created_at__gte=audit_filter_form.cleaned_data["timestamp_from"]
+            )
+        if audit_filter_form.cleaned_data["timestamp_to"]:
+            audit_events = audit_events.filter(
+                created_at__lte=audit_filter_form.cleaned_data["timestamp_to"]
+            )
+        if audit_filter_form.cleaned_data["event_type"]:
+            audit_events = audit_events.filter(
+                event_type=audit_filter_form.cleaned_data["event_type"]
+            )
     return render(
         request,
         "documents/audit_log.html",
@@ -2513,6 +2531,7 @@ def audit_log(
                 per_page=25,
             ),
             "audit_event_labels": AUDIT_EVENT_LABELS,
+            "audit_filter_form": audit_filter_form,
         },
     )
 
@@ -3016,6 +3035,156 @@ def tenant_settings_maintenance(
     )
 
 
+def tenant_settings_background_jobs(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    from doksio.project.background_jobs import tenant_background_jobs
+
+    live_jobs, worker_error = tenant_background_jobs(tenant)
+    recent_jobs = []
+    for job in tenant.ocr_jobs.select_related("document_file__document")[:10]:
+        recent_jobs.append(
+            {
+                "title": f"OCR: {job.document_file.document.title}",
+                "status": job.get_status_display(),
+                "status_value": job.status,
+                "created_at": job.created_at,
+                "completed_at": job.completed_at,
+            }
+        )
+    for job in tenant.document_box_scan_optimization_jobs.select_related(
+        "document_space"
+    )[:10]:
+        recent_jobs.append(
+            {
+                "title": f"Scan-Speicher optimieren: {job.document_space.path}",
+                "status": job.get_status_display(),
+                "status_value": job.status,
+                "created_at": job.created_at,
+                "completed_at": job.completed_at,
+            }
+        )
+    for job in tenant.document_box_title_refresh_jobs.select_related(
+        "document_space"
+    )[:10]:
+        recent_jobs.append(
+            {
+                "title": f"Titel neu berechnen: {job.document_space.path}",
+                "status": job.get_status_display(),
+                "status_value": job.status,
+                "created_at": job.created_at,
+                "completed_at": job.completed_at,
+            }
+        )
+    for job in tenant.export_runs.all()[:10]:
+        recent_jobs.append(
+            {
+                "title": f"Export: {job.get_export_type_display()}",
+                "status": job.get_status_display(),
+                "status_value": job.status,
+                "created_at": job.created_at,
+                "completed_at": job.completed_at,
+            }
+        )
+    recent_jobs.sort(key=lambda item: item["created_at"], reverse=True)
+
+    return render(
+        request,
+        "documents/settings_background_jobs.html",
+        {
+            "tenant": tenant,
+            "live_jobs": live_jobs,
+            "worker_error": worker_error,
+            "recent_jobs": recent_jobs[:25],
+            "active_settings_section": "background_jobs",
+        },
+    )
+
+
+def tenant_settings_background_job_cancel(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    from doksio.project.background_jobs import (
+        cancel_background_job,
+        tenant_background_jobs,
+    )
+
+    task_id = request.POST.get("task_id", "")
+    job_type = request.POST.get("job_type", "")
+    try:
+        object_id = int(request.POST.get("object_id", ""))
+    except ValueError:
+        raise PermissionDenied from None
+
+    live_jobs, worker_error = tenant_background_jobs(tenant)
+    matching_job = next(
+        (
+            job
+            for job in live_jobs
+            if job.task_id == task_id
+            and job.job_type == job_type
+            and job.object_id == object_id
+        ),
+        None,
+    )
+    if matching_job is None or not matching_job.can_cancel:
+        messages.error(
+            request,
+            "Der Job ist nicht mehr sicher abbrechbar oder der Worker ist nicht erreichbar.",
+        )
+        return redirect(
+            "documents:settings_background_jobs",
+            tenant_slug=tenant.slug,
+        )
+
+    try:
+        title = cancel_background_job(
+            tenant=tenant,
+            job_type=job_type,
+            object_id=object_id,
+            task_id=task_id,
+        )
+    except Exception:
+        logger.exception(
+            "Could not cancel background job %s for tenant %s.",
+            task_id or f"{job_type}:{object_id}",
+            tenant.slug,
+        )
+        messages.error(request, "Der Hintergrundjob konnte nicht abgebrochen werden.")
+    else:
+        RecordAuditEvent(
+            tenant=tenant,
+            actor=request.user,
+            event_type="background_job.cancelled",
+            object_type=f"celery.{job_type}",
+            object_id=str(object_id),
+            data={"task_id": task_id, "title": title},
+        ).execute()
+        messages.success(request, f"„{title}“ wurde abgebrochen.")
+    return redirect(
+        "documents:settings_background_jobs",
+        tenant_slug=tenant.slug,
+    )
+
+
 def tenant_settings_scan_optimization_resume(
     request: HttpRequest,
     tenant_slug: str,
@@ -3276,14 +3445,11 @@ def tenant_settings_title_rules(
     if tenant is None or not can_manage_document_spaces(request.user, tenant):
         raise PermissionDenied
 
-    rules = DocumentTitleRule.objects.filter(tenant=tenant).select_related(
-        "document_space"
+    rules = DocumentTitleRule.objects.filter(tenant=tenant).prefetch_related(
+        "document_spaces"
     )
-    default_rule = rules.filter(document_space__isnull=True).first()
-    box_rules = rules.filter(document_space__isnull=False).order_by(
-        "document_space__path",
-        "id",
-    )
+    default_rule = rules.filter(is_default=True).first()
+    box_rules = rules.filter(is_default=False).order_by("id")
     available_box_count = (
         DocumentSpace.objects.filter(
             tenant=tenant,
@@ -3291,7 +3457,7 @@ def tenant_settings_title_rules(
             deleted_at__isnull=True,
         )
         .exclude(
-            id__in=box_rules.values("document_space_id"),
+            id__in=box_rules.values("document_spaces__id"),
         )
         .count()
     )
@@ -3335,7 +3501,9 @@ def tenant_settings_title_rule_create(
                 object_type="documents.DocumentTitleRule",
                 object_id=str(rule.id),
                 data={
-                    "document_space_id": rule.document_space_id,
+                    "document_space_ids": list(
+                        rule.document_spaces.values_list("id", flat=True)
+                    ),
                     "strategy": rule.strategy,
                     "einvoice_format": rule.einvoice_format,
                     "fallback_strategy": rule.fallback_strategy,
@@ -3382,7 +3550,7 @@ def tenant_settings_title_rule_edit(
         raise PermissionDenied
 
     rule = get_object_or_404(
-        DocumentTitleRule.objects.select_related("document_space"),
+        DocumentTitleRule.objects.prefetch_related("document_spaces"),
         id=rule_id,
         tenant=tenant,
     )
@@ -3402,7 +3570,9 @@ def tenant_settings_title_rule_edit(
                 object_type="documents.DocumentTitleRule",
                 object_id=str(rule.id),
                 data={
-                    "document_space_id": rule.document_space_id,
+                    "document_space_ids": list(
+                        rule.document_spaces.values_list("id", flat=True)
+                    ),
                     "strategy": rule.strategy,
                     "einvoice_format": rule.einvoice_format,
                     "fallback_strategy": rule.fallback_strategy,
@@ -3422,7 +3592,11 @@ def tenant_settings_title_rule_edit(
             lock_scope=True,
         )
 
-    scope_name = rule.document_space.path if rule.document_space else "Tenant-Standard"
+    scope_name = (
+        "Tenant-Standard"
+        if rule.is_default
+        else ", ".join(rule.document_spaces.values_list("path", flat=True))
+    )
     return render(
         request,
         "documents/settings_title_rule_form.html",
@@ -3452,16 +3626,20 @@ def tenant_settings_title_rule_delete(
         raise PermissionDenied
 
     rule = get_object_or_404(
-        DocumentTitleRule.objects.select_related("document_space"),
+        DocumentTitleRule.objects.prefetch_related("document_spaces"),
         id=rule_id,
         tenant=tenant,
     )
     if request.method == "POST":
         scope_name = (
-            rule.document_space.path if rule.document_space else "Tenant-Standard"
+            "Tenant-Standard"
+            if rule.is_default
+            else ", ".join(rule.document_spaces.values_list("path", flat=True))
         )
         rule_id_value = rule.id
-        document_space_id = rule.document_space_id
+        document_space_ids = list(
+            rule.document_spaces.values_list("id", flat=True)
+        )
         rule.delete()
         RecordAuditEvent(
             tenant=tenant,
@@ -3470,7 +3648,7 @@ def tenant_settings_title_rule_delete(
             object_type="documents.DocumentTitleRule",
             object_id=str(rule_id_value),
             data={
-                "document_space_id": document_space_id,
+                "document_space_ids": document_space_ids,
                 "scope": scope_name,
             },
         ).execute()

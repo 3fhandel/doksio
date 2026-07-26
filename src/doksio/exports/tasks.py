@@ -13,6 +13,11 @@ def build_document_image_export(export_run_id: int) -> int:
     export_run = ExportRun.objects.select_related("tenant", "created_by").get(
         id=export_run_id,
     )
+    if (
+        export_run.status == ExportRun.Status.FAILED
+        and export_run.completed_at is not None
+    ):
+        return export_run_id
     try:
         BuildDocumentImageExport(export_run=export_run).execute()
     except Exception as exc:

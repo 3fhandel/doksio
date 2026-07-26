@@ -45,6 +45,7 @@ from doksio.exports.models import ExportRun, ExportRunItem
 from doksio.ingestion.models import ImportSource, TenantSmtpSettings
 from doksio.ocr.models import OcrJob
 from doksio.search.models import DocumentSearchIndex
+from doksio.search.services import RebuildDocumentSearchIndex
 from doksio.tenancy.models import Tenant
 from doksio.tenancy.services import BootstrapDemoTenant
 from doksio.workflows.models import (
@@ -410,15 +411,15 @@ def test_create_document_from_upload_keeps_manual_title_for_einvoice():
 def test_create_document_from_upload_uses_custom_einvoice_title_format():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
-    DocumentTitleRule.objects.create(
+    title_rule = DocumentTitleRule.objects.create(
         tenant=tenant,
-        document_space=space,
         strategy=DocumentTitleRule.Strategy.EINVOICE,
         einvoice_format=(
             "{invoice_number} - {seller_name} - {grand_total_amount} {currency}"
         ),
         fallback_strategy=DocumentTitleRule.FallbackStrategy.AUTOMATIC,
     )
+    title_rule.document_spaces.add(space)
 
     document, _document_file = CreateDocumentFromUpload(
         tenant=tenant,
@@ -1507,6 +1508,27 @@ def test_document_detail_can_link_related_document(client, monkeypatch):
     assert results[0]["thumbnail_url"]
     assert results[0]["workflow_open_count"] == 1
     assert unrelated_document.id not in [item["id"] for item in results]
+
+    OcrJob.objects.create(
+        tenant=tenant,
+        document_file=_related_file,
+        status=OcrJob.Status.SUCCEEDED,
+        extracted_text="Lieferung mit Prüfcode KONTEXT4711 bestätigt",
+    )
+    RebuildDocumentSearchIndex(document=related_document).execute()
+    fulltext_picker_response = client.get(
+        reverse(
+            "documents:relation_picker_search",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        ),
+        {"q": "KONTEXT4711"},
+    )
+
+    assert fulltext_picker_response.status_code == 200
+    fulltext_results = fulltext_picker_response.json()["results"]
+    assert [item["id"] for item in fulltext_results] == [related_document.id]
+    assert fulltext_results[0]["search_match"]["source"] == "Volltext"
+    assert "KONTEXT4711" in fulltext_results[0]["search_match"]["excerpt"]
 
 
 @pytest.mark.django_db

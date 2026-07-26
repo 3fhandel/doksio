@@ -97,11 +97,10 @@ class DocumentTitleRule(models.Model):
         on_delete=models.CASCADE,
         related_name="document_title_rules",
     )
-    document_space = models.ForeignKey(
+    is_default = models.BooleanField(default=False)
+    document_spaces = models.ManyToManyField(
         DocumentSpace,
         blank=True,
-        null=True,
-        on_delete=models.CASCADE,
         related_name="title_rules",
     )
     strategy = models.CharField(
@@ -135,36 +134,26 @@ class DocumentTitleRule(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["document_space__path", "id"]
+        ordering = ["id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["tenant", "document_space"],
-                name="unique_tenant_document_space_title_rule",
-            ),
-            models.UniqueConstraint(
                 fields=["tenant"],
-                condition=models.Q(document_space__isnull=True),
+                condition=models.Q(is_default=True),
                 name="unique_tenant_default_title_rule",
             ),
         ]
-        indexes = [
-            models.Index(fields=["tenant", "document_space"]),
-        ]
 
     def __str__(self) -> str:
-        scope = self.document_space.path if self.document_space else "Standard"
+        if self.is_default:
+            scope = "Standard"
+        elif self.pk:
+            scope = ", ".join(self.document_spaces.values_list("path", flat=True))
+        else:
+            scope = "Dokumentenboxen"
         return f"{self.tenant}: {scope} ({self.get_strategy_display()})"
 
     def clean(self) -> None:
         super().clean()
-        if (
-            self.document_space_id
-            and self.tenant_id
-            and self.document_space.tenant_id != self.tenant_id
-        ):
-            raise ValidationError(
-                {"document_space": "Die Dokumentenbox gehört nicht zu diesem Tenant."}
-            )
         uses_invoice_ocr = self.strategy == self.Strategy.INVOICE_OCR or (
             self.strategy == self.Strategy.EINVOICE
             and self.fallback_strategy == self.FallbackStrategy.INVOICE_OCR

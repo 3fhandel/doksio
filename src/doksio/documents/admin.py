@@ -26,9 +26,10 @@ class DocumentSpaceAdmin(admin.ModelAdmin):
 
 @admin.register(DocumentTitleRule)
 class DocumentTitleRuleAdmin(admin.ModelAdmin):
-    list_display = ["tenant", "document_space", "strategy", "updated_at"]
-    list_filter = ["tenant", "strategy"]
-    search_fields = ["document_space__path", "regex_search", "regex_replace"]
+    list_display = ["tenant", "is_default", "strategy", "updated_at"]
+    list_filter = ["tenant", "is_default", "strategy"]
+    search_fields = ["document_spaces__path", "regex_search", "regex_replace"]
+    filter_horizontal = ["document_spaces"]
 
 
 class DocumentFileInline(admin.TabularInline):

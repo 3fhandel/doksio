@@ -5,6 +5,25 @@ import re
 _INVOICE_NUMBER_PATTERNS = [
     re.compile(
         r"""
+        \brechnung(?:skopie)?[^\S\r\n]+
+        (?P<value>
+            (?=[A-Z0-9._/-]*\d)
+            [A-Z0-9][A-Z0-9._/-]{2,}
+        )
+        (?=\s|$)
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    ),
+    re.compile(
+        r"""
+        \bnummer\s*/\s*datum\s+
+        (?P<value>[A-Z0-9][A-Z0-9._/-]{2,})
+        \s*/\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    ),
+    re.compile(
+        r"""
         \b
         (?:rechnungs?\s*[- ]?\s*(?:nummer|nr\.?)|belegnummer|fakturanummer)
         \s*[:.]?\s*
@@ -43,8 +62,25 @@ _INVOICE_NUMBER_PATTERNS = [
 _INVOICE_DATE_PATTERNS = [
     re.compile(
         r"""
+        \bnummer\s*/\s*datum\s+
+        [A-Z0-9][A-Z0-9._/-]{2,}
+        \s*/\s*(?P<value>\d{1,2}[./-]\d{1,2}[./-]\d{2,4})
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    ),
+    re.compile(
+        r"""
+        ^\s*rechnung(?:skopie)?\s+
+        [A-Z0-9][A-Z0-9._/-]{2,}
+        [^\n]*?\bvom\s+
+        (?P<value>\d{1,2}[./-]\d{1,2}[./-]\d{2,4})
+        """,
+        re.IGNORECASE | re.MULTILINE | re.VERBOSE,
+    ),
+    re.compile(
+        r"""
         \b
-        (?:rechnungsdatum|belegdatum|fakturadatum)
+        (?:rechnungsdatum|beleg[- ]?datum|fakturadatum)
         \s*[:.]?\s*
         (?P<value>
             \d{1,2}[./-]\d{1,2}[./-]\d{2,4}
@@ -91,6 +127,20 @@ _HEADER_DATE_PATTERN = re.compile(
 _SOLD_BY_PATTERN = re.compile(
     r"\b(?:verkauft|geliefert)\s+von\s+(?P<value>[^\n\r]{3,100})",
     re.IGNORECASE,
+)
+_WARENLIEFERANT_PATTERN = re.compile(
+    r"""
+    ^\s*
+    (?:
+        (?=[A-Z0-9._/-]*\d)
+        [A-Z0-9._/-]+[^\S\r\n]+
+    ){2,}
+    (?P<value>
+        [A-ZÄÖÜ][A-ZÄÖÜß&+.' -]{2,}
+        (?:GMBH|AG|KG|OHG|GBR|UG|EG|SE|LTD)
+    )\s*$
+    """,
+    re.IGNORECASE | re.MULTILINE | re.VERBOSE,
 )
 _COMPANY_SUFFIX_PATTERN = re.compile(
     r"""
@@ -193,6 +243,11 @@ def _clean_seller_name(candidate: str) -> str:
 
 
 def _seller_name(text: str) -> str:
+    if "warenlieferant" in text.casefold():
+        supplier_match = _WARENLIEFERANT_PATTERN.search(text)
+        if supplier_match is not None:
+            return _clean_seller_name(supplier_match.group("value"))
+
     sold_by_match = _SOLD_BY_PATTERN.search(text)
     if sold_by_match is not None:
         return _clean_seller_name(sold_by_match.group("value"))

@@ -5,12 +5,18 @@
     <h2 class="h4 mb-2">Regel löschen</h2>
     <p class="mb-1">
       Soll die Regel für
-      <strong>{% if rule.document_space %}{{ rule.document_space.path }}{% else %}den Tenant-Standard{% endif %}</strong>
+      <strong>
+        {% if rule.is_default %}
+          den Tenant-Standard
+        {% else %}
+          {% for document_space in rule.document_spaces.all %}{% if not forloop.first %}, {% endif %}{{ document_space.path }}{% endfor %}
+        {% endif %}
+      </strong>
       wirklich gelöscht werden?
     </p>
     <p class="text-secondary">
-      {% if rule.document_space %}
-        Anschließend gilt für diese Dokumentenbox wieder der Tenant-Standard.
+      {% if not rule.is_default %}
+        Anschließend gilt für diese Dokumentenboxen wieder der Tenant-Standard.
       {% else %}
         Anschließend verwendet Doksio wieder die integrierte automatische Titelfindung.
       {% endif %}

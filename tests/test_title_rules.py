@@ -29,6 +29,15 @@ from doksio.ocr.services import StartOcrForDocumentFile, title_from_ocr_policy
 from doksio.tenancy.models import Tenant
 
 
+def _create_box_title_rule(*, space, **kwargs):
+    rule = DocumentTitleRule.objects.create(
+        tenant=space.tenant,
+        **kwargs,
+    )
+    rule.document_spaces.add(space)
+    return rule
+
+
 @pytest.mark.django_db
 def test_title_policy_uses_box_rule_before_tenant_default():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
@@ -40,19 +49,25 @@ def test_title_policy_uses_box_rule_before_tenant_default():
         tenant=tenant,
         name="Personal",
     ).execute()
+    invoice_archive_space = CreateDocumentSpace(
+        tenant=tenant,
+        name="Rechnungsarchiv",
+    ).execute()
     default_rule = DocumentTitleRule.objects.create(
         tenant=tenant,
+        is_default=True,
         strategy=DocumentTitleRule.Strategy.DISABLED,
     )
-    box_rule = DocumentTitleRule.objects.create(
-        tenant=tenant,
-        document_space=invoice_space,
+    box_rule = _create_box_title_rule(
+        space=invoice_space,
         strategy=DocumentTitleRule.Strategy.REGEX,
         regex_search=r"Rechnung (\d+)",
         regex_replace=r"RE-\1",
     )
+    box_rule.document_spaces.add(invoice_archive_space)
 
     assert resolve_document_title_policy(invoice_space) == box_rule.as_policy()
+    assert resolve_document_title_policy(invoice_archive_space) == box_rule.as_policy()
     assert resolve_document_title_policy(personnel_space) == default_rule.as_policy()
 
 
@@ -175,6 +190,31 @@ def test_invoice_ocr_title_works_without_recognized_seller():
             """,
             "TIFA EG: 2000229384 vom 24.07.2026",
         ),
+        (
+            """
+            REWE-FÜR SIE Eigengeschäft GmbH   Rechnung 656080439
+            SAP-Nr.: R532346303   Beleg-Datum : 20.07.2026
+            BBN-WARENLIEFERANT 4388026
+            LIEFERSCHEIN-AUFTRAGS_NR 51147631
+            3327 S1318 0055142438 SALOMON FOOD WORLD GMBH
+            """,
+            "SALOMON FOOD: 656080439 vom 20.07.2026",
+        ),
+        (
+            """
+            Reifen Nik-Müller KG · Leuzendorf 18 · 91583 Schillingsfürst
+            RECHNUNG 1793362 vom 24.07.2026
+            """,
+            "Reifen Nik-M: 1793362 vom 24.07.2026",
+        ),
+        (
+            """
+            Heinrichsthaler Milchwerke GmbH, Radeberg
+            Rechnung
+            Nummer/Datum 5604897 / 23.07.2026
+            """,
+            "Heinrichstha: 5604897 vom 23.07.2026",
+        ),
     ],
 )
 def test_invoice_ocr_title_supports_real_world_invoice_layouts(text, expected):
@@ -258,9 +298,8 @@ def test_manual_ocr_restart_uses_current_document_box_rule(monkeypatch):
     monkeypatch.setattr("doksio.ocr.tasks.run_ocr_job.delay", lambda job_id: None)
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
-    rule = DocumentTitleRule.objects.create(
-        tenant=tenant,
-        document_space=space,
+    rule = _create_box_title_rule(
+        space=space,
         strategy=DocumentTitleRule.Strategy.DISABLED,
     )
     _document, document_file = CreateDocumentFromUpload(
@@ -283,9 +322,8 @@ def test_manual_ocr_restart_uses_current_document_box_rule(monkeypatch):
 def test_einvoice_rule_falls_back_to_ocr_for_regular_document():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
-    DocumentTitleRule.objects.create(
-        tenant=tenant,
-        document_space=space,
+    _create_box_title_rule(
+        space=space,
         strategy=DocumentTitleRule.Strategy.EINVOICE,
         einvoice_format="{seller_name}: {invoice_number}",
         fallback_strategy=DocumentTitleRule.FallbackStrategy.REGEX,
@@ -317,9 +355,8 @@ def test_einvoice_rule_falls_back_to_ocr_for_regular_document():
 def test_title_refresh_job_overwrites_manual_title_and_search_index(monkeypatch):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
-    DocumentTitleRule.objects.create(
-        tenant=tenant,
-        document_space=space,
+    _create_box_title_rule(
+        space=space,
         strategy=DocumentTitleRule.Strategy.REGEX,
         regex_search=r"Rechnung Nr\. (\d+)",
         regex_replace=r"Rechnung \1",
@@ -369,9 +406,8 @@ def test_title_refresh_job_overwrites_manual_title_and_search_index(monkeypatch)
 def test_title_refresh_uses_filename_when_rule_is_disabled(monkeypatch):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Ablage").execute()
-    DocumentTitleRule.objects.create(
-        tenant=tenant,
-        document_space=space,
+    _create_box_title_rule(
+        space=space,
         strategy=DocumentTitleRule.Strategy.DISABLED,
     )
     document, _document_file = CreateDocumentFromUpload(
@@ -405,9 +441,8 @@ def test_title_refresh_uses_filename_when_rule_is_disabled(monkeypatch):
 def test_title_refresh_applies_snapshotted_einvoice_rule(monkeypatch):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
-    rule = DocumentTitleRule.objects.create(
-        tenant=tenant,
-        document_space=space,
+    rule = _create_box_title_rule(
+        space=space,
         strategy=DocumentTitleRule.Strategy.EINVOICE,
         einvoice_format="{seller_name:.6} - {invoice_number}",
         fallback_strategy=DocumentTitleRule.FallbackStrategy.DISABLED,
@@ -450,6 +485,11 @@ def test_title_refresh_applies_snapshotted_einvoice_rule(monkeypatch):
 def test_tenant_admin_manages_central_title_rules(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    child_space = CreateDocumentSpace(
+        tenant=tenant,
+        name="Eingangsrechnungen",
+        parent=space,
+    ).execute()
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
     user = get_user_model().objects.create_user(
         username="admin",
@@ -469,7 +509,7 @@ def test_tenant_admin_manages_central_title_rules(client):
     response = client.post(
         create_url,
         {
-            "document_space": "",
+            "document_spaces": [],
             "strategy": DocumentTitleRule.Strategy.DISABLED,
             "regex_search": "",
             "regex_replace": "",
@@ -480,7 +520,7 @@ def test_tenant_admin_manages_central_title_rules(client):
     response = client.post(
         create_url,
         {
-            "document_space": str(space.id),
+            "document_spaces": [str(space.id), str(child_space.id)],
             "strategy": DocumentTitleRule.Strategy.REGEX,
             "regex_search": r"Rechnung Nr\. (?P<number>\d+)",
             "regex_replace": r"Rechnung \g<number>",
@@ -500,7 +540,10 @@ def test_tenant_admin_manages_central_title_rules(client):
     assert "Titelfindung" in content
     assert "Tenant-Standard" in content
     assert space.path in content
+    assert child_space.path in content
     assert r"Rechnung Nr\. (?P&lt;number&gt;\d+)" in content
+    box_rule = DocumentTitleRule.objects.get(tenant=tenant, is_default=False)
+    assert set(box_rule.document_spaces.all()) == {space, child_space}
 
 
 @pytest.mark.django_db
@@ -696,7 +739,7 @@ def test_title_rule_form_rejects_invalid_regex(client):
             kwargs={"tenant_slug": tenant.slug},
         ),
         {
-            "document_space": "",
+            "document_spaces": [],
             "strategy": DocumentTitleRule.Strategy.REGEX,
             "regex_search": "(",
             "regex_replace": "",

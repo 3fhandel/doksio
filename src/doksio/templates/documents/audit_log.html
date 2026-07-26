@@ -73,6 +73,38 @@
           <h2 class="h5 mb-1">Audit-Events</h2>
           <p class="text-secondary mb-0">Append-only Ereignisprotokoll für Änderungen und Verarbeitungsschritte.</p>
         </div>
+        <form method="get" class="p-4 border-bottom bg-body-tertiary">
+          <div class="row g-3 align-items-end">
+            <div class="col-12 col-xl-4">
+              <label class="form-label" for="{{ audit_filter_form.query.id_for_label }}">{{ audit_filter_form.query.label }}</label>
+              {{ audit_filter_form.query }}
+              {{ audit_filter_form.query.errors }}
+            </div>
+            <div class="col-12 col-md-6 col-xl-2">
+              <label class="form-label" for="{{ audit_filter_form.timestamp_from.id_for_label }}">{{ audit_filter_form.timestamp_from.label }}</label>
+              {{ audit_filter_form.timestamp_from }}
+              {{ audit_filter_form.timestamp_from.errors }}
+            </div>
+            <div class="col-12 col-md-6 col-xl-2">
+              <label class="form-label" for="{{ audit_filter_form.timestamp_to.id_for_label }}">{{ audit_filter_form.timestamp_to.label }}</label>
+              {{ audit_filter_form.timestamp_to }}
+              {{ audit_filter_form.timestamp_to.errors }}
+            </div>
+            <div class="col-12 col-md-8 col-xl-3">
+              <label class="form-label" for="{{ audit_filter_form.event_type.id_for_label }}">{{ audit_filter_form.event_type.label }}</label>
+              {{ audit_filter_form.event_type }}
+              {{ audit_filter_form.event_type.errors }}
+            </div>
+            <div class="col-12 col-md-4 col-xl-1 d-flex gap-2 justify-content-md-end">
+              <button class="btn btn-primary" type="submit" title="Audit-Events filtern" aria-label="Audit-Events filtern">
+                {% include "includes/icons.html" with icon="search" %}
+              </button>
+              <a class="btn btn-outline-secondary" href="{% url 'documents:audit_log' tenant.slug %}" title="Filter zurücksetzen" aria-label="Filter zurücksetzen">
+                {% include "includes/icons.html" with icon="x" %}
+              </a>
+            </div>
+          </div>
+        </form>
         <div class="table-responsive">
           <table class="table table-hover align-middle mb-0">
             <thead>
@@ -107,7 +139,7 @@
                 </tr>
               {% empty %}
                 <tr>
-                  <td colspan="5" class="text-secondary">Keine Audit-Events vorhanden.</td>
+                  <td colspan="5" class="text-secondary">Keine passenden Audit-Events gefunden.</td>
                 </tr>
               {% endfor %}
             </tbody>

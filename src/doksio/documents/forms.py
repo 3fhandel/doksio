@@ -88,7 +88,7 @@ class DocumentTitleRuleForm(forms.ModelForm):
     class Meta:
         model = DocumentTitleRule
         fields = [
-            "document_space",
+            "document_spaces",
             "strategy",
             "regex_search",
             "regex_replace",
@@ -98,7 +98,7 @@ class DocumentTitleRuleForm(forms.ModelForm):
             "invoice_ocr_fallback_strategy",
         ]
         labels = {
-            "document_space": "Geltungsbereich",
+            "document_spaces": "Dokumentenboxen",
             "strategy": "Strategie",
             "regex_search": "RegEx-Suche",
             "regex_replace": "Ersetzung",
@@ -123,7 +123,9 @@ class DocumentTitleRuleForm(forms.ModelForm):
             ),
         }
         widgets = {
-            "document_space": forms.Select(attrs={"class": "form-select"}),
+            "document_spaces": forms.CheckboxSelectMultiple(
+                attrs={"class": "title-rule-box-choice"}
+            ),
             "strategy": forms.Select(attrs={"class": "form-select"}),
             "regex_search": forms.TextInput(attrs={"class": "form-control"}),
             "regex_replace": forms.TextInput(attrs={"class": "form-control"}),
@@ -146,39 +148,42 @@ class DocumentTitleRuleForm(forms.ModelForm):
     ) -> None:
         self.tenant = tenant
         super().__init__(*args, **kwargs)
-        used_rules = DocumentTitleRule.objects.filter(
+        used_space_ids = DocumentTitleRule.objects.filter(
             tenant=tenant,
-            document_space__isnull=False,
+            is_default=False,
         )
         if self.instance.pk:
-            used_rules = used_rules.exclude(pk=self.instance.pk)
-        self.fields["document_space"].queryset = (
+            used_space_ids = used_space_ids.exclude(pk=self.instance.pk)
+        self.fields["document_spaces"].queryset = (
             DocumentSpace.objects.filter(
                 tenant=tenant,
                 is_active=True,
                 deleted_at__isnull=True,
             )
-            .exclude(id__in=used_rules.values("document_space_id"))
+            .exclude(id__in=used_space_ids.values("document_spaces__id"))
             .order_by("path")
         )
-        self.fields["document_space"].required = False
-        self.fields["document_space"].empty_label = "Tenant-Standard"
+        self.fields["document_spaces"].required = False
+        self.fields["document_spaces"].help_text = (
+            "Mehrere Boxen können dieselbe Regel verwenden. Ohne Auswahl wird "
+            "die Regel zum Tenant-Standard."
+        )
         self.fields["fallback_strategy"].required = False
         self.fields["invoice_ocr_fallback_strategy"].required = False
-        if lock_scope:
-            self.fields["document_space"].disabled = True
 
-    def clean_document_space(self) -> DocumentSpace | None:
-        document_space = self.cleaned_data.get("document_space")
-        if document_space is not None and document_space.tenant_id != self.tenant.id:
+    def clean_document_spaces(self):
+        document_spaces = self.cleaned_data.get("document_spaces")
+        if document_spaces is None:
+            return document_spaces
+        if document_spaces.exclude(tenant=self.tenant).exists():
             raise forms.ValidationError(
-                "Die Dokumentenbox gehört nicht zu diesem Tenant."
+                "Mindestens eine Dokumentenbox gehört nicht zu diesem Tenant."
             )
         if (
-            document_space is None
+            not document_spaces.exists()
             and DocumentTitleRule.objects.filter(
                 tenant=self.tenant,
-                document_space__isnull=True,
+                is_default=True,
             )
             .exclude(pk=self.instance.pk)
             .exists()
@@ -186,7 +191,16 @@ class DocumentTitleRuleForm(forms.ModelForm):
             raise forms.ValidationError(
                 "Für diesen Tenant ist bereits eine Standardregel vorhanden."
             )
-        return document_space
+        assigned_elsewhere = DocumentTitleRule.objects.filter(
+            tenant=self.tenant,
+            document_spaces__in=document_spaces,
+        ).exclude(pk=self.instance.pk)
+        if assigned_elsewhere.exists():
+            raise forms.ValidationError(
+                "Mindestens eine ausgewählte Box ist bereits einer anderen "
+                "Titelfindungsregel zugeordnet."
+            )
+        return document_spaces
 
     def clean(self) -> dict:
         cleaned_data = super().clean()
@@ -237,6 +251,8 @@ class DocumentTitleRuleForm(forms.ModelForm):
     def save(self, commit: bool = True) -> DocumentTitleRule:
         rule = super().save(commit=False)
         rule.tenant = self.tenant
+        document_spaces = self.cleaned_data.get("document_spaces")
+        rule.is_default = not document_spaces or not document_spaces.exists()
         uses_invoice_ocr = rule.strategy == DocumentTitleRule.Strategy.INVOICE_OCR or (
             rule.strategy == DocumentTitleRule.Strategy.EINVOICE
             and rule.fallback_strategy
@@ -268,6 +284,7 @@ class DocumentTitleRuleForm(forms.ModelForm):
             )
         if commit:
             rule.save()
+            rule.document_spaces.set(document_spaces or [])
         return rule
 
 

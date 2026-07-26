@@ -59,9 +59,9 @@ def resolve_document_title_policy(document_space: DocumentSpace) -> dict[str, st
     rules = DocumentTitleRule.objects.filter(
         tenant_id=document_space.tenant_id,
     )
-    rule = rules.filter(document_space_id=document_space.id).first()
+    rule = rules.filter(document_spaces=document_space).first()
     if rule is None:
-        rule = rules.filter(document_space__isnull=True).first()
+        rule = rules.filter(is_default=True).first()
     return rule.as_policy() if rule is not None else dict(DEFAULT_TITLE_POLICY)
 
 

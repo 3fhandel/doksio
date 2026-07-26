@@ -756,7 +756,7 @@
             <div class="document-relation-filter-grid">
               <div>
                 <label class="form-label" for="document-relation-search">Suche</label>
-                <input class="form-control" id="document-relation-search" type="search" placeholder="Titel, Dokumentenbox oder ID" data-relation-search-input>
+                <input class="form-control" id="document-relation-search" type="search" placeholder="Titel, Volltext, Metadaten, Box oder ID" data-relation-search-input>
               </div>
               <div>
                 <label class="form-label" for="document-relation-space">Dokumentenbox</label>
@@ -918,6 +918,12 @@
           const meta = document.createElement("small");
           meta.textContent = `#${item.id} · ${item.space}${item.document_date ? ` · ${item.document_date}` : ""}`;
           text.append(title, meta);
+          if (item.search_match?.excerpt) {
+            const match = document.createElement("span");
+            match.className = "document-relation-result-match";
+            match.textContent = `${item.search_match.source}: ${item.search_match.excerpt}`;
+            text.appendChild(match);
+          }
           const badges = document.createElement("span");
           badges.className = "document-relation-result-badges";
           const created = document.createElement("span");

@@ -1425,16 +1425,21 @@ class CreateDocumentBoxTitleRefreshJob:
         space_ids = list(
             documents.order_by().values_list("space_id", flat=True).distinct()
         )
-        rules = list(DocumentTitleRule.objects.filter(tenant=self.tenant))
+        rules = list(
+            DocumentTitleRule.objects.filter(tenant=self.tenant).prefetch_related(
+                "document_spaces"
+            )
+        )
         default_policy = next(
-            (rule.as_policy() for rule in rules if rule.document_space_id is None),
+            (rule.as_policy() for rule in rules if rule.is_default),
             None,
         )
-        rules_by_space = {
-            rule.document_space_id: rule.as_policy()
-            for rule in rules
-            if rule.document_space_id is not None
-        }
+        rules_by_space = {}
+        for rule in rules:
+            if rule.is_default:
+                continue
+            for document_space in rule.document_spaces.all():
+                rules_by_space[document_space.id] = rule.as_policy()
         rule_snapshot = {
             str(space_id): rules_by_space.get(space_id)
             or default_policy

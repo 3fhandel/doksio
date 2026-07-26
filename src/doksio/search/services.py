@@ -26,7 +26,11 @@ def _split_terms(query: str) -> list[str]:
 
 
 def _fulltext_query(term: str) -> Q:
-    return Q(search_index__combined_text__icontains=term) | Q(title__icontains=term)
+    return (
+        Q(search_index__combined_text__icontains=term)
+        | Q(title__icontains=term)
+        | Q(space__path__icontains=term)
+    )
 
 
 def _postgres_search_query(query: str) -> SearchQuery:
@@ -176,9 +180,15 @@ class SearchDocuments:
 
         query = self.filters.get("q", "")
         has_text_query = bool(query.strip())
+        exact_document_id = int(query) if query.strip().isdigit() else None
         if has_text_query and connection.vendor == "postgresql":
             search_query = _postgres_search_query(query)
-            documents = documents.filter(search_index__search_vector=search_query)
+            text_filter = Q(search_index__search_vector=search_query) | Q(
+                space__path__icontains=query
+            )
+            if exact_document_id is not None:
+                text_filter |= Q(id=exact_document_id)
+            documents = documents.filter(text_filter)
             documents = documents.annotate(
                 search_rank=SearchRank(
                     F("search_index__search_vector"),
@@ -187,7 +197,10 @@ class SearchDocuments:
             )
         else:
             for term in _split_terms(query):
-                documents = documents.filter(_fulltext_query(term))
+                term_filter = _fulltext_query(term)
+                if exact_document_id is not None and term == query.strip():
+                    term_filter |= Q(id=exact_document_id)
+                documents = documents.filter(term_filter)
 
         tags = self.filters.get("tags")
         if tags:

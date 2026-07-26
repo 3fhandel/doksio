@@ -937,11 +937,11 @@ def test_import_document_uses_document_box_title_policy_for_ocr_job(monkeypatch)
     )
     title_rule = DocumentTitleRule.objects.create(
         tenant=tenant,
-        document_space=space,
         strategy=DocumentTitleRule.Strategy.REGEX,
         regex_search=r"Rechnung Nr\. (\d+)",
         regex_replace=r"Rechnung \1",
     )
+    title_rule.document_spaces.add(space)
 
     document, _import_job = ImportDocument(
         tenant=tenant,
@@ -1851,14 +1851,49 @@ def test_tenant_admin_can_view_logs_and_import_jobs(client):
         object_id="1",
         data={"message": "Testfehler"},
     )
-    client.force_login(user)
-
-    response = client.get(
-        reverse("documents:audit_log", kwargs={"tenant_slug": tenant.slug})
+    AuditEvent.objects.create(
+        tenant=tenant,
+        actor=user,
+        event_type="document.created",
+        object_type="documents.Document",
+        object_id="42",
+        data={},
     )
+    client.force_login(user)
+    url = reverse("documents:audit_log", kwargs={"tenant_slug": tenant.slug})
+
+    response = client.get(url)
 
     content = response.content.decode()
     assert response.status_code == 200
     assert "Logs/Audit" in content
     assert "rechnung.pdf" in content
     assert "import_job.failed" in content
+    assert "Dokument erstellt" in content
+    assert "Zeitstempel von" in content
+    assert "Alle Ereignistypen" in content
+
+    event_type_response = client.get(url, {"event_type": "import_job.failed"})
+    event_type_content = event_type_response.content.decode()
+    assert event_type_response.status_code == 200
+    assert '<code class="small">import_job.failed</code>' in event_type_content
+    assert '<code class="small">document.created</code>' not in event_type_content
+
+    label_search_response = client.get(url, {"query": "Dokument erstellt"})
+    label_search_content = label_search_response.content.decode()
+    assert label_search_response.status_code == 200
+    assert '<code class="small">document.created</code>' in label_search_content
+    assert '<code class="small">import_job.failed</code>' not in label_search_content
+
+    invalid_period_response = client.get(
+        url,
+        {
+            "timestamp_from": "2026-07-26T12:00",
+            "timestamp_to": "2026-07-26T11:00",
+        },
+    )
+    assert invalid_period_response.status_code == 200
+    assert (
+        "Der Endzeitpunkt muss nach dem Startzeitpunkt liegen."
+        in invalid_period_response.content.decode()
+    )

@@ -206,6 +206,16 @@ urlpatterns = [
         name="settings_maintenance",
     ),
     path(
+        "t/<slug:tenant_slug>/settings/background-jobs/",
+        views.tenant_settings_background_jobs,
+        name="settings_background_jobs",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/background-jobs/cancel/",
+        views.tenant_settings_background_job_cancel,
+        name="settings_background_job_cancel",
+    ),
+    path(
         (
             "t/<slug:tenant_slug>/settings/maintenance/"
             "scan-optimization/<int:job_id>/resume/"

@@ -1,0 +1,115 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h2 class="h4 mb-1">Hintergrundjobs</h2>
+      <p class="text-secondary mb-0">Live-Zustand der Queue und zuletzt verarbeitete Jobs dieses Tenants.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{% url 'documents:settings_background_jobs' tenant.slug %}">
+      Aktualisieren
+    </a>
+  </div>
+
+  {% if worker_error %}
+    <div class="alert alert-danger" role="alert">
+      Worker oder Queue nicht erreichbar. {{ worker_error }}
+    </div>
+  {% endif %}
+
+  <section class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h3 class="h5 mb-0">Aktuelle Queue</h3>
+      <span class="badge text-bg-primary">{{ live_jobs|length }}</span>
+    </div>
+    <div class="app-card">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Job</th>
+              <th>Zustand</th>
+              <th>Fortschritt</th>
+              <th>Worker</th>
+              <th class="text-end">Aktion</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for job in live_jobs %}
+              <tr>
+                <td>
+                  <div class="fw-semibold">{{ job.title }}</div>
+                  {% if job.task_id %}<div class="small text-secondary font-monospace">{{ job.task_id }}</div>{% endif %}
+                </td>
+                <td>
+                  <span class="badge text-bg-{% if job.state == 'running' %}warning{% elif job.state == 'interrupted' %}danger{% elif job.state == 'queued' %}secondary{% else %}info{% endif %}">
+                    {% if job.state == "running" %}Läuft{% elif job.state == "interrupted" %}Unterbrochen{% elif job.state == "queued" %}Wartet{% else %}Geplant{% endif %}
+                  </span>
+                </td>
+                <td>{{ job.progress|default:"-" }}</td>
+                <td class="small text-secondary">{{ job.worker }}</td>
+                <td class="text-end">
+                  {% if job.can_cancel %}
+                    <form method="post" action="{% url 'documents:settings_background_job_cancel' tenant.slug %}" onsubmit="return confirm('Diesen Hintergrundjob wirklich abbrechen?');">
+                      {% csrf_token %}
+                      <input type="hidden" name="task_id" value="{{ job.task_id }}">
+                      <input type="hidden" name="job_type" value="{{ job.job_type }}">
+                      <input type="hidden" name="object_id" value="{{ job.object_id }}">
+                      <button class="btn btn-sm btn-outline-danger" type="submit">Abbrechen</button>
+                    </form>
+                  {% else %}
+                    <span class="small text-secondary" title="Zum Abbrechen muss der aktive Worker erreichbar sein.">Workerstatus erforderlich</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="5" class="text-secondary">Für diesen Tenant sind aktuell keine Jobs in der Queue oder in Verarbeitung.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h3 class="h5 mb-2">Letzte Jobs</h3>
+    <div class="app-card">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Job</th>
+              <th>Status</th>
+              <th>Gestartet</th>
+              <th>Beendet</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for job in recent_jobs %}
+              <tr>
+                <td class="fw-semibold">{{ job.title }}</td>
+                <td>
+                  <span class="badge text-bg-{% if job.status_value == 'completed' or job.status_value == 'succeeded' or job.status_value == 'completed_with_warnings' %}success{% elif job.status_value == 'failed' %}danger{% elif job.status_value == 'running' or job.status_value == 'processing' %}warning{% else %}secondary{% endif %}">
+                    {{ job.status }}
+                  </span>
+                </td>
+                <td>{{ job.created_at|date:"d.m.Y H:i:s" }}</td>
+                <td>{{ job.completed_at|date:"d.m.Y H:i:s"|default:"-" }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="4" class="text-secondary">Noch keine Hintergrundjobs vorhanden.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+{% endblock %}
