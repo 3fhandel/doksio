@@ -18,6 +18,13 @@ CONTENT_TYPE_LABELS = {
     "text/plain": "Text",
 }
 
+BROWSER_IMAGE_PREVIEW_CONTENT_TYPES = {
+    "image/gif",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+}
+
 
 @register.filter
 def get_item(mapping, key):
@@ -79,6 +86,16 @@ def document_original_file(document):
         if file.file_kind == DocumentFile.Kind.ORIGINAL:
             original = file
     return original
+
+
+@register.filter
+def import_batch_preview_kind(item):
+    content_type = item.content_type.split(";", 1)[0].strip().lower()
+    if content_type == "application/pdf":
+        return "pdf"
+    if content_type in BROWSER_IMAGE_PREVIEW_CONTENT_TYPES:
+        return "image"
+    return ""
 
 
 @register.filter

@@ -1730,6 +1730,95 @@ def document_import_batch_item_preview(
     )
 
 
+def document_import_batch_item_assignment(
+    request: HttpRequest,
+    tenant_slug: str,
+    batch_id: int,
+    item_id: int,
+) -> JsonResponse:
+    if request.method != "POST":
+        return JsonResponse({"error": "method_not_allowed"}, status=405)
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "authentication_required"}, status=403)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_batch_import_documents(request.user, tenant):
+        raise PermissionDenied
+
+    batch = get_object_or_404(
+        DocumentImportBatch,
+        id=batch_id,
+        tenant=tenant,
+    )
+    if batch.status != DocumentImportBatch.Status.OPEN:
+        return JsonResponse(
+            {"error": "batch_closed", "message": "Der Stapel ist nicht mehr offen."},
+            status=409,
+        )
+
+    item = get_object_or_404(
+        DocumentImportBatchItem,
+        id=item_id,
+        batch=batch,
+        tenant=tenant,
+    )
+    if item.status not in {
+        DocumentImportBatchItem.Status.STAGED,
+        DocumentImportBatchItem.Status.ERROR,
+        DocumentImportBatchItem.Status.SKIPPED,
+    }:
+        return JsonResponse(
+            {
+                "error": "item_locked",
+                "message": "Diese Datei kann nicht mehr zugeordnet werden.",
+            },
+            status=409,
+        )
+
+    form = DocumentImportBatchItemForm(
+        request.POST,
+        prefix=f"item-{item.id}",
+        item=item,
+        tenant=tenant,
+        user=request.user,
+    )
+    if not form.is_valid():
+        return JsonResponse(
+            {
+                "error": "invalid_assignment",
+                "errors": form.errors.get_json_data(),
+            },
+            status=400,
+        )
+
+    if form.cleaned_data["skip"]:
+        item.status = DocumentImportBatchItem.Status.SKIPPED
+        item.message = "Manuell übersprungen."
+    else:
+        item.target_space = form.cleaned_data["target_space"]
+        item.status = DocumentImportBatchItem.Status.STAGED
+        item.message = ""
+    item.save(
+        update_fields=[
+            "target_space",
+            "status",
+            "message",
+            "updated_at",
+        ],
+    )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "assigned": bool(item.target_space_id) and not form.cleaned_data["skip"],
+            "skipped": form.cleaned_data["skip"],
+            "status": item.status,
+            "status_label": item.get_status_display(),
+            "target_label": item.target_space.path if item.target_space else "",
+        }
+    )
+
+
 def document_detail(
     request: HttpRequest,
     tenant_slug: str,

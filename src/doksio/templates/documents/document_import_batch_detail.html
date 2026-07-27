@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load doksio_extras %}
+{% load doksio_extras static %}
 
 {% block title %}{{ batch.title }} | Doksio{% endblock %}
 
@@ -30,7 +30,7 @@
         </div>
       </div>
 
-      <div class="import-batch-workspace">
+      <div class="import-batch-workspace" data-import-batch-workspace>
         <form method="post" class="app-card p-0">
           {% csrf_token %}
           <div class="table-responsive">
@@ -47,7 +47,16 @@
               </thead>
               <tbody>
                 {% for item, form in item_forms %}
-                  <tr{% if preview_item and preview_item.id == item.id %} class="table-primary"{% endif %}>
+                  <tr
+                    class="
+                      {% if preview_item and preview_item.id == item.id %}import-batch-item-selected {% endif %}
+                      {% if item.status == "skipped" %}import-batch-item-skipped
+                      {% elif item.target_space %}import-batch-item-assigned
+                      {% elif item.status == "staged" or item.status == "error" %}import-batch-item-pending{% endif %}
+                    "
+                    data-import-batch-item
+                    data-assignment-url="{% url 'documents:import_batch_item_assignment' tenant.slug batch.id item.id %}"
+                  >
                     <td>
                       {% if item.status == "imported" %}
                         <span class="badge text-bg-success">{{ item.get_status_display }}</span>
@@ -65,7 +74,15 @@
                       <div class="fw-medium">{{ item.original_filename }}</div>
                       <div class="small text-secondary">{{ item.content_type }} · {{ item.byte_size|filesizeformat }}</div>
                       {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
-                        <a class="small" href="{% url 'documents:import_batch_detail' tenant.slug batch.id %}?preview={{ item.id }}">Vorschau</a>
+                        <button
+                          class="btn btn-link btn-sm p-0 import-batch-preview-trigger"
+                          type="button"
+                          data-import-batch-preview-trigger
+                          data-preview-url="{% url 'documents:import_batch_item_preview' tenant.slug batch.id item.id %}"
+                          data-preview-kind="{{ item|import_batch_preview_kind }}"
+                          data-preview-title="{{ item.original_filename }}"
+                          aria-pressed="{% if preview_item and preview_item.id == item.id %}true{% else %}false{% endif %}"
+                        >Vorschau</button>
                       {% endif %}
                     </td>
                     <td>
@@ -98,12 +115,21 @@
                       {% endif %}
                     </td>
                     <td class="small">
-                      {% if item.message %}
-                        {{ item.message }}
-                      {% elif item.target_space %}
-                        Ziel: {{ item.target_space.path }}
-                      {% else %}
-                        <span class="text-secondary">Bitte Zielbox wählen</span>
+                      <div data-assignment-result>
+                        {% if item.message %}
+                          {{ item.message }}
+                        {% elif item.target_space %}
+                          Ziel: {{ item.target_space.path }}
+                        {% else %}
+                          <span class="text-secondary">Bitte Zielbox wählen</span>
+                        {% endif %}
+                      </div>
+                      {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
+                        {% if item.target_space or item.status == "skipped" %}
+                          <div class="import-batch-save-state import-batch-save-state-saved" data-assignment-state>Gespeichert</div>
+                        {% else %}
+                          <div class="import-batch-save-state import-batch-save-state-pending" data-assignment-state>Offen</div>
+                        {% endif %}
                       {% endif %}
                     </td>
                   </tr>
@@ -119,7 +145,6 @@
             <div class="d-flex justify-content-between gap-2 border-top p-3">
               <button class="btn btn-outline-danger" type="submit" formaction="{% url 'documents:import_batch_discard' tenant.slug batch.id %}" onclick="return confirm('Diesen Stapelimport verwerfen und alle noch nicht importierten Staging-Dateien löschen?');">Stapel verwerfen</button>
               <div class="d-flex gap-2">
-                <button class="btn btn-outline-secondary" type="submit" name="action" value="save">Zuordnung speichern</button>
                 <button class="btn btn-primary" type="submit" name="action" value="finalize">
                   {% include "includes/icons.html" with icon="package" %}
                   <span class="ms-1">Import abschließen</span>
@@ -129,21 +154,24 @@
           {% endif %}
         </form>
 
-        <aside class="app-card import-batch-preview">
+        <aside class="app-card import-batch-preview" data-import-batch-preview>
           <div class="d-flex align-items-start justify-content-between gap-2 p-3 border-bottom">
             <div>
               <h2 class="h5 mb-1">Vorschau</h2>
-              {% if preview_item %}
-                <div class="small text-secondary">{{ preview_item.original_filename }}</div>
-              {% else %}
-                <div class="small text-secondary">Keine Datei ausgewählt</div>
-              {% endif %}
+              <div class="small text-secondary" data-preview-title>
+                {% if preview_item %}{{ preview_item.original_filename }}{% else %}Keine Datei ausgewählt{% endif %}
+              </div>
             </div>
-            {% if preview_item %}
-              <a class="btn btn-sm btn-outline-secondary" href="{% url 'documents:import_batch_item_preview' tenant.slug batch.id preview_item.id %}" target="_blank" rel="noopener">Öffnen</a>
-            {% endif %}
+            <a
+              class="btn btn-sm btn-outline-secondary"
+              href="{% if preview_item %}{% url 'documents:import_batch_item_preview' tenant.slug batch.id preview_item.id %}{% endif %}"
+              target="_blank"
+              rel="noopener"
+              data-preview-open
+              {% if not preview_item %}hidden{% endif %}
+            >Öffnen</a>
           </div>
-          <div class="import-batch-preview-body">
+          <div class="import-batch-preview-body" data-preview-body>
             {% if preview_item and preview_kind == "pdf" %}
               <iframe class="import-batch-preview-frame" src="{% url 'documents:import_batch_item_preview' tenant.slug batch.id preview_item.id %}" title="Vorschau {{ preview_item.original_filename }}"></iframe>
             {% elif preview_item and preview_kind == "image" %}
@@ -166,4 +194,9 @@
       </div>
     </div>
   </main>
+{% endblock %}
+
+{% block extra_body %}
+  {{ block.super }}
+  <script src="{% static 'js/document-import-batch.js' %}?v=2"></script>
 {% endblock %}

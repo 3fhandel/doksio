@@ -790,6 +790,121 @@ def test_document_import_batch_detail_renders_staged_file_preview(client):
     assert "import-batch-preview" in content
     assert preview_url in content
     assert "preview.pdf" in content
+    assert "data-import-batch-preview-trigger" in content
+    assert "document-import-batch.js" in content
+    assert "import-batch-item-pending" in content
+
+
+@pytest.mark.django_db
+def test_document_import_batch_assignment_is_saved_immediately(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    invoices = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    personnel = CreateDocumentSpace(tenant=tenant, name="Personal").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    batch = DocumentImportBatch.objects.create(
+        tenant=tenant,
+        title="Offener Stapel",
+        created_by=user,
+    )
+    item = DocumentImportBatchItem.objects.create(
+        tenant=tenant,
+        batch=batch,
+        source_storage_key="tests/import-batches/assignment.pdf",
+        original_filename="assignment.pdf",
+        content_type="application/pdf",
+        byte_size=10,
+        target_space=invoices,
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:import_batch_item_assignment",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "batch_id": batch.id,
+                "item_id": item.id,
+            },
+        ),
+        {
+            f"item-{item.id}-target_space": str(personnel.id),
+        },
+    )
+
+    item.refresh_from_db()
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "assigned": True,
+        "skipped": False,
+        "status": DocumentImportBatchItem.Status.STAGED,
+        "status_label": "Bereit",
+        "target_label": personnel.path,
+    }
+    assert item.target_space == personnel
+    assert item.status == DocumentImportBatchItem.Status.STAGED
+
+
+@pytest.mark.django_db
+def test_document_import_batch_assignment_can_be_skipped_immediately(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    invoices = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    batch = DocumentImportBatch.objects.create(
+        tenant=tenant,
+        title="Offener Stapel",
+        created_by=user,
+    )
+    item = DocumentImportBatchItem.objects.create(
+        tenant=tenant,
+        batch=batch,
+        source_storage_key="tests/import-batches/skip.pdf",
+        original_filename="skip.pdf",
+        content_type="application/pdf",
+        byte_size=10,
+        target_space=invoices,
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:import_batch_item_assignment",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "batch_id": batch.id,
+                "item_id": item.id,
+            },
+        ),
+        {
+            f"item-{item.id}-target_space": str(invoices.id),
+            f"item-{item.id}-skip": "on",
+        },
+    )
+
+    item.refresh_from_db()
+    assert response.status_code == 200
+    assert response.json()["skipped"] is True
+    assert response.json()["assigned"] is False
+    assert item.status == DocumentImportBatchItem.Status.SKIPPED
+    assert item.message == "Manuell übersprungen."
 
 
 @pytest.mark.django_db
