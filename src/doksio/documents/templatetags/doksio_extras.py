@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from time import perf_counter
+
 from django import template
 from django.core.exceptions import ObjectDoesNotExist
 
@@ -27,6 +29,14 @@ BROWSER_IMAGE_PREVIEW_CONTENT_TYPES = {
     "image/png",
     "image/webp",
 }
+
+
+@register.simple_tag
+def page_rendering_time(request) -> str:
+    started_at = getattr(request, "_doksio_request_started_at", None)
+    if started_at is None:
+        return "0.000 s"
+    return f"{perf_counter() - started_at:.3f} s"
 
 
 @register.filter

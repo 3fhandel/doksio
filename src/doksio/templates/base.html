@@ -193,7 +193,13 @@
           </aside>
         {% endif %}
         <div class="app-main">
-          {% block body %}{% endblock %}
+          <div class="app-main-content">
+            {% block body %}{% endblock %}
+          </div>
+          <footer class="app-footer">
+            Doksio DMS &copy; {% now "Y" %} - Sebastian Walter -
+            Page Rendering Time {% page_rendering_time request %}
+          </footer>
         </div>
       </div>
     </div>

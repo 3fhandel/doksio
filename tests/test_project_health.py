@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import re
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from doksio.accounts.models import TenantMembership
 from doksio.accounts.services import EnsureDefaultTenantRoles
@@ -43,3 +46,29 @@ def test_topbar_shows_build_version(client):
     assert "Build 20260713-1336" in response.content.decode()
     assert "app-mobile-sidebar-toggle" in response.content.decode()
     build_version.cache_clear()
+
+
+@pytest.mark.django_db
+def test_page_footer_shows_rendering_time(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(username="alice")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    client.force_login(user)
+
+    response = client.get(
+        reverse("documents:dashboard", kwargs={"tenant_slug": tenant.slug})
+    )
+    content = response.content.decode()
+
+    assert response.status_code == 200
+    assert (
+        f"Doksio DMS &copy; {timezone.now().year} - Sebastian Walter -"
+        in content
+    )
+    assert re.search(r"Page Rendering Time \d+\.\d{3} s", content)
+    assert re.fullmatch(r"app;dur=\d+\.\d{2}", response["Server-Timing"])
