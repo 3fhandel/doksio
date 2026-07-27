@@ -182,6 +182,8 @@ DOCUMENT_LOG_EVENT_LABELS = {
     "document_import_batch.finalized": "Stapelimport abgeschlossen",
     "document_box.scan_optimization.completed": "Scan-Optimierung abgeschlossen",
     "document_file.scan_optimized": "Scan-PDF optimiert",
+    "document_office_conversion.succeeded": "Office-Dokument konvertiert",
+    "document_office_conversion.failed": "Office-Konvertierung fehlgeschlagen",
     "export_run.created": "Exportlauf erzeugt",
     "export_run.downloaded": "Export heruntergeladen",
     "workflow_instance.started": "Workflow gestartet",
@@ -792,6 +794,17 @@ def _document_preview(document: Document) -> tuple[DocumentFile | None, str]:
     )
     if pdf_file is not None:
         return pdf_file, "pdf"
+
+    converted_pdf_file = (
+        document.files.filter(
+            file_kind=DocumentFile.Kind.DERIVATIVE,
+            content_type__in=PDF_PREVIEW_CONTENT_TYPES,
+        )
+        .order_by("-version", "-created_at")
+        .first()
+    )
+    if converted_pdf_file is not None:
+        return converted_pdf_file, "pdf"
 
     image_file = (
         document.files.filter(
@@ -1975,11 +1988,15 @@ def document_detail(
                 tenant=tenant,
                 document=document,
             )
-            StartOcrForDocumentFile(
-                document_file=document_file,
-                actor=request.user,
-            ).execute()
-            messages.success(request, "OCR wurde gestartet.")
+            try:
+                StartOcrForDocumentFile(
+                    document_file=document_file,
+                    actor=request.user,
+                ).execute()
+            except ValueError as error:
+                messages.error(request, str(error))
+            else:
+                messages.success(request, "OCR wurde gestartet.")
             return redirect(request.get_full_path())
         elif action == "start_workflow":
             if not can_use_workflows(request.user, tenant):

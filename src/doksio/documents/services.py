@@ -2244,7 +2244,20 @@ class CreateDocumentFromUpload:
             if self.auto_start_ocr is None
             else self.auto_start_ocr
         )
-        if should_auto_start_ocr:
+        from doksio.documents.office_conversion import (
+            StartOfficeConversion,
+            supports_office_conversion,
+        )
+
+        if supports_office_conversion(document_file.content_type):
+            transaction.on_commit(
+                lambda: StartOfficeConversion(
+                    source_file=document_file,
+                    actor=self.created_by,
+                    auto_start_ocr=should_auto_start_ocr,
+                ).execute()
+            )
+        elif should_auto_start_ocr:
             from doksio.ocr.services import (
                 StartOcrForDocumentFile,
                 supports_ocr_content_type,

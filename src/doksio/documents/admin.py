@@ -10,11 +10,42 @@ from doksio.documents.models import (
     DocumentFile,
     DocumentMetadataField,
     DocumentNavigationContext,
+    DocumentOfficeConversionJob,
     DocumentSpace,
     DocumentTag,
     DocumentTagAssignment,
     DocumentTitleRule,
 )
+
+
+@admin.register(DocumentOfficeConversionJob)
+class DocumentOfficeConversionJobAdmin(admin.ModelAdmin):
+    list_display = [
+        "source_file",
+        "tenant",
+        "status",
+        "output_file",
+        "created_at",
+    ]
+    list_filter = ["tenant", "status", "auto_start_ocr"]
+    search_fields = [
+        "source_file__document__title",
+        "source_file__original_filename",
+        "error_message",
+    ]
+    readonly_fields = [
+        "tenant",
+        "source_file",
+        "output_file",
+        "status",
+        "auto_start_ocr",
+        "error_message",
+        "created_by",
+        "started_at",
+        "completed_at",
+        "created_at",
+        "updated_at",
+    ]
 
 
 @admin.register(DocumentNavigationContext)

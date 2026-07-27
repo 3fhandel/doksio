@@ -1044,6 +1044,7 @@ def test_document_upload_view_renders_dropzone_and_multiple_input(client):
     assert "Titel je Dokument automatisch" in content
     assert "multiple" in content
     assert "document-upload.js" in content
+    assert "document-upload.js?v=3" in content
 
 
 @pytest.mark.django_db

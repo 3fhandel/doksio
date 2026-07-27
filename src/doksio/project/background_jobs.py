@@ -8,6 +8,7 @@ from django.utils import timezone
 from doksio.documents.models import (
     DocumentBoxScanOptimizationJob,
     DocumentBoxTitleRefreshJob,
+    DocumentOfficeConversionJob,
 )
 from doksio.exports.models import ExportRun
 from doksio.ocr.models import OcrJob
@@ -35,6 +36,7 @@ TASK_TYPES = {
     "doksio.ocr.tasks.run_ocr_job": "ocr",
     "doksio.documents.tasks.process_document_box_scan_optimization_job": "scan",
     "doksio.documents.tasks.process_document_box_title_refresh_job": "titles",
+    "doksio.documents.tasks.convert_office_document": "office",
     "doksio.exports.tasks.build_document_image_export": "export",
 }
 
@@ -89,6 +91,20 @@ def _job_details(job_type: str, object_id: int, tenant_id: int):
                 job,
                 f"Export: {job.get_export_type_display()}",
                 f"{job.processed_count}/{job.total_count}",
+            )
+    elif job_type == "office":
+        job = (
+            DocumentOfficeConversionJob.objects.select_related(
+                "source_file__document"
+            )
+            .filter(id=object_id, tenant_id=tenant_id)
+            .first()
+        )
+        if job:
+            return (
+                job,
+                f"Office-Konvertierung: {job.source_file.document.title}",
+                "",
             )
     return None
 
@@ -188,6 +204,23 @@ def tenant_background_jobs(tenant) -> tuple[list[BackgroundJob], str]:
                 status=ExportRun.Status.PROCESSING,
             )
         ),
+        *(
+            (
+                "office",
+                job,
+                f"Office-Konvertierung: {job.source_file.document.title}",
+                "",
+            )
+            for job in DocumentOfficeConversionJob.objects.select_related(
+                "source_file__document"
+            ).filter(
+                tenant=tenant,
+                status__in=[
+                    DocumentOfficeConversionJob.Status.PENDING,
+                    DocumentOfficeConversionJob.Status.RUNNING,
+                ],
+            )
+        ),
     ]
     for job_type, job, title, progress in database_jobs:
         if (job_type, job.id) in known_jobs:
@@ -266,6 +299,16 @@ def cancel_background_job(*, tenant, job_type: str, object_id: int, task_id: str
     elif job_type == "export":
         ExportRun.objects.filter(id=object_id, tenant=tenant).update(
             status=ExportRun.Status.FAILED,
+            completed_at=now,
+            updated_at=now,
+        )
+    elif job_type == "office":
+        DocumentOfficeConversionJob.objects.filter(
+            id=object_id,
+            tenant=tenant,
+        ).update(
+            status=DocumentOfficeConversionJob.Status.FAILED,
+            error_message="Durch einen Administrator abgebrochen.",
             completed_at=now,
             updated_at=now,
         )

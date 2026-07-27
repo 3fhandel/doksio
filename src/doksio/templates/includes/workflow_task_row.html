@@ -1,14 +1,14 @@
 {% load doksio_extras %}
 
 <article class="workflow-task-row">
-  {% with thumbnail=task.document|document_thumbnail_file original=task.document|document_original_file %}
-    {% if thumbnail and original and task.document.status != "deleted" %}
+  {% with thumbnail=task.document|document_thumbnail_file preview=task.document|document_quick_preview_file %}
+    {% if thumbnail and preview and task.document.status != "deleted" %}
       <button
         class="document-row-thumbnail document-row-thumbnail-button workflow-task-thumbnail"
         type="button"
         data-document-quick-preview
-        data-preview-src="{% url 'documents:download' task.document.tenant.slug original.id %}?inline=1"
-        data-preview-content-type="{{ original.content_type }}"
+        data-preview-src="{% url 'documents:download' task.document.tenant.slug preview.id %}?inline=1"
+        data-preview-content-type="{{ preview.content_type }}"
         data-preview-title="{{ task.document.title }}"
         aria-label="Schnellvorschau für {{ task.document.title }} öffnen"
         title="Schnellvorschau öffnen"

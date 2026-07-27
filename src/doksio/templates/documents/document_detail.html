@@ -629,6 +629,22 @@
                   <dt class="col-sm-3 metadata-label">Storage Key</dt>
                   <dd class="col-sm-9 hash-value">{{ file.storage_key }}</dd>
                 </dl>
+                {% with conversion=file.latest_conversion_job %}
+                  {% if conversion %}
+                    <div class="border-top mt-3 pt-3">
+                      <div class="metadata-label mb-1">Office-Konvertierung</div>
+                      <div class="small">
+                        {{ conversion.get_status_display }}
+                        {% if conversion.output_file %}
+                          · PDF-Ableitung v{{ conversion.output_file.version }}
+                        {% endif %}
+                      </div>
+                      {% if conversion.error_message %}
+                        <div class="small text-danger mt-2">{{ conversion.error_message }}</div>
+                      {% endif %}
+                    </div>
+                  {% endif %}
+                {% endwith %}
                 <div class="border-top mt-3 pt-3">
                   {% with latest_ocr=file.latest_ocr_job %}
                     <div class="d-flex align-items-start justify-content-between gap-3">

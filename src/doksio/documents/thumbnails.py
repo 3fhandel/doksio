@@ -32,7 +32,10 @@ def create_thumbnail_for_document_file(
     *,
     actor=None,
 ) -> DocumentFile | None:
-    if document_file.file_kind != DocumentFile.Kind.ORIGINAL:
+    if document_file.file_kind not in {
+        DocumentFile.Kind.ORIGINAL,
+        DocumentFile.Kind.DERIVATIVE,
+    }:
         return None
 
     if document_file.derivatives.filter(file_kind=DocumentFile.Kind.THUMBNAIL).exists():

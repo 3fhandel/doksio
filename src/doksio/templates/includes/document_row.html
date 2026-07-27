@@ -1,14 +1,14 @@
 {% load doksio_extras %}
 
 <article class="document-row search-result-row{% if document.status == "deleted" %} document-row-deleted{% endif %}">
-  {% with thumbnail=document|document_thumbnail_file original=document|document_original_file %}
-    {% if thumbnail and original and document.status != "deleted" %}
+  {% with thumbnail=document|document_thumbnail_file preview=document|document_quick_preview_file %}
+    {% if thumbnail and preview and document.status != "deleted" %}
       <button
         class="document-row-thumbnail document-row-thumbnail-button"
         type="button"
         data-document-quick-preview
-        data-preview-src="{% url 'documents:download' document.tenant.slug original.id %}?inline=1"
-        data-preview-content-type="{{ original.content_type }}"
+        data-preview-src="{% url 'documents:download' document.tenant.slug preview.id %}?inline=1"
+        data-preview-content-type="{{ preview.content_type }}"
         data-preview-title="{{ document.title }}"
         aria-label="Schnellvorschau für {{ document.title }} öffnen"
         title="Schnellvorschau öffnen"

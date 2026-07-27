@@ -791,6 +791,19 @@ class StartOcrForDocumentFile:
         normalized_content_type = (
             self.document_file.content_type.split(";", 1)[0].strip().lower()
         )
+        from doksio.documents.office_conversion import (
+            office_pdf_derivative,
+            supports_office_conversion,
+        )
+
+        if supports_office_conversion(normalized_content_type):
+            converted_file = office_pdf_derivative(self.document_file)
+            if converted_file is None:
+                raise ValueError(
+                    "Das Office-Dokument wurde noch nicht erfolgreich in PDF "
+                    "konvertiert."
+                )
+            return converted_file
         if (
             self.document_file.file_kind == DocumentFile.Kind.ORIGINAL
             and normalized_content_type == "image/tiff"

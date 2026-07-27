@@ -10,6 +10,9 @@ register = template.Library()
 
 CONTENT_TYPE_LABELS = {
     "application/pdf": "PDF",
+    "application/msword": "DOC",
+    "application/vnd.oasis.opendocument.text": "ODT",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "DOCX",
     "image/jpeg": "JPEG",
     "image/png": "PNG",
     "image/gif": "GIF",
@@ -86,6 +89,36 @@ def document_original_file(document):
         if file.file_kind == DocumentFile.Kind.ORIGINAL:
             original = file
     return original
+
+
+@register.filter
+def document_quick_preview_file(document):
+    original_image = None
+    converted_pdf = None
+    image_preview = None
+    for file in document.files.all():
+        content_type = file.content_type.split(";", 1)[0].strip().lower()
+        if (
+            file.file_kind == DocumentFile.Kind.ORIGINAL
+            and content_type == "application/pdf"
+        ):
+            return file
+        if (
+            file.file_kind == DocumentFile.Kind.ORIGINAL
+            and content_type.startswith("image/")
+        ):
+            original_image = file
+        elif (
+            file.file_kind == DocumentFile.Kind.DERIVATIVE
+            and content_type == "application/pdf"
+        ):
+            converted_pdf = file
+        elif (
+            file.file_kind == DocumentFile.Kind.PREVIEW
+            and content_type.startswith("image/")
+        ):
+            image_preview = file
+    return original_image or converted_pdf or image_preview
 
 
 @register.filter

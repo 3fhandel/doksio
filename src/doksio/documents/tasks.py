@@ -11,6 +11,7 @@ from django.utils import timezone
 from doksio.documents.models import (
     DocumentBoxScanOptimizationJob,
     DocumentBoxTitleRefreshJob,
+    DocumentOfficeConversionJob,
     DocumentSpace,
 )
 from doksio.documents.services import (
@@ -22,6 +23,18 @@ from doksio.documents.services import (
     RunDocumentBoxScanOptimizationBatch,
     RunDocumentBoxTitleRefreshBatch,
 )
+
+
+@shared_task
+def convert_office_document(job_id: int) -> int:
+    from doksio.documents.office_conversion import RunOfficeConversion
+
+    job = DocumentOfficeConversionJob.objects.select_related(
+        "source_file__document",
+        "tenant",
+    ).get(id=job_id)
+    RunOfficeConversion(job=job).execute()
+    return job_id
 
 
 @shared_task

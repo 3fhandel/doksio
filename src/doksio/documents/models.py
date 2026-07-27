@@ -669,6 +669,67 @@ class DocumentFile(models.Model):
         jobs = self.ocr_jobs.all()
         return jobs[0] if jobs else None
 
+    @property
+    def latest_conversion_job(self):
+        jobs = self.office_conversion_jobs.all()
+        return jobs[0] if jobs else None
+
+
+class DocumentOfficeConversionJob(models.Model):
+    """Asynchronous conversion of an immutable office original to PDF."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Wartet"
+        RUNNING = "running", "Läuft"
+        SUCCEEDED = "succeeded", "Erfolgreich"
+        FAILED = "failed", "Fehlgeschlagen"
+
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="office_conversion_jobs",
+    )
+    source_file = models.ForeignKey(
+        DocumentFile,
+        on_delete=models.CASCADE,
+        related_name="office_conversion_jobs",
+    )
+    output_file = models.ForeignKey(
+        DocumentFile,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="office_conversion_outputs",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    auto_start_ocr = models.BooleanField(default=True)
+    error_message = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="created_office_conversion_jobs",
+    )
+    started_at = models.DateTimeField(blank=True, null=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["tenant", "status"]),
+            models.Index(fields=["tenant", "source_file", "created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Office-Konvertierung {self.source_file_id} {self.status}"
+
 
 class DocumentImportBatch(models.Model):
     """Staging area for multi-file imports before documents are created."""

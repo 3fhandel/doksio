@@ -29,6 +29,7 @@ RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         build-essential \
         libpq-dev \
+        libreoffice-writer \
         ocrmypdf \
         poppler-utils \
         tesseract-ocr \
