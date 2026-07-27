@@ -6,6 +6,7 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 
 from doksio.accounts.permissions import TenantPermissions
+from doksio.documents.navigation import create_document_navigation
 from doksio.documents.policies import can_administer_tenant, has_tenant_permission
 from doksio.pagination import paginate_queryset
 from doksio.search.forms import DocumentSearchForm
@@ -56,7 +57,12 @@ def document_search(request: HttpRequest, tenant_slug: str) -> HttpResponse:
                 form.cleaned_data.get("q", ""),
             )
         documents_count = documents_page_obj.paginator.count
-        document_nav = ",".join(str(document.id) for document in documents)
+        document_nav = create_document_navigation(
+            request=request,
+            tenant=tenant,
+            document_ids=documents_queryset.values_list("id", flat=True),
+            namespace="search",
+        )
 
     return render(
         request,

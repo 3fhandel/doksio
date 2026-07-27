@@ -18,7 +18,7 @@ from doksio.accounts.forms import (
     UserProfileForm,
     notification_preferences_from_form,
 )
-from doksio.accounts.models import Notification, UserProfile
+from doksio.accounts.models import DocumentViewHistory, Notification, UserProfile
 from doksio.accounts.oidc import (
     build_oidc_authorization_url,
     exchange_oidc_code,
@@ -28,8 +28,11 @@ from doksio.accounts.oidc import (
     tenant_slugs_from_oidc_claims,
     user_from_oidc_claims,
 )
+from doksio.accounts.permissions import TenantPermissions
 from doksio.accounts.services import MarkAllNotificationsRead, MarkNotificationRead
-from doksio.documents.policies import can_administer_tenant
+from doksio.documents.models import Document
+from doksio.documents.navigation import create_document_navigation
+from doksio.documents.policies import can_administer_tenant, filter_documents_for_user
 from doksio.tenancy.models import Tenant
 from doksio.tenancy.services import get_tenant_for_user
 
@@ -425,6 +428,47 @@ def profile_shortcuts(request: HttpRequest, tenant_slug: str) -> HttpResponse:
             "form": form,
             "shortcut_actions": KEYBOARD_SHORTCUT_ACTIONS,
             "active_profile_section": "shortcuts",
+            "can_manage_settings": can_administer_tenant(request.user, tenant),
+        },
+    )
+
+
+def profile_history(request: HttpRequest, tenant_slug: str) -> HttpResponse:
+    login_redirect = _redirect_to_login(request, tenant_slug)
+    if login_redirect is not None:
+        return login_redirect
+
+    tenant, _user_profile = _profile_context(request, tenant_slug)
+    accessible_documents = filter_documents_for_user(
+        Document.objects.filter(tenant=tenant),
+        request.user,
+        tenant,
+        TenantPermissions.DOCUMENTS_VIEW,
+    )
+    history = list(
+        DocumentViewHistory.objects.filter(
+            tenant=tenant,
+            user=request.user,
+            document__in=accessible_documents,
+        )
+        .select_related("document", "document__space")
+        .prefetch_related("document__files")
+        .order_by("-last_viewed_at", "-id")[:20]
+    )
+    document_nav = create_document_navigation(
+        request=request,
+        tenant=tenant,
+        document_ids=(entry.document_id for entry in history),
+        namespace="history",
+    )
+    return render(
+        request,
+        "accounts/profile_history.html",
+        {
+            "tenant": tenant,
+            "history": history,
+            "document_nav": document_nav,
+            "active_profile_section": "history",
             "can_manage_settings": can_administer_tenant(request.user, tenant),
         },
     )

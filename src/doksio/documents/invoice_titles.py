@@ -58,6 +58,15 @@ _INVOICE_NUMBER_PATTERNS = [
         """,
         re.IGNORECASE | re.VERBOSE,
     ),
+    re.compile(
+        r"""
+        \bblatt\s+re\.?\s*-\s*nr\.?\s+datum\s+kd\.?\s*-\s*nr\.?
+        [^\S\n]*\n[^\S\n]*
+        \d+\s+(?P<value>[A-Z0-9][A-Z0-9._/-]{2,})\s+
+        \d{1,2}[./-]\d{1,2}[./-]\d{2,4}
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    ),
 ]
 _INVOICE_DATE_PATTERNS = [
     re.compile(
@@ -117,6 +126,15 @@ _INVOICE_DATE_PATTERNS = [
         zahlungsbeleg\s+datum[^\n]*
         [^\S\n]*\n[^\S\n]*
         \S+\s+(?P<value>\d{1,2}[./-]\d{1,2}[./-]\d{2,4})
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    ),
+    re.compile(
+        r"""
+        \bblatt\s+re\.?\s*-\s*nr\.?\s+datum\s+kd\.?\s*-\s*nr\.?
+        [^\S\n]*\n[^\S\n]*
+        \d+\s+[A-Z0-9][A-Z0-9._/-]{2,}\s+
+        (?P<value>\d{1,2}[./-]\d{1,2}[./-]\d{2,4})
         """,
         re.IGNORECASE | re.VERBOSE,
     ),

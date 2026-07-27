@@ -13,6 +13,7 @@ from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 
 from doksio.accounts.models import (
+    DocumentViewHistory,
     Notification,
     TenantMembership,
     TenantPermission,
@@ -32,6 +33,35 @@ from doksio.project.email import (
 )
 from doksio.project.url_helpers import build_public_url
 from doksio.tenancy.models import Tenant
+
+
+@dataclass(frozen=True)
+class RecordDocumentView:
+    tenant: Tenant
+    user: get_user_model()
+    document: object
+
+    @transaction.atomic
+    def execute(self) -> DocumentViewHistory:
+        history, _created = DocumentViewHistory.objects.update_or_create(
+            tenant=self.tenant,
+            user=self.user,
+            document=self.document,
+            defaults={},
+        )
+        retained_ids = list(
+            DocumentViewHistory.objects.filter(
+                tenant=self.tenant,
+                user=self.user,
+            )
+            .order_by("-last_viewed_at", "-id")
+            .values_list("id", flat=True)[:20]
+        )
+        DocumentViewHistory.objects.filter(
+            tenant=self.tenant,
+            user=self.user,
+        ).exclude(id__in=retained_ids).delete()
+        return history
 
 
 def _tenant_smtp_from_email(smtp_settings: TenantSmtpSettings) -> str:

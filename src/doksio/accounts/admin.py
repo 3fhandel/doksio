@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.contrib import admin
 
 from doksio.accounts.models import (
+    DocumentViewHistory,
     Notification,
     TenantMembership,
     TenantPermission,
@@ -52,3 +53,11 @@ class NotificationAdmin(admin.ModelAdmin):
     list_filter = ["tenant", "notification_type", "read_at"]
     search_fields = ["title", "body", "recipient__username", "recipient__email"]
     readonly_fields = ["created_at"]
+
+
+@admin.register(DocumentViewHistory)
+class DocumentViewHistoryAdmin(admin.ModelAdmin):
+    list_display = ["user", "tenant", "document", "last_viewed_at"]
+    list_filter = ["tenant"]
+    search_fields = ["user__username", "user__email", "document__title"]
+    readonly_fields = ["tenant", "user", "document", "last_viewed_at"]

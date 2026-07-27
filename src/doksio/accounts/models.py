@@ -128,6 +128,40 @@ class Notification(models.Model):
         return self.title
 
 
+class DocumentViewHistory(models.Model):
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="document_view_histories",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="document_view_history",
+    )
+    document = models.ForeignKey(
+        "documents.Document",
+        on_delete=models.CASCADE,
+        related_name="view_histories",
+    )
+    last_viewed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-last_viewed_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "user", "document"],
+                name="accounts_unique_document_view",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "user", "-last_viewed_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user}: {self.document}"
+
+
 class TenantPermission(models.Model):
     """Permission code that can be assigned to tenant-scoped roles."""
 

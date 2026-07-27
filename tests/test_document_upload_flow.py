@@ -25,6 +25,7 @@ from doksio.documents.models import (
     DocumentImportBatch,
     DocumentImportBatchItem,
     DocumentMetadataField,
+    DocumentNavigationContext,
     DocumentRelation,
     DocumentSpace,
     DocumentTitleRule,
@@ -2924,6 +2925,71 @@ def test_document_detail_uses_return_url_and_document_navigation(client):
         )
         in content
     )
+
+
+@pytest.mark.django_db
+def test_document_navigation_spans_the_complete_paginated_list(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    documents = [
+        Document.objects.create(
+            tenant=tenant,
+            space=space,
+            title=f"Dokument {number:02d}",
+            created_by=user,
+        )
+        for number in range(26)
+    ]
+    client.force_login(user)
+    list_url = (
+        reverse("documents:list", kwargs={"tenant_slug": tenant.slug})
+        + "?page=1"
+    )
+
+    list_response = client.get(list_url)
+    assert list_response.status_code == 200
+    navigation = DocumentNavigationContext.objects.get(
+        tenant=tenant,
+        user=user,
+        source_key__isnull=False,
+    )
+    assert len(navigation.document_ids) == 26
+
+    current_document = documents[1]
+    detail_response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "document_id": current_document.id,
+            },
+        ),
+        {"back": list_url, "nav": str(navigation.token)},
+    )
+    content = detail_response.content.decode()
+
+    assert detail_response.status_code == 200
+    assert "Dokument 25 von 26" in content
+    assert (
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": documents[0].id},
+        )
+        in content
+    )
+    assert "Vorheriges Dokument" in content
+    assert "Nächstes Dokument" in content
+    assert f'href="{list_url}">Ganze Liste</a>' in content
 
 
 @pytest.mark.django_db

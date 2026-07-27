@@ -43,4 +43,9 @@ urlpatterns = [
         views.profile_shortcuts,
         name="profile_shortcuts",
     ),
+    path(
+        "t/<slug:tenant_slug>/profile/history/",
+        views.profile_history,
+        name="profile_history",
+    ),
 ]

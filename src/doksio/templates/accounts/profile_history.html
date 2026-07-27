@@ -1,0 +1,40 @@
+{% extends "accounts/profile_base.html" %}
+{% load doksio_extras %}
+
+{% block profile_content %}
+  <section class="app-card profile-card">
+    <div class="profile-section border-bottom">
+      <h2 class="h5 mb-1">Zuletzt aufgerufene Dokumente</h2>
+      <p class="text-secondary mb-0">Deine letzten 20 Dokumentaufrufe in {{ tenant.name }}.</p>
+    </div>
+    <div class="document-row-list">
+      {% for entry in history %}
+        <a class="history-document-row" href="{% url 'documents:detail' tenant.slug entry.document.id %}?back={{ request.get_full_path|urlencode }}&amp;nav={{ document_nav|urlencode }}">
+          {% with thumbnail=entry.document|document_thumbnail_file %}
+            <span class="document-row-thumbnail">
+              {% if thumbnail %}
+                <img src="{% url 'documents:download' tenant.slug thumbnail.id %}?inline=1" alt="Vorschau {{ entry.document.title }}">
+              {% else %}
+                <span class="document-row-thumbnail-fallback">
+                  {% include "includes/icons.html" with icon="file" %}
+                  <span>{{ entry.document|document_file_type }}</span>
+                </span>
+              {% endif %}
+            </span>
+          {% endwith %}
+          <span class="history-document-main">
+            <strong>{{ entry.document.title }}</strong>
+            <span>{{ entry.document.space.path }} · {{ entry.document|document_file_type }}</span>
+          </span>
+          <time datetime="{{ entry.last_viewed_at|date:'c' }}">
+            {{ entry.last_viewed_at|date:"d.m.Y H:i" }}
+          </time>
+        </a>
+      {% empty %}
+        <div class="p-5 text-center text-secondary">
+          Noch keine Dokumente im Verlauf.
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

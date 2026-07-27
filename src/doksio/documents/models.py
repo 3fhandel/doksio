@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import timedelta
 
 from django.conf import settings
@@ -535,6 +536,34 @@ class DocumentComment(models.Model):
 
     def __str__(self) -> str:
         return f"Comment on {self.document_id} at {self.created_at}"
+
+
+class DocumentNavigationContext(models.Model):
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="document_navigation_contexts",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="document_navigation_contexts",
+    )
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    source_key = models.CharField(max_length=64)
+    document_ids = models.JSONField(default=list)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "user", "source_key"],
+                name="documents_unique_navigation_source",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "user", "-updated_at"]),
+        ]
 
 
 class DocumentFile(models.Model):

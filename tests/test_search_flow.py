@@ -395,7 +395,7 @@ def test_document_search_view_renders_results_for_tenant_member(client):
         in content
     )
     assert f"back={quote(response.wsgi_request.get_full_path(), safe='/')}" in content
-    assert f"nav={document.id}" in content
+    assert f"nav={response.context['document_nav']}" in content
 
 
 @pytest.mark.django_db

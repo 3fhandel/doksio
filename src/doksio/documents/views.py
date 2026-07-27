@@ -39,12 +39,13 @@ from doksio.accounts.services import (
     AddTenantMember,
     CreateTenantRole,
     DeleteTenantRole,
+    RecordDocumentView,
     SendTenantPasswordResetEmail,
     UpdateTenantMembership,
     UpdateTenantRole,
 )
-from doksio.audit.models import AuditEvent
 from doksio.audit.forms import AuditEventFilterForm
+from doksio.audit.models import AuditEvent
 from doksio.audit.services import RecordAuditEvent
 from doksio.documents.forms import (
     DocumentBoxScanOptimizationForm,
@@ -80,6 +81,10 @@ from doksio.documents.models import (
     DocumentRelation,
     DocumentSpace,
     DocumentTitleRule,
+)
+from doksio.documents.navigation import (
+    create_document_navigation,
+    document_ids_from_navigation,
 )
 from doksio.documents.policies import (
     can_administer_tenant,
@@ -635,11 +640,7 @@ def _safe_return_url(
     return fallback_url
 
 
-def _document_nav_param(document_ids) -> str:
-    return ",".join(str(document_id) for document_id in document_ids)
-
-
-def _parse_document_nav_param(raw_value: str) -> list[int]:
+def _parse_legacy_document_nav_param(raw_value: str) -> list[int]:
     document_ids = []
     for raw_id in raw_value.split(","):
         try:
@@ -675,7 +676,15 @@ def _document_navigation_context(
     back_url: str,
 ) -> dict:
     nav_param = request.GET.get("nav", "")
-    document_ids = _parse_document_nav_param(nav_param)
+    document_ids = document_ids_from_navigation(
+        token=nav_param,
+        tenant=tenant,
+        user=request.user,
+    )
+    if not document_ids and (
+        "," in nav_param or nav_param.isdigit()
+    ):
+        document_ids = _parse_legacy_document_nav_param(nav_param)
     if document.id not in document_ids:
         return {"document_nav_param": nav_param}
 
@@ -1099,11 +1108,17 @@ def dashboard(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     workflow_documents_count = (
         workflow_tasks_queryset.order_by().values("document_id").distinct().count()
     )
-    document_nav = _document_nav_param(
-        document.id for document in documents_page_obj.object_list
+    document_nav = create_document_navigation(
+        request=request,
+        tenant=tenant,
+        document_ids=documents_queryset.values_list("id", flat=True),
+        namespace="dashboard-documents",
     )
-    workflow_task_document_nav = _document_nav_param(
-        dict.fromkeys(task.document_id for task in workflow_tasks_page_obj.object_list)
+    workflow_task_document_nav = create_document_navigation(
+        request=request,
+        tenant=tenant,
+        document_ids=workflow_tasks_queryset.values_list("document_id", flat=True),
+        namespace="dashboard-tasks",
     )
     return render(
         request,
@@ -1152,8 +1167,11 @@ def task_list(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     workflow_documents_count = (
         workflow_tasks_queryset.order_by().values("document_id").distinct().count()
     )
-    workflow_task_document_nav = _document_nav_param(
-        dict.fromkeys(task.document_id for task in workflow_tasks_page_obj.object_list)
+    workflow_task_document_nav = create_document_navigation(
+        request=request,
+        tenant=tenant,
+        document_ids=workflow_tasks_queryset.values_list("document_id", flat=True),
+        namespace="tasks",
     )
     return render(
         request,
@@ -1195,8 +1213,11 @@ def document_list(request: HttpRequest, tenant_slug: str) -> HttpResponse:
         documents_queryset,
         per_page=25,
     )
-    document_nav = _document_nav_param(
-        document.id for document in documents_page_obj.object_list
+    document_nav = create_document_navigation(
+        request=request,
+        tenant=tenant,
+        document_ids=documents_queryset.values_list("id", flat=True),
+        namespace="documents",
     )
     return render(
         request,
@@ -1737,6 +1758,12 @@ def document_detail(
     )
     if not can_view_document(request.user, document):
         raise PermissionDenied
+    if request.method == "GET":
+        RecordDocumentView(
+            tenant=tenant,
+            user=request.user,
+            document=document,
+        ).execute()
 
     back_url = _safe_return_url(
         request,

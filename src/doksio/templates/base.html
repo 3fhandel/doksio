@@ -73,6 +73,12 @@
                         <span>Profil</span>
                       </a>
                     </li>
+                    <li>
+                      <a class="dropdown-item" href="{% url 'accounts:profile_history' tenant.slug %}">
+                        {% include "includes/icons.html" with icon="clock" %}
+                        <span>Verlauf</span>
+                      </a>
+                    </li>
                   {% endif %}
                   {% if user.is_superuser %}
                     <li>

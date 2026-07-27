@@ -215,6 +215,24 @@ def test_invoice_ocr_title_works_without_recognized_seller():
             """,
             "Heinrichstha: 5604897 vom 23.07.2026",
         ),
+        (
+            """
+            SB Union Kassel, Heinrich-Hertz-Str. 29, 34123 Kassel
+            Rechnungskorrektur
+            Belegnummer: GS1067972
+            Belegdatum: 23.07.2026
+            """,
+            "SB Union Kas: GS1067972 vom 23.07.2026",
+        ),
+        (
+            """
+            EGV Lebensmittel für Großverbraucher AG
+            RECHNUNG
+            BLATT RE.-NR. DATUM KD.-NR.
+            1 920093 16.07.26 66108
+            """,
+            "EGV Lebensmi: 920093 vom 16.07.2026",
+        ),
     ],
 )
 def test_invoice_ocr_title_supports_real_world_invoice_layouts(text, expected):

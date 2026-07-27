@@ -9,11 +9,26 @@ from doksio.documents.models import (
     DocumentComment,
     DocumentFile,
     DocumentMetadataField,
+    DocumentNavigationContext,
     DocumentSpace,
     DocumentTag,
     DocumentTagAssignment,
     DocumentTitleRule,
 )
+
+
+@admin.register(DocumentNavigationContext)
+class DocumentNavigationContextAdmin(admin.ModelAdmin):
+    list_display = ["token", "tenant", "user", "updated_at"]
+    list_filter = ["tenant"]
+    readonly_fields = [
+        "tenant",
+        "user",
+        "token",
+        "source_key",
+        "document_ids",
+        "updated_at",
+    ]
 
 
 @admin.register(DocumentSpace)

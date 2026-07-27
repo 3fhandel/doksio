@@ -5,8 +5,15 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 
 from doksio.accounts.forms import UserProfileForm
-from doksio.accounts.models import Notification, TenantMembership, UserProfile
-from doksio.accounts.services import EnsureDefaultTenantRoles
+from doksio.accounts.models import (
+    DocumentViewHistory,
+    Notification,
+    TenantMembership,
+    UserProfile,
+)
+from doksio.accounts.services import EnsureDefaultTenantRoles, RecordDocumentView
+from doksio.documents.models import Document
+from doksio.documents.services import CreateDocumentSpace
 from doksio.tenancy.models import Tenant
 
 
@@ -60,6 +67,81 @@ def test_profile_entry_redirects_to_account(client):
         "accounts:profile_account",
         kwargs={"tenant_slug": tenant.slug},
     )
+
+
+@pytest.mark.django_db
+def test_document_detail_records_personal_history(client):
+    tenant, user = _create_tenant_user()
+    space = CreateDocumentSpace(tenant=tenant, name="Eingang").execute()
+    document = Document.objects.create(
+        tenant=tenant,
+        space=space,
+        title="Historisches Dokument",
+        created_by=user,
+    )
+    client.force_login(user)
+
+    response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        )
+    )
+
+    assert response.status_code == 200
+    assert DocumentViewHistory.objects.filter(
+        tenant=tenant,
+        user=user,
+        document=document,
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_document_history_keeps_and_displays_last_twenty(client):
+    tenant, user = _create_tenant_user()
+    space = CreateDocumentSpace(tenant=tenant, name="Eingang").execute()
+    documents = [
+        Document.objects.create(
+            tenant=tenant,
+            space=space,
+            title=f"Dokument {number:02d}",
+            created_by=user,
+        )
+        for number in range(21)
+    ]
+    for document in documents:
+        RecordDocumentView(
+            tenant=tenant,
+            user=user,
+            document=document,
+        ).execute()
+    RecordDocumentView(
+        tenant=tenant,
+        user=user,
+        document=documents[1],
+    ).execute()
+    client.force_login(user)
+
+    history_url = reverse(
+        "accounts:profile_history",
+        kwargs={"tenant_slug": tenant.slug},
+    )
+    response = client.get(history_url)
+    content = response.content.decode()
+
+    assert response.status_code == 200
+    assert DocumentViewHistory.objects.filter(tenant=tenant, user=user).count() == 20
+    assert not DocumentViewHistory.objects.filter(document=documents[0]).exists()
+    assert list(
+        DocumentViewHistory.objects.filter(tenant=tenant, user=user).values_list(
+            "document_id",
+            flat=True,
+        )[:1]
+    ) == [documents[1].id]
+    assert "Dokument 01" in content
+    assert "Dokument 00" not in content
+    assert f'href="{history_url}"' in content
+    assert "<span>Verlauf</span>" in content
 
 
 @pytest.mark.django_db

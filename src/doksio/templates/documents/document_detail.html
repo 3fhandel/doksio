@@ -69,14 +69,15 @@
           {% endif %}
           <div class="btn-group btn-group-sm" aria-label="Dokumentnavigation">
             {% if previous_document_url %}
-              <a class="btn btn-outline-secondary" href="{{ previous_document_url }}" data-shortcut-action="document_previous">Vorheriges</a>
+              <a class="btn btn-outline-secondary" href="{{ previous_document_url }}" data-shortcut-action="document_previous">Vorheriges Dokument</a>
             {% else %}
-              <span class="btn btn-outline-secondary disabled" aria-disabled="true">Vorheriges</span>
+              <span class="btn btn-outline-secondary disabled" aria-disabled="true">Vorheriges Dokument</span>
             {% endif %}
+            <a class="btn btn-outline-secondary" href="{{ back_url }}">Ganze Liste</a>
             {% if next_document_url %}
-              <a class="btn btn-outline-secondary" href="{{ next_document_url }}" data-shortcut-action="document_next">Nächstes</a>
+              <a class="btn btn-outline-secondary" href="{{ next_document_url }}" data-shortcut-action="document_next">Nächstes Dokument</a>
             {% else %}
-              <span class="btn btn-outline-secondary disabled" aria-disabled="true">Nächstes</span>
+              <span class="btn btn-outline-secondary disabled" aria-disabled="true">Nächstes Dokument</span>
             {% endif %}
           </div>
         </div>
