@@ -69,6 +69,12 @@ class DocumentImageExportForm(forms.Form):
         initial=True,
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
+    include_metadata_files = forms.BooleanField(
+        label="Manifest und Protokoll in das ZIP aufnehmen",
+        required=False,
+        initial=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
 
     def __init__(self, *args, tenant: Tenant, user, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -150,6 +156,9 @@ class DocumentImageExportForm(forms.Form):
             ),
             "only_not_exported": bool(
                 self.cleaned_data.get("only_not_exported")
+            ),
+            "include_metadata_files": bool(
+                self.cleaned_data.get("include_metadata_files")
             ),
             "document_date_from": (
                 self.cleaned_data["document_date_from"].isoformat()

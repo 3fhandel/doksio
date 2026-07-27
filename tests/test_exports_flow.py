@@ -37,6 +37,7 @@ def test_document_image_export_filter_defaults():
 
     assert form.fields["only_without_open_workflows"].initial is False
     assert form.fields["only_not_exported"].initial is True
+    assert form.fields["include_metadata_files"].initial is False
 
 
 @pytest.mark.django_db
@@ -93,6 +94,7 @@ def test_document_image_export_starts_zip_export_for_enabled_boxes(
             "document_space": space.id,
             "include_children": "on",
             "only_not_exported": "on",
+            "include_metadata_files": "on",
         },
     )
 
@@ -106,6 +108,7 @@ def test_document_image_export_starts_zip_export_for_enabled_boxes(
     assert export_run.warning_count == 0
     assert export_run.filters["only_not_exported"] is True
     assert export_run.filters["only_without_open_workflows"] is False
+    assert export_run.filters["include_metadata_files"] is True
     assert export_run.filename
     assert export_run.storage_key
     assert len(export_run.sha256) == 64
@@ -233,7 +236,10 @@ def test_document_image_export_ignores_boxes_without_export_flag(
 
     response = client.post(
         reverse("exports:document_images", kwargs={"tenant_slug": tenant.slug}),
-        {"only_not_exported": "on"},
+        {
+            "only_not_exported": "on",
+            "include_metadata_files": "on",
+        },
     )
 
     assert response.status_code == 302
@@ -378,6 +384,14 @@ def test_document_image_export_does_not_export_same_document_twice(
         document=document,
         status=ExportRunItem.Status.EXPORTED,
     ).count() == 1
+    first_export_run = ExportRun.objects.get()
+    assert first_export_run.filters["include_metadata_files"] is False
+    with default_storage.open(first_export_run.storage_key, "rb") as package_file:
+        package_content = package_file.read()
+    with ZipFile(BytesIO(package_content)) as archive:
+        assert "manifest.csv" not in archive.namelist()
+        assert "export-log.csv" not in archive.namelist()
+        assert len(archive.namelist()) == 1
 
     repeated_response = client.post(
         url,

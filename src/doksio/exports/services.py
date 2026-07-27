@@ -253,36 +253,37 @@ class BuildDocumentImageExport:
                     ).execute()
                     self._mark_processed(export_run)
 
-                archive.writestr(
-                    "manifest.csv",
-                    _csv_bytes(
-                        manifest_rows,
-                        [
-                            "doksio_document_id",
-                            "doksio_file_id",
-                            "exported_filename",
-                            "original_filename",
-                            "document_title",
-                            "document_box",
-                            "document_date",
-                            "created_at",
-                            "content_type",
-                            "sha256",
-                        ],
-                    ),
-                )
-                archive.writestr(
-                    "export-log.csv",
-                    _csv_bytes(
-                        log_rows,
-                        [
-                            "doksio_document_id",
-                            "document_title",
-                            "status",
-                            "message",
-                        ],
-                    ),
-                )
+                if export_run.filters.get("include_metadata_files", False):
+                    archive.writestr(
+                        "manifest.csv",
+                        _csv_bytes(
+                            manifest_rows,
+                            [
+                                "doksio_document_id",
+                                "doksio_file_id",
+                                "exported_filename",
+                                "original_filename",
+                                "document_title",
+                                "document_box",
+                                "document_date",
+                                "created_at",
+                                "content_type",
+                                "sha256",
+                            ],
+                        ),
+                    )
+                    archive.writestr(
+                        "export-log.csv",
+                        _csv_bytes(
+                            log_rows,
+                            [
+                                "doksio_document_id",
+                                "document_title",
+                                "status",
+                                "message",
+                            ],
+                        ),
+                    )
 
             zip_file.flush()
             zip_file.seek(0, 2)

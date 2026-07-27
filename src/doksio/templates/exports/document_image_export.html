@@ -40,7 +40,7 @@
               <div>
                 <h2 class="h5 mb-1">DATEV Belegbilder</h2>
                 <p class="text-secondary small mb-0">
-                  Enthält Originaldateien, Manifest und Exportlog. Die ZIP-Datei wird anschließend für den Belegtransfer entpackt.
+                  Enthält die Originaldateien ohne Unterordner. Manifest und Protokoll können bei Bedarf ergänzt werden.
                 </p>
               </div>
             </div>
@@ -84,6 +84,11 @@
                   {{ form.only_not_exported }}
                   <label class="form-check-label" for="{{ form.only_not_exported.id_for_label }}">{{ form.only_not_exported.label }}</label>
                   {{ form.only_not_exported.errors }}
+                </div>
+                <div class="form-check">
+                  {{ form.include_metadata_files }}
+                  <label class="form-check-label" for="{{ form.include_metadata_files.id_for_label }}">{{ form.include_metadata_files.label }}</label>
+                  {{ form.include_metadata_files.errors }}
                 </div>
               </div>
 

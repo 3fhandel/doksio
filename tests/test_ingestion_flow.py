@@ -91,6 +91,8 @@ def _raw_email(
     sender: str = "sender@example.test",
     attachment_name: str | None = "rechnung.pdf",
     attachment_content: bytes = MINIMAL_PDF_BYTES,
+    attachment_maintype: str = "application",
+    attachment_subtype: str = "pdf",
 ) -> bytes:
     message = EmailMessage()
     message["Subject"] = subject
@@ -100,8 +102,8 @@ def _raw_email(
     if attachment_name is not None:
         message.add_attachment(
             attachment_content,
-            maintype="application",
-            subtype="pdf",
+            maintype=attachment_maintype,
+            subtype=attachment_subtype,
             filename=attachment_name,
         )
     return message.as_bytes()
@@ -1100,6 +1102,205 @@ def test_process_email_import_source_reports_ignored_attachments():
     assert result.unprocessable_messages == 1
     assert "rechnung.txt" in result.errors[0]
     assert source.settings["email"]["last_result"]["ignored_attachments"] == 1
+
+
+@pytest.mark.django_db
+def test_email_import_rejects_attachment_with_disallowed_mime_type():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Rechnungsmail",
+        source_type=ImportSource.SourceType.EMAIL,
+        settings={
+            "common": {
+                "allowed_content_types": ["application/pdf"],
+            },
+            "email": {
+                "mailbox": "INBOX",
+                "search_criteria": "UNSEEN",
+                "attachment_pattern": "*",
+                "unprocessable_action": "delete",
+            },
+        },
+        auto_start_ocr=False,
+        extract_einvoice=False,
+        start_workflows=False,
+    )
+    imap = FakeImapConnection(
+        {
+            b"1": _raw_email(
+                attachment_name="hinweis.txt",
+                attachment_content=b"Kein Beleg",
+                attachment_maintype="text",
+                attachment_subtype="plain",
+            )
+        }
+    )
+
+    result = ProcessEmailImportSource(
+        source=source,
+        imap_factory=lambda _settings: imap,
+    ).execute()
+
+    assert result.imported_documents == 0
+    assert result.matched_attachments == 0
+    assert result.ignored_attachments == 1
+    assert result.unprocessable_messages == 1
+    assert result.failed_attachments == 0
+    assert "text/plain" in result.errors[0]
+    assert not Document.objects.exists()
+    assert ("store", b"1", "+FLAGS", "\\Deleted") in imap.actions
+    assert ("expunge",) in imap.actions
+
+
+@pytest.mark.django_db
+def test_email_with_valid_and_disallowed_attachment_is_accepted():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Rechnungsmail",
+        source_type=ImportSource.SourceType.EMAIL,
+        settings={
+            "common": {
+                "allowed_content_types": ["application/pdf"],
+            },
+            "email": {
+                "mailbox": "INBOX",
+                "search_criteria": "UNSEEN",
+                "attachment_pattern": "*",
+                "mark_seen": True,
+            },
+        },
+        auto_start_ocr=False,
+        extract_einvoice=False,
+        start_workflows=False,
+    )
+    message = EmailMessage()
+    message["Subject"] = "Rechnung mit Hinweis"
+    message["From"] = "sender@example.test"
+    message["Message-ID"] = "<mixed@example.test>"
+    message.set_content("Bitte importieren.")
+    message.add_attachment(
+        MINIMAL_PDF_BYTES,
+        maintype="application",
+        subtype="pdf",
+        filename="rechnung.pdf",
+    )
+    message.add_attachment(
+        b"Nicht importieren",
+        maintype="text",
+        subtype="plain",
+        filename="hinweis.txt",
+    )
+    imap = FakeImapConnection({b"1": message.as_bytes()})
+
+    result = ProcessEmailImportSource(
+        source=source,
+        imap_factory=lambda _settings: imap,
+    ).execute()
+
+    assert result.imported_documents == 1
+    assert result.matched_attachments == 1
+    assert result.ignored_attachments == 1
+    assert result.unprocessable_messages == 0
+    assert result.failed_attachments == 0
+    assert DocumentFile.objects.get().original_filename == "rechnung.pdf"
+    assert ("store", b"1", "+FLAGS", "\\Seen") in imap.actions
+    assert source.settings["email"]["last_result"]["imported_documents"] == 1
+    assert source.settings["email"]["last_result"]["ignored_attachments"] == 1
+
+
+@pytest.mark.django_db
+def test_email_import_rejects_attachment_above_configured_size():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Rechnungsmail",
+        source_type=ImportSource.SourceType.EMAIL,
+        settings={
+            "common": {
+                "max_file_size_mb": 1,
+                "allowed_content_types": ["application/pdf"],
+            },
+            "email": {
+                "mailbox": "INBOX",
+                "search_criteria": "UNSEEN",
+                "attachment_pattern": "*.pdf",
+                "unprocessable_action": "keep",
+            },
+        },
+        auto_start_ocr=False,
+        extract_einvoice=False,
+        start_workflows=False,
+    )
+    imap = FakeImapConnection(
+        {
+            b"1": _raw_email(
+                attachment_content=b"%PDF" + b"x" * (1024 * 1024),
+            )
+        }
+    )
+
+    result = ProcessEmailImportSource(
+        source=source,
+        imap_factory=lambda _settings: imap,
+    ).execute()
+
+    assert result.imported_documents == 0
+    assert result.ignored_attachments == 1
+    assert result.unprocessable_messages == 1
+    assert "größer als 1 MB" in result.errors[0]
+    assert not Document.objects.exists()
+
+
+@pytest.mark.django_db
+def test_email_import_rejects_invalid_pdf_payload():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Rechnungsmail",
+        source_type=ImportSource.SourceType.EMAIL,
+        settings={
+            "common": {
+                "allowed_content_types": ["application/pdf"],
+            },
+            "email": {
+                "mailbox": "INBOX",
+                "search_criteria": "UNSEEN",
+                "attachment_pattern": "*.pdf",
+                "unprocessable_action": "keep",
+            },
+        },
+        auto_start_ocr=False,
+        extract_einvoice=False,
+        start_workflows=False,
+    )
+    imap = FakeImapConnection(
+        {
+            b"1": _raw_email(
+                attachment_content=b"not a pdf",
+            )
+        }
+    )
+
+    result = ProcessEmailImportSource(
+        source=source,
+        imap_factory=lambda _settings: imap,
+    ).execute()
+
+    assert result.imported_documents == 0
+    assert result.ignored_attachments == 1
+    assert result.unprocessable_messages == 1
+    assert "kein gültiges PDF" in result.errors[0]
+    assert not Document.objects.exists()
 
 
 @pytest.mark.django_db

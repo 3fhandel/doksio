@@ -277,6 +277,12 @@ class EmailAttachmentScan:
     ignored_filenames: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class RejectedEmailAttachment:
+    filename: str
+    reason: str
+
+
 @dataclass
 class EmailImportResult:
     checked_messages: int = 0
@@ -367,6 +373,59 @@ def _matching_email_attachments(
         matched=attachments,
         ignored_filenames=ignored_filenames,
     )
+
+
+def _email_attachment_rejection_reason(
+    attachment: EmailImportAttachment,
+    common_settings: dict,
+) -> str:
+    max_file_size_mb = common_settings.get("max_file_size_mb")
+    if max_file_size_mb:
+        max_file_size_bytes = int(max_file_size_mb) * 1024 * 1024
+        if len(attachment.content) > max_file_size_bytes:
+            return f"Datei ist größer als {max_file_size_mb} MB"
+
+    allowed_content_types = {
+        str(content_type).split(";", 1)[0].strip().lower()
+        for content_type in common_settings.get("allowed_content_types") or []
+        if str(content_type).strip()
+    }
+    normalized_content_type = attachment.content_type.split(";", 1)[0].strip().lower()
+    if (
+        allowed_content_types
+        and normalized_content_type not in allowed_content_types
+    ):
+        return f"MIME-Typ {normalized_content_type} ist nicht erlaubt"
+
+    if (
+        normalized_content_type == "application/pdf"
+        and not attachment.content.startswith(b"%PDF")
+    ):
+        return "Datei ist kein gültiges PDF"
+    return ""
+
+
+def _filter_importable_email_attachments(
+    attachments: list[EmailImportAttachment],
+    common_settings: dict,
+) -> tuple[list[EmailImportAttachment], list[RejectedEmailAttachment]]:
+    accepted = []
+    rejected = []
+    for attachment in attachments:
+        rejection_reason = _email_attachment_rejection_reason(
+            attachment,
+            common_settings,
+        )
+        if rejection_reason:
+            rejected.append(
+                RejectedEmailAttachment(
+                    filename=attachment.filename,
+                    reason=rejection_reason,
+                )
+            )
+        else:
+            accepted.append(attachment)
+    return accepted, rejected
 
 
 def _smtp_from_email(smtp_settings: TenantSmtpSettings) -> str:
@@ -618,11 +677,21 @@ class ProcessEmailImportSource:
             message,
             email_settings.get("attachment_pattern", "*"),
         )
-        attachments = attachment_scan.matched
+        common_settings = (self.source.settings or {}).get("common", {})
+        attachments, rejected_attachments = _filter_importable_email_attachments(
+            attachment_scan.matched,
+            common_settings,
+        )
         result.ignored_attachments += len(attachment_scan.ignored_filenames)
+        result.ignored_attachments += len(rejected_attachments)
+        for rejected in rejected_attachments:
+            result.errors.append(
+                f"Mail {message_id!r}: Anhang {rejected.filename!r} ignoriert: "
+                f"{rejected.reason}."
+            )
         if not attachments:
             result.unprocessable_messages += 1
-            if attachment_scan.ignored_filenames:
+            if attachment_scan.ignored_filenames and not rejected_attachments:
                 result.errors.append(
                     "Mail "
                     f"{message_id!r}: Keine Anhänge passend zum Muster "
