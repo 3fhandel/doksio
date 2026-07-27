@@ -9,27 +9,42 @@
     </div>
     <div class="document-row-list">
       {% for entry in history %}
-        <a class="history-document-row" href="{% url 'documents:detail' tenant.slug entry.document.id %}?back={{ request.get_full_path|urlencode }}&amp;nav={{ document_nav|urlencode }}">
+        <article class="history-document-row">
           {% with thumbnail=entry.document|document_thumbnail_file %}
-            <span class="document-row-thumbnail">
-              {% if thumbnail %}
+            {% if thumbnail %}
+              <button
+                class="document-row-thumbnail document-row-thumbnail-button"
+                type="button"
+                data-document-quick-preview
+                data-preview-src="{% url 'documents:download' tenant.slug thumbnail.id %}?inline=1"
+                data-preview-title="{{ entry.document.title }}"
+                aria-label="Schnellvorschau für {{ entry.document.title }} öffnen"
+                title="Schnellvorschau öffnen"
+              >
                 <img src="{% url 'documents:download' tenant.slug thumbnail.id %}?inline=1" alt="Vorschau {{ entry.document.title }}">
-              {% else %}
+              </button>
+            {% else %}
+              <span class="document-row-thumbnail">
                 <span class="document-row-thumbnail-fallback">
                   {% include "includes/icons.html" with icon="file" %}
                   <span>{{ entry.document|document_file_type }}</span>
                 </span>
-              {% endif %}
-            </span>
+              </span>
+            {% endif %}
           {% endwith %}
           <span class="history-document-main">
-            <strong>{{ entry.document.title }}</strong>
+            <a href="{% url 'documents:detail' tenant.slug entry.document.id %}?back={{ request.get_full_path|urlencode }}&amp;nav={{ document_nav|urlencode }}">
+              {{ entry.document.title }}
+            </a>
             <span>{{ entry.document.space.path }} · {{ entry.document|document_file_type }}</span>
           </span>
           <time datetime="{{ entry.last_viewed_at|date:'c' }}">
             {{ entry.last_viewed_at|date:"d.m.Y H:i" }}
           </time>
-        </a>
+          <a class="btn btn-sm btn-primary history-document-open" href="{% url 'documents:detail' tenant.slug entry.document.id %}?back={{ request.get_full_path|urlencode }}&amp;nav={{ document_nav|urlencode }}">
+            Öffnen
+          </a>
+        </article>
       {% empty %}
         <div class="p-5 text-center text-secondary">
           Noch keine Dokumente im Verlauf.

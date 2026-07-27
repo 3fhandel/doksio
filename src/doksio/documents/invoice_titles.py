@@ -5,6 +5,18 @@ import re
 _INVOICE_NUMBER_PATTERNS = [
     re.compile(
         r"""
+        \bbelegnummer\s*:[^\S\n]*\n
+        [^\S\n]*belegdatum\s*:[^\S\n]*\n
+        (?:[^\S\n]*debitorennr\.?\s*:[^\S\n]*\n)?
+        (?:[^\S\n]*\n)*
+        [^\S\n]*(?P<value>[A-Z0-9][A-Z0-9._/-]{2,})
+        [^\S\n]*\n
+        [^\S\n]*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    ),
+    re.compile(
+        r"""
         \br\s+e\s+c\s+h\s+n\s+u\s+n\s+g
         \s*:\s*
         (?P<value>
@@ -95,6 +107,17 @@ _INVOICE_NUMBER_PATTERNS = [
     ),
 ]
 _INVOICE_DATE_PATTERNS = [
+    re.compile(
+        r"""
+        \bbelegnummer\s*:[^\S\n]*\n
+        [^\S\n]*belegdatum\s*:[^\S\n]*\n
+        (?:[^\S\n]*debitorennr\.?\s*:[^\S\n]*\n)?
+        (?:[^\S\n]*\n)*
+        [^\S\n]*[A-Z0-9][A-Z0-9._/-]{2,}[^\S\n]*\n
+        [^\S\n]*(?P<value>\d{1,2}[./-]\d{1,2}[./-]\d{2,4})
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    ),
     re.compile(
         r"""
         \bnummer\s*/\s*datum\s+

@@ -2,16 +2,26 @@
 
 <article class="workflow-task-row">
   {% with thumbnail=task.document|document_thumbnail_file %}
-    <div class="document-row-thumbnail workflow-task-thumbnail">
-      {% if thumbnail and task.document.status != "deleted" %}
+    {% if thumbnail and task.document.status != "deleted" %}
+      <button
+        class="document-row-thumbnail document-row-thumbnail-button workflow-task-thumbnail"
+        type="button"
+        data-document-quick-preview
+        data-preview-src="{% url 'documents:download' task.document.tenant.slug thumbnail.id %}?inline=1"
+        data-preview-title="{{ task.document.title }}"
+        aria-label="Schnellvorschau für {{ task.document.title }} öffnen"
+        title="Schnellvorschau öffnen"
+      >
         <img src="{% url 'documents:download' task.document.tenant.slug thumbnail.id %}?inline=1" alt="Vorschau {{ task.document.title }}">
-      {% else %}
+      </button>
+    {% else %}
+      <div class="document-row-thumbnail workflow-task-thumbnail">
         <div class="document-row-thumbnail-fallback">
           {% include "includes/icons.html" with icon="file" %}
           <span>{{ task.document|document_file_type }}</span>
         </div>
-      {% endif %}
-    </div>
+      </div>
+    {% endif %}
   {% endwith %}
 
   <div class="workflow-task-main">

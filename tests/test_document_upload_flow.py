@@ -3560,6 +3560,12 @@ def test_document_list_uses_thumbnail_in_document_row(client, monkeypatch):
     content = response.content.decode()
     assert response.status_code == 200
     assert "document-row-thumbnail" in content
+    assert "document-row-thumbnail-button" in content
+    assert "data-document-quick-preview" in content
+    assert "documentQuickPreviewModal" in content
+    assert "document-quick-preview.js" in content
+    assert "document-row-open" in content
+    assert "Öffnen" in content
     assert (
         reverse(
             "documents:download",

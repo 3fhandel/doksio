@@ -281,6 +281,21 @@ def test_invoice_ocr_title_works_without_recognized_seller():
             """,
             "Kartoffel Si: 60918 vom 18.07.2026",
         ),
+        (
+            """
+            SB Union Kassel, Heinrich-Hertz-Str.29, 34123 Kassel
+            Rechnungskorrektur
+            Belegnummer:
+            Belegdatum:
+            Debitorennr.:
+
+            GS1067973
+            23.07.2026
+            11115
+            Rechnung wird abgebucht
+            """,
+            "SB Union Kas: GS1067973 vom 23.07.2026",
+        ),
     ],
 )
 def test_invoice_ocr_title_supports_real_world_invoice_layouts(text, expected):

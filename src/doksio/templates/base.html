@@ -197,6 +197,21 @@
         </div>
       </div>
     </div>
+    {% if user.is_authenticated %}
+      <div class="modal fade document-quick-preview-modal" id="documentQuickPreviewModal" tabindex="-1" aria-labelledby="documentQuickPreviewModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h2 class="modal-title h5 text-truncate" id="documentQuickPreviewModalLabel">Schnellvorschau</h2>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+            </div>
+            <div class="modal-body document-quick-preview-body">
+              <img data-document-quick-preview-image src="" alt="">
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endif %}
     <script>
       document.querySelectorAll("[data-sidebar-toggle]").forEach((button) => {
         button.addEventListener("click", () => {
@@ -213,6 +228,9 @@
       <script src="{% static 'js/keyboard-shortcuts.js' %}?v=1"></script>
     {% endif %}
     <script src="{% static 'js/smart-date-inputs.js' %}?v=1"></script>
+    {% if user.is_authenticated %}
+      <script src="{% static 'js/document-quick-preview.js' %}?v=1"></script>
+    {% endif %}
     {% block extra_body %}{% endblock %}
   </body>
 </html>

@@ -142,6 +142,8 @@ def test_document_history_keeps_and_displays_last_twenty(client):
     assert "Dokument 00" not in content
     assert f'href="{history_url}"' in content
     assert "<span>Verlauf</span>" in content
+    assert content.count("history-document-open") == 20
+    assert "documentQuickPreviewModal" in content
 
 
 @pytest.mark.django_db
