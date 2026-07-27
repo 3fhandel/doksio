@@ -212,6 +212,11 @@ class WorkflowStepForm(forms.Form):
         initial=WorkflowStep.CommentPolicy.OPTIONAL,
         widget=forms.Select(attrs={"class": "form-select"}),
     )
+    requires_completion_confirmation = forms.BooleanField(
+        label="Erledigen muss zusätzlich bestätigt werden",
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
 
     def clean_relation_picker_default_workflow_status(self) -> str:
         return (
@@ -222,6 +227,11 @@ class WorkflowStepForm(forms.Form):
     def clean(self):
         cleaned_data = super().clean()
         step_type = cleaned_data.get("step_type")
+        if step_type not in {
+            WorkflowStep.StepType.TASK,
+            WorkflowStep.StepType.APPROVAL,
+        }:
+            cleaned_data["requires_completion_confirmation"] = False
         if step_type != WorkflowStep.StepType.COMPLETE_METADATA:
             cleaned_data["required_metadata_fields"] = (
                 self.fields["required_metadata_fields"].queryset.none()

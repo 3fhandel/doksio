@@ -133,6 +133,7 @@ class WorkflowStep(models.Model):
         choices=CommentPolicy.choices,
         default=CommentPolicy.OPTIONAL,
     )
+    requires_completion_confirmation = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

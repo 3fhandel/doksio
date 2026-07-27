@@ -13,7 +13,8 @@
   const updateSections = () => {
     const selectedType = typeSelect.value;
     sections.forEach((section) => {
-      const isVisible = section.dataset.stepTypeSection === selectedType;
+      const visibleForTypes = section.dataset.stepTypeSection.split(/\s+/);
+      const isVisible = visibleForTypes.includes(selectedType);
       section.classList.toggle("d-none", !isVisible);
       section.setAttribute("aria-hidden", isVisible ? "false" : "true");
     });

@@ -251,7 +251,14 @@
                   {% if open_workflow_tasks %}
                     <div class="document-signal-tasks">
                       {% for task in open_workflow_tasks %}
-                        <form method="post" class="document-task-box document-task-box-open {% if not forloop.last %}mb-2{% endif %}">
+                        <form
+                          method="post"
+                          class="document-task-box document-task-box-open {% if not forloop.last %}mb-2{% endif %}"
+                          {% if task.step.requires_completion_confirmation %}
+                            data-workflow-completion-confirmation
+                            data-workflow-task-title="{{ task.title }}"
+                          {% endif %}
+                        >
                           {% csrf_token %}
                           <input type="hidden" name="action" value="complete_workflow_task">
                           <input type="hidden" name="task_id" value="{{ task.id }}">
@@ -789,6 +796,27 @@
         </div>
       </div>
     </div>
+    <div class="modal fade" id="workflowCompletionConfirmationModal" tabindex="-1" aria-labelledby="workflowCompletionConfirmationModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 class="modal-title h5" id="workflowCompletionConfirmationModalLabel">Aufgabe erledigen?</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-1">Sind Sie sicher, dass Sie diesen Workflow-Schritt erledigen möchten?</p>
+            <p class="fw-semibold mb-0" data-workflow-confirmation-task-title></p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+            <button type="button" class="btn btn-primary" data-workflow-confirmation-submit>
+              {% include "includes/icons.html" with icon="check-square" %}
+              <span>Ja, erledigen</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
 {% endblock %}
 
@@ -803,6 +831,49 @@
     <script src="{% static 'js/document-preview.js' %}?v=12"></script>
   {% endif %}
   <script>
+    (() => {
+      const modalElement = document.getElementById("workflowCompletionConfirmationModal");
+      const confirmationButton = modalElement?.querySelector(
+        "[data-workflow-confirmation-submit]",
+      );
+      const taskTitle = modalElement?.querySelector(
+        "[data-workflow-confirmation-task-title]",
+      );
+      if (!modalElement || !confirmationButton || !window.bootstrap) {
+        return;
+      }
+
+      const modal = window.bootstrap.Modal.getOrCreateInstance(modalElement);
+      let pendingForm = null;
+      document
+        .querySelectorAll("[data-workflow-completion-confirmation]")
+        .forEach((form) => {
+          form.addEventListener("submit", (event) => {
+            if (form.dataset.completionConfirmed === "1") {
+              delete form.dataset.completionConfirmed;
+              return;
+            }
+            event.preventDefault();
+            pendingForm = form;
+            taskTitle.textContent = form.dataset.workflowTaskTitle || "";
+            modal.show();
+          });
+        });
+
+      confirmationButton.addEventListener("click", () => {
+        if (!pendingForm) {
+          return;
+        }
+        const form = pendingForm;
+        pendingForm = null;
+        form.dataset.completionConfirmed = "1";
+        modal.hide();
+        form.requestSubmit();
+      });
+      modalElement.addEventListener("hidden.bs.modal", () => {
+        pendingForm = null;
+      });
+    })();
     document.querySelectorAll("[data-copy-document-link]").forEach((button) => {
       button.addEventListener("click", async () => {
         const shareUrl = button.getAttribute("data-document-share-url");

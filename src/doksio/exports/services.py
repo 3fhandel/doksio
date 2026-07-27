@@ -202,7 +202,7 @@ class BuildDocumentImageExport:
                         continue
 
                     exported_filename = _unique_zip_path(
-                        f"belege/{_document_filename(document, document_file)}",
+                        _document_filename(document, document_file),
                         used_paths,
                     )
                     try:

@@ -494,6 +494,7 @@ def test_workflow_settings_create_template_and_step(client):
             "instructions": "Bitte prüfen.",
             "sort_order": "10",
             "comment_policy": WorkflowStep.CommentPolicy.REQUIRED,
+            "requires_completion_confirmation": "on",
             "relation_picker_default_workflow_status": (
                 WorkflowStep.RelationPickerWorkflowStatus.ANY
             ),
@@ -505,6 +506,7 @@ def test_workflow_settings_create_template_and_step(client):
     assert step.name == "Sachlich prüfen"
     assert step.assigned_role == roles["member"]
     assert step.comment_policy == WorkflowStep.CommentPolicy.REQUIRED
+    assert step.requires_completion_confirmation is True
 
     response = client.get(
         reverse(
@@ -541,6 +543,9 @@ def test_workflow_settings_create_template_and_step(client):
     assert "data-workflow-step-form" in step_content
     assert 'data-step-type-section="complete_metadata"' in step_content
     assert 'data-step-type-section="require_document_relation"' in step_content
+    assert 'data-step-type-section="task approval"' in step_content
+    assert 'name="requires_completion_confirmation"' in step_content
+    assert "checked" in step_content
     assert "workflow-step-form.js" in step_content
 
 
@@ -655,6 +660,7 @@ def test_workflow_settings_saves_relation_picker_defaults(client):
             "instructions": "",
             "sort_order": "10",
             "comment_policy": WorkflowStep.CommentPolicy.DISABLED,
+            "requires_completion_confirmation": "on",
         },
     )
 
@@ -667,6 +673,7 @@ def test_workflow_settings_saves_relation_picker_defaults(client):
         == WorkflowStep.RelationPickerWorkflowStatus.COMPLETED
     )
     assert step.relation_picker_filters_editable is False
+    assert step.requires_completion_confirmation is False
 
 
 @pytest.mark.django_db
@@ -920,6 +927,7 @@ def test_document_detail_can_start_and_complete_workflow(client):
         name="Prüfen",
         step_type="task",
         assigned_role=roles["member"],
+        requires_completion_confirmation=True,
     ).execute()
     client.force_login(user)
 
@@ -948,6 +956,9 @@ def test_document_detail_can_start_and_complete_workflow(client):
     assert "document-task-box-open" in content
     assert "document-task-complete-button" in content
     assert "Aufgabe erledigen" in content
+    assert "data-workflow-completion-confirmation" in content
+    assert "workflowCompletionConfirmationModal" in content
+    assert "Sind Sie sicher" in content
 
     response = client.post(
         reverse(

@@ -450,6 +450,7 @@ class CreateWorkflowStep:
     instructions: str = ""
     sort_order: int = 100
     comment_policy: str = WorkflowStep.CommentPolicy.OPTIONAL
+    requires_completion_confirmation: bool = False
     actor: get_user_model() | None = None
 
     @transaction.atomic
@@ -489,6 +490,15 @@ class CreateWorkflowStep:
             instructions=self.instructions,
             sort_order=self.sort_order,
             comment_policy=self.comment_policy,
+            requires_completion_confirmation=(
+                self.requires_completion_confirmation
+                if self.step_type
+                in {
+                    WorkflowStep.StepType.TASK,
+                    WorkflowStep.StepType.APPROVAL,
+                }
+                else False
+            ),
             min_related_documents=max(self.min_related_documents or 1, 1),
             related_document_requires_completed_workflow=(
                 self.related_document_requires_completed_workflow
@@ -518,6 +528,9 @@ class CreateWorkflowStep:
                 "name": step.name,
                 "step_type": step.step_type,
                 "sort_order": step.sort_order,
+                "requires_completion_confirmation": (
+                    step.requires_completion_confirmation
+                ),
             },
         ).execute()
         return step
@@ -542,6 +555,7 @@ class UpdateWorkflowStep:
     instructions: str = ""
     sort_order: int = 100
     comment_policy: str = WorkflowStep.CommentPolicy.OPTIONAL
+    requires_completion_confirmation: bool = False
     actor: get_user_model() | None = None
 
     @transaction.atomic
@@ -579,6 +593,15 @@ class UpdateWorkflowStep:
         self.step.instructions = self.instructions
         self.step.sort_order = self.sort_order
         self.step.comment_policy = self.comment_policy
+        self.step.requires_completion_confirmation = (
+            self.requires_completion_confirmation
+            if self.step_type
+            in {
+                WorkflowStep.StepType.TASK,
+                WorkflowStep.StepType.APPROVAL,
+            }
+            else False
+        )
         self.step.min_related_documents = max(self.min_related_documents or 1, 1)
         self.step.related_document_requires_completed_workflow = (
             self.related_document_requires_completed_workflow
@@ -604,6 +627,7 @@ class UpdateWorkflowStep:
                 "instructions",
                 "sort_order",
                 "comment_policy",
+                "requires_completion_confirmation",
                 "min_related_documents",
                 "related_document_requires_completed_workflow",
                 "relation_picker_default_document_space",
@@ -630,6 +654,9 @@ class UpdateWorkflowStep:
                 "assigned_role_id": self.step.assigned_role_id,
                 "previous_assigned_role_id": previous_assigned_role_id,
                 "updated_open_tasks": updated_open_tasks,
+                "requires_completion_confirmation": (
+                    self.step.requires_completion_confirmation
+                ),
             },
         ).execute()
         return self.step

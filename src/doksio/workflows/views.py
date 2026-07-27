@@ -274,6 +274,9 @@ def workflow_step_create(
                 instructions=form.cleaned_data["instructions"],
                 sort_order=form.cleaned_data["sort_order"],
                 comment_policy=form.cleaned_data["comment_policy"],
+                requires_completion_confirmation=form.cleaned_data[
+                    "requires_completion_confirmation"
+                ],
                 actor=request.user,
             ).execute()
             messages.success(request, "Workflow-Schritt wurde erstellt.")
@@ -382,6 +385,9 @@ def workflow_step_edit(
                 instructions=form.cleaned_data["instructions"],
                 sort_order=form.cleaned_data["sort_order"],
                 comment_policy=form.cleaned_data["comment_policy"],
+                requires_completion_confirmation=form.cleaned_data[
+                    "requires_completion_confirmation"
+                ],
                 actor=request.user,
             ).execute()
             messages.success(request, "Workflow-Schritt wurde gespeichert.")
@@ -420,6 +426,9 @@ def workflow_step_edit(
                 "instructions": step.instructions,
                 "sort_order": step.sort_order,
                 "comment_policy": step.comment_policy,
+                "requires_completion_confirmation": (
+                    step.requires_completion_confirmation
+                ),
             },
         )
 

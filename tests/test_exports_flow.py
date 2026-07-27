@@ -116,7 +116,12 @@ def test_document_image_export_starts_zip_export_for_enabled_boxes(
         names = archive.namelist()
         assert "manifest.csv" in names
         assert "export-log.csv" in names
-        beleg_names = [name for name in names if name.startswith("belege/")]
+        assert all("/" not in name for name in names)
+        beleg_names = [
+            name
+            for name in names
+            if name not in {"manifest.csv", "export-log.csv"}
+        ]
         assert len(beleg_names) == 1
         assert archive.read(beleg_names[0]) == b"invoice content"
         manifest = archive.read("manifest.csv").decode("utf-8-sig")

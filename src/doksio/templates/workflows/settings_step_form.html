@@ -40,6 +40,15 @@
           {{ form.comment_policy }}
           {{ form.comment_policy.errors }}
         </div>
+        <div class="col-md-6 d-flex align-items-end" data-step-type-section="task approval">
+          <div class="form-check mb-2">
+            {{ form.requires_completion_confirmation }}
+            <label class="form-check-label" for="{{ form.requires_completion_confirmation.id_for_label }}">
+              {{ form.requires_completion_confirmation.label }}
+            </label>
+            {{ form.requires_completion_confirmation.errors }}
+          </div>
+        </div>
         <div class="col-12" data-step-type-section="complete_metadata">
           <label class="form-label">{{ form.required_metadata_fields.label }}</label>
           <div class="workflow-metadata-field-picker">
