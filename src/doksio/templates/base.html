@@ -205,8 +205,13 @@
               <h2 class="modal-title h5 text-truncate" id="documentQuickPreviewModalLabel">Schnellvorschau</h2>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
             </div>
-            <div class="modal-body document-quick-preview-body">
-              <img data-document-quick-preview-image src="" alt="">
+            <div
+              class="modal-body document-quick-preview-body"
+              data-pdf-worker-url="{% static 'vendor/pdfjs/pdf.worker.min.js' %}"
+            >
+              <div class="document-quick-preview-status" data-document-quick-preview-status>Vorschau wird geladen...</div>
+              <img data-document-quick-preview-image src="" alt="" hidden>
+              <canvas data-document-quick-preview-canvas hidden></canvas>
             </div>
           </div>
         </div>
@@ -229,7 +234,8 @@
     {% endif %}
     <script src="{% static 'js/smart-date-inputs.js' %}?v=1"></script>
     {% if user.is_authenticated %}
-      <script src="{% static 'js/document-quick-preview.js' %}?v=1"></script>
+      <script src="{% static 'vendor/pdfjs/pdf.min.js' %}?v=3.11.174"></script>
+    <script src="{% static 'js/document-quick-preview.js' %}?v=3"></script>
     {% endif %}
     {% block extra_body %}{% endblock %}
   </body>

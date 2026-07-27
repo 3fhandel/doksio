@@ -10,13 +10,14 @@
     <div class="document-row-list">
       {% for entry in history %}
         <article class="history-document-row">
-          {% with thumbnail=entry.document|document_thumbnail_file %}
-            {% if thumbnail %}
+          {% with thumbnail=entry.document|document_thumbnail_file original=entry.document|document_original_file %}
+            {% if thumbnail and original %}
               <button
                 class="document-row-thumbnail document-row-thumbnail-button"
                 type="button"
                 data-document-quick-preview
-                data-preview-src="{% url 'documents:download' tenant.slug thumbnail.id %}?inline=1"
+                data-preview-src="{% url 'documents:download' tenant.slug original.id %}?inline=1"
+                data-preview-content-type="{{ original.content_type }}"
                 data-preview-title="{{ entry.document.title }}"
                 aria-label="Schnellvorschau für {{ entry.document.title }} öffnen"
                 title="Schnellvorschau öffnen"

@@ -2164,9 +2164,10 @@ body {
 }
 
 .document-row-side {
-  display: grid;
-  gap: 0.5rem;
-  justify-items: end;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
 }
 
 .document-row-open {
@@ -2334,6 +2335,21 @@ body {
   border: 1px solid #d0d5dd;
   background: #fff;
   box-shadow: 0 10px 28px rgb(16 24 40 / 14%);
+}
+
+.document-quick-preview-body canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 72vh;
+  border: 1px solid #d0d5dd;
+  background: #fff;
+  box-shadow: 0 10px 28px rgb(16 24 40 / 14%);
+}
+
+.document-quick-preview-status {
+  color: #667085;
+  font-size: 0.875rem;
+  font-weight: 680;
 }
 
 .workflow-visualization {

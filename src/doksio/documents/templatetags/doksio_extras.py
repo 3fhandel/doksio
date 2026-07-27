@@ -73,6 +73,15 @@ def document_thumbnail_file(document):
 
 
 @register.filter
+def document_original_file(document):
+    original = None
+    for file in document.files.all():
+        if file.file_kind == DocumentFile.Kind.ORIGINAL:
+            original = file
+    return original
+
+
+@register.filter
 def document_has_fulltext(document):
     try:
         search_index = document.search_index

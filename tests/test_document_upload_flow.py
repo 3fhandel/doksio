@@ -347,7 +347,7 @@ def test_create_document_from_upload_attaches_zugferd_invoice_data():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
 
-    document, _document_file = CreateDocumentFromUpload(
+    document, document_file = CreateDocumentFromUpload(
         tenant=tenant,
         title="",
         space=space,
@@ -3538,7 +3538,7 @@ def test_document_list_uses_thumbnail_in_document_row(client, monkeypatch):
         "doksio.documents.thumbnails._render_thumbnail_bytes",
         lambda _document_file: b"thumbnail-bytes",
     )
-    document, _document_file = CreateDocumentFromUpload(
+    document, document_file = CreateDocumentFromUpload(
         tenant=tenant,
         title="Bildbeleg",
         space=space,
@@ -3547,7 +3547,7 @@ def test_document_list_uses_thumbnail_in_document_row(client, monkeypatch):
         content_type="image/png",
         auto_start_ocr=False,
     ).execute()
-    thumbnail = DocumentFile.objects.get(
+    DocumentFile.objects.get(
         document=document,
         file_kind=DocumentFile.Kind.THUMBNAIL,
     )
@@ -3569,10 +3569,11 @@ def test_document_list_uses_thumbnail_in_document_row(client, monkeypatch):
     assert (
         reverse(
             "documents:download",
-            kwargs={"tenant_slug": tenant.slug, "file_id": thumbnail.id},
+            kwargs={"tenant_slug": tenant.slug, "file_id": document_file.id},
         )
         in content
     )
+    assert 'data-preview-content-type="image/png"' in content
     assert "Vorschau Bildbeleg" in content
 
 
