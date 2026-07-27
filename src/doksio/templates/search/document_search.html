@@ -150,6 +150,9 @@
             <div class="text-secondary small">
               {% if has_search %}
                 {{ documents_count }} Treffer
+                {% if search_duration_seconds is not None %}
+                  · {{ search_duration_seconds|floatformat:3 }} s
+                {% endif %}
               {% else %}
                 Starte eine Suche oder nutze Filter.
               {% endif %}

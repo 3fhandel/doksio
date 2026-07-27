@@ -4,7 +4,6 @@ import hashlib
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
 from django.utils import timezone
 
 from doksio.documents.models import DocumentNavigationContext
@@ -23,13 +22,16 @@ def create_document_navigation(
     source = f"{namespace}:{request.path}?{source_query.urlencode()}"
     source_key = hashlib.sha256(source.encode()).hexdigest()
     ids = list(dict.fromkeys(int(document_id) for document_id in document_ids))
-    with transaction.atomic():
-        context, _created = DocumentNavigationContext.objects.update_or_create(
-            tenant=tenant,
-            user=request.user,
-            source_key=source_key,
-            defaults={"document_ids": ids},
-        )
+    context, created = DocumentNavigationContext.objects.get_or_create(
+        tenant=tenant,
+        user=request.user,
+        source_key=source_key,
+        defaults={"document_ids": ids},
+    )
+    if not created and context.document_ids != ids:
+        context.document_ids = ids
+        context.save(update_fields=["document_ids", "updated_at"])
+    if created:
         stale_before = timezone.now() - timedelta(days=7)
         DocumentNavigationContext.objects.filter(
             tenant=tenant,

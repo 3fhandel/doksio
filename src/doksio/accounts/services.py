@@ -41,26 +41,27 @@ class RecordDocumentView:
     user: get_user_model()
     document: object
 
-    @transaction.atomic
     def execute(self) -> DocumentViewHistory:
-        history, _created = DocumentViewHistory.objects.update_or_create(
+        history, created = DocumentViewHistory.objects.get_or_create(
             tenant=self.tenant,
             user=self.user,
             document=self.document,
-            defaults={},
         )
-        retained_ids = list(
+        if not created:
+            history.save(update_fields=["last_viewed_at"])
+        if created:
+            retained_ids = list(
+                DocumentViewHistory.objects.filter(
+                    tenant=self.tenant,
+                    user=self.user,
+                )
+                .order_by("-last_viewed_at", "-id")
+                .values_list("id", flat=True)[:20]
+            )
             DocumentViewHistory.objects.filter(
                 tenant=self.tenant,
                 user=self.user,
-            )
-            .order_by("-last_viewed_at", "-id")
-            .values_list("id", flat=True)[:20]
-        )
-        DocumentViewHistory.objects.filter(
-            tenant=self.tenant,
-            user=self.user,
-        ).exclude(id__in=retained_ids).delete()
+            ).exclude(id__in=retained_ids).delete()
         return history
 
 

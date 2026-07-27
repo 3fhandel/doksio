@@ -741,7 +741,7 @@ def _document_log_entries(document: Document):
             Q(object_type="documents.Document", object_id=str(document.id))
             | Q(data__document_id=document.id)
         )
-        .select_related("actor")
+        .select_related("actor", "actor__doksio_profile")
         .order_by("-created_at", "-id")
     )
     entries = []
@@ -784,57 +784,57 @@ AUDIT_EVENT_LABELS = DOCUMENT_LOG_EVENT_LABELS | {
 
 
 def _document_preview(document: Document) -> tuple[DocumentFile | None, str]:
-    pdf_file = (
-        document.files.filter(
-            file_kind=DocumentFile.Kind.ORIGINAL,
-            content_type__in=PDF_PREVIEW_CONTENT_TYPES,
-        )
-        .order_by("-version", "-created_at")
-        .first()
+    files = sorted(
+        document.files.all(),
+        key=lambda item: (item.version, item.created_at, item.id),
+        reverse=True,
     )
-    if pdf_file is not None:
-        return pdf_file, "pdf"
-
-    converted_pdf_file = (
-        document.files.filter(
-            file_kind=DocumentFile.Kind.DERIVATIVE,
-            content_type__in=PDF_PREVIEW_CONTENT_TYPES,
-        )
-        .order_by("-version", "-created_at")
-        .first()
+    preview_candidates = (
+        (
+            "pdf",
+            lambda item: (
+                item.file_kind == DocumentFile.Kind.ORIGINAL
+                and item.content_type in PDF_PREVIEW_CONTENT_TYPES
+            ),
+        ),
+        (
+            "pdf",
+            lambda item: (
+                item.file_kind == DocumentFile.Kind.DERIVATIVE
+                and item.content_type in PDF_PREVIEW_CONTENT_TYPES
+            ),
+        ),
+        (
+            "image",
+            lambda item: (
+                item.file_kind == DocumentFile.Kind.ORIGINAL
+                and item.content_type in BROWSER_IMAGE_PREVIEW_CONTENT_TYPES
+            ),
+        ),
+        (
+            "image",
+            lambda item: (
+                item.file_kind == DocumentFile.Kind.PREVIEW
+                and item.content_type.startswith("image/")
+            ),
+        ),
     )
-    if converted_pdf_file is not None:
-        return converted_pdf_file, "pdf"
-
-    image_file = (
-        document.files.filter(
-            file_kind=DocumentFile.Kind.ORIGINAL,
-            content_type__in=BROWSER_IMAGE_PREVIEW_CONTENT_TYPES,
-        )
-        .order_by("-version", "-created_at")
-        .first()
-    )
-    if image_file is not None:
-        return image_file, "image"
-
-    image_preview_file = (
-        document.files.filter(
-            file_kind=DocumentFile.Kind.PREVIEW,
-            content_type__startswith="image/",
-        )
-        .order_by("-version", "-created_at")
-        .first()
-    )
-    if image_preview_file is not None:
-        return image_preview_file, "image"
+    for preview_kind, matches in preview_candidates:
+        preview_file = next((item for item in files if matches(item)), None)
+        if preview_file is not None:
+            return preview_file, preview_kind
     return None, ""
 
 
 def _document_original_file(document: Document) -> DocumentFile | None:
-    return (
-        document.files.filter(file_kind=DocumentFile.Kind.ORIGINAL)
-        .order_by("-version", "-created_at", "-id")
-        .first()
+    return max(
+        (
+            item
+            for item in document.files.all()
+            if item.file_kind == DocumentFile.Kind.ORIGINAL
+        ),
+        key=lambda item: (item.version, item.created_at, item.id),
+        default=None,
     )
 
 
@@ -873,8 +873,10 @@ def _document_relations_for_display(document: Document, user) -> list[dict]:
         DocumentRelation.objects.select_related(
             "first_document",
             "first_document__space",
+            "first_document__tenant",
             "second_document",
             "second_document__space",
+            "second_document__tenant",
             "created_by",
         )
         .prefetch_related("first_document__files", "second_document__files")
@@ -1089,7 +1091,7 @@ def dashboard(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     documents_queryset = _with_workflow_counts(
         filter_documents_for_user(
             Document.objects.filter(tenant=tenant)
-            .select_related("space")
+            .select_related("space", "tenant")
             .prefetch_related("files")
             .order_by("-created_at", "-id"),
             request.user,
@@ -1214,7 +1216,7 @@ def document_list(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     documents_queryset = _with_workflow_counts(
         filter_documents_for_user(
             Document.objects.filter(tenant=tenant)
-            .select_related("space")
+            .select_related("space", "tenant")
             .prefetch_related("files")
             .order_by("-created_at", "-id"),
             request.user,
@@ -1844,13 +1846,16 @@ def document_detail(
     if tenant is None:
         raise PermissionDenied
 
-    document_queryset = Document.objects.select_related("space").prefetch_related(
+    document_queryset = Document.objects.select_related(
+        "space",
+        "tenant",
+    ).prefetch_related(
         "files",
         "files__ocr_jobs",
-        "comments__created_by",
+        "files__office_conversion_jobs__output_file",
+        "comments__created_by__doksio_profile",
         "comments__mentioned_users",
         "tag_assignments__tag",
-        "space__metadata_fields",
     )
     document = get_object_or_404(
         document_queryset,

@@ -377,6 +377,8 @@ def test_document_search_view_renders_results_for_tenant_member(client):
     assert "Eingangsrechnung" in content
     assert "1 Treffer" in content
     assert content.count("1 Treffer") == 1
+    assert response.context["search_duration_seconds"] >= 0
+    assert " s" in content
     assert "search-panel" in content
     assert "search-result-row" in content
     assert "search-filter-drawer" in content

@@ -370,6 +370,7 @@ def test_profile_view_saves_keyboard_shortcuts(client):
             "shortcut_documents": "Alt+3",
             "shortcut_search": "Alt+S",
             "shortcut_upload": "Alt+U",
+            "shortcut_history": "Alt+H",
             "shortcut_document_previous": "Alt+ArrowLeft",
             "shortcut_document_next": "Alt+ArrowRight",
             "shortcut_document_back": "Alt+Backspace",
@@ -382,6 +383,7 @@ def test_profile_view_saves_keyboard_shortcuts(client):
     assert response.status_code == 302
     assert profile.keyboard_shortcuts["dashboard"] == "Alt+1"
     assert profile.keyboard_shortcuts["search"] == "Alt+S"
+    assert profile.keyboard_shortcuts["history"] == "Alt+H"
 
 
 @pytest.mark.django_db
@@ -408,6 +410,7 @@ def test_dashboard_exposes_profile_link_and_shortcut_config(client):
     assert "doksio-keyboard-shortcuts" in content
     assert "Alt+D" in content
     assert 'data-shortcut-action="dashboard"' in content
+    assert 'data-shortcut-action="history"' in content
 
 
 @pytest.mark.django_db

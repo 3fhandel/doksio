@@ -11,6 +11,7 @@ def default_keyboard_shortcuts() -> dict[str, str]:
         "documents": "Alt+3",
         "search": "Alt+4",
         "upload": "Alt+U",
+        "history": "Alt+H",
         "document_previous": "Alt+ArrowLeft",
         "document_next": "Alt+ArrowRight",
         "document_back": "Alt+Backspace",

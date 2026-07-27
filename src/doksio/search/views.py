@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from time import perf_counter
+
 from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
@@ -39,6 +41,7 @@ def document_search(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     documents_page_obj = None
     document_nav = ""
     has_search = bool(request.GET)
+    search_started_at = perf_counter()
     if form.is_valid():
         documents_queryset = SearchDocuments(
             tenant=tenant,
@@ -63,6 +66,11 @@ def document_search(request: HttpRequest, tenant_slug: str) -> HttpResponse:
             document_ids=documents_queryset.values_list("id", flat=True),
             namespace="search",
         )
+    search_duration_seconds = (
+        perf_counter() - search_started_at
+        if has_search
+        else None
+    )
 
     return render(
         request,
@@ -75,6 +83,7 @@ def document_search(request: HttpRequest, tenant_slug: str) -> HttpResponse:
             "documents_page_obj": documents_page_obj,
             "document_nav": document_nav,
             "has_search": has_search,
+            "search_duration_seconds": search_duration_seconds,
             "can_manage_settings": can_administer_tenant(request.user, tenant),
         },
     )

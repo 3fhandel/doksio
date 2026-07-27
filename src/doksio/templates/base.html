@@ -74,7 +74,7 @@
                       </a>
                     </li>
                     <li>
-                      <a class="dropdown-item" href="{% url 'accounts:profile_history' tenant.slug %}">
+                      <a class="dropdown-item" href="{% url 'accounts:profile_history' tenant.slug %}" data-shortcut-action="history">
                         {% include "includes/icons.html" with icon="clock" %}
                         <span>Verlauf</span>
                       </a>

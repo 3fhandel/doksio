@@ -120,6 +120,8 @@ DATABASES = {
         "PASSWORD": os.getenv("POSTGRES_PASSWORD", "doksio"),
         "HOST": os.getenv("POSTGRES_HOST", "localhost"),
         "PORT": os.getenv("POSTGRES_PORT", "5432"),
+        "CONN_MAX_AGE": env_int("POSTGRES_CONN_MAX_AGE", 60),
+        "CONN_HEALTH_CHECKS": True,
     }
 }
 

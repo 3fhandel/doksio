@@ -46,8 +46,17 @@ def get_tenant_for_user(
     if not user.is_authenticated or not user.is_active:
         return None
 
+    tenant_cache = getattr(user, "_doksio_tenant_cache", None)
+    if tenant_cache is None:
+        tenant_cache = {}
+        user._doksio_tenant_cache = tenant_cache
+    if slug in tenant_cache:
+        return tenant_cache[slug]
+
     if user.is_superuser:
-        return Tenant.objects.filter(slug=slug, is_active=True).first()
+        tenant = Tenant.objects.filter(slug=slug, is_active=True).first()
+        tenant_cache[slug] = tenant
+        return tenant
 
     membership = (
         TenantMembership.objects.select_related("tenant")
@@ -60,7 +69,9 @@ def get_tenant_for_user(
         .first()
     )
     if membership is None:
+        tenant_cache[slug] = None
         return None
+    tenant_cache[slug] = membership.tenant
     return membership.tenant
 
 

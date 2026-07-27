@@ -158,9 +158,13 @@ class SearchDocuments:
         )
         documents = (
             Document.objects.filter(tenant=self.tenant)
-            .select_related("space")
+            .select_related("space", "tenant")
             .select_related("search_index")
-            .prefetch_related("files", "tag_assignments__tag")
+            .prefetch_related(
+                "files__ocr_jobs",
+                "tag_assignments__tag",
+                "comments",
+            )
         )
         if self.user is not None:
             documents = filter_documents_for_user(

@@ -22,6 +22,7 @@ KEYBOARD_SHORTCUT_ACTIONS = [
     ("documents", "Dokumente öffnen"),
     ("search", "Suche öffnen"),
     ("upload", "Dokument hochladen"),
+    ("history", "Verlauf öffnen"),
     ("document_previous", "Vorheriges Dokument"),
     ("document_next", "Nächstes Dokument"),
     ("document_back", "Zurück aus Dokument"),
