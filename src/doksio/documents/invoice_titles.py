@@ -5,6 +5,17 @@ import re
 _INVOICE_NUMBER_PATTERNS = [
     re.compile(
         r"""
+        \br\s+e\s+c\s+h\s+n\s+u\s+n\s+g
+        \s*:\s*
+        (?P<value>
+            (?=[A-Z0-9._/-]*\d)
+            [A-Z0-9][A-Z0-9._/-]{2,}
+        )
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    ),
+    re.compile(
+        r"""
         \brechnung(?:skopie)?[^\S\r\n]+
         (?P<value>
             (?=[A-Z0-9._/-]*\d)
@@ -25,7 +36,11 @@ _INVOICE_NUMBER_PATTERNS = [
     re.compile(
         r"""
         \b
-        (?:rechnungs?\s*[- ]?\s*(?:nummer|nr\.?)|belegnummer|fakturanummer)
+        (?:
+            rechnungs?\s*[- ]?\s*(?:nummer|nr\.?)
+            |beleg\s*[- ]?\s*(?:nummer|nr\.?)
+            |fakturanummer
+        )
         \s*[:.]?\s*
         (?P<value>[A-Z0-9][A-Z0-9._/-]{2,})
         """,
@@ -64,6 +79,17 @@ _INVOICE_NUMBER_PATTERNS = [
         [^\S\n]*\n[^\S\n]*
         \d+\s+(?P<value>[A-Z0-9][A-Z0-9._/-]{2,})\s+
         \d{1,2}[./-]\d{1,2}[./-]\d{2,4}
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    ),
+    re.compile(
+        r"""
+        \bbelegnummer\s+datum\s+seite
+        [^\S\n]*\n(?:[^\S\n]*\n)*
+        [^\n]*?\s{2,}
+        (?P<value>[A-Z0-9][A-Z0-9._/-]{2,})\s+
+        \d{1,2}[./-]\d{1,2}[./-]\d{2,4}\s+
+        \d+\s*/\s*\d+
         """,
         re.IGNORECASE | re.VERBOSE,
     ),
@@ -138,6 +164,17 @@ _INVOICE_DATE_PATTERNS = [
         """,
         re.IGNORECASE | re.VERBOSE,
     ),
+    re.compile(
+        r"""
+        \bbelegnummer\s+datum\s+seite
+        [^\S\n]*\n(?:[^\S\n]*\n)*
+        [^\n]*?\s{2,}
+        [A-Z0-9][A-Z0-9._/-]{2,}\s+
+        (?P<value>\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\s+
+        \d+\s*/\s*\d+
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    ),
 ]
 _HEADER_DATE_PATTERN = re.compile(
     r"(?<!\d)(?P<value>\d{1,2}[./-]\d{1,2}[./-]\d{4})(?!\d)"
@@ -193,6 +230,8 @@ _HEADER_NOISE_PATTERN = re.compile(
         |bestellnummer
         |auftragsnummer
         |lieferschein
+        |lieferung\s+an
+        |vom\s+\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\s+für
         |telefon
         |phone
         |fax
@@ -260,6 +299,36 @@ def _clean_seller_name(candidate: str) -> str:
     return candidate.strip(" \t:.,")
 
 
+def _company_key(value: str) -> str:
+    return "".join(character for character in value.casefold() if character.isalnum())
+
+
+def _is_field_label(value: str) -> bool:
+    return value.casefold().strip(" \t:.") in _FIELD_LABEL_VALUES
+
+
+def _recipient_company_keys(text: str) -> set[str]:
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    recipient_keys = set()
+    for index, line in enumerate(lines[:-1]):
+        if line.casefold() not in {"fa", "fa."} and "lieferschein" not in line.casefold():
+            continue
+        for candidate in lines[index + 1 : index + 4]:
+            if candidate:
+                key = _company_key(candidate)
+                if len(key) >= 10:
+                    recipient_keys.add(key)
+                break
+    return recipient_keys
+
+
+def _is_recipient_company(candidate: str, recipient_keys: set[str]) -> bool:
+    candidate_key = _company_key(candidate)
+    return len(candidate_key) >= 10 and any(
+        candidate_key[:10] == recipient_key[:10] for recipient_key in recipient_keys
+    )
+
+
 def _seller_name(text: str) -> str:
     if "warenlieferant" in text.casefold():
         supplier_match = _WARENLIEFERANT_PATTERN.search(text)
@@ -271,11 +340,15 @@ def _seller_name(text: str) -> str:
         return _clean_seller_name(sold_by_match.group("value"))
 
     header_segments = _header_segments(text)
+    recipient_keys = _recipient_company_keys(text)
     for brand_index, brand in enumerate(header_segments[:4]):
         if (
             len(brand) < 3
             or _HEADER_NOISE_PATTERN.search(brand)
             or any(character.isdigit() for character in brand)
+            or brand.casefold() in {"fa", "fa."}
+            or _is_field_label(brand)
+            or _is_recipient_company(brand, recipient_keys)
         ):
             continue
         if _COMPANY_SUFFIX_PATTERN.search(brand):
@@ -297,8 +370,8 @@ def _seller_name(text: str) -> str:
 
     for raw_line in text.splitlines()[:40]:
         line = " ".join(raw_line.split())
-        if "·" in line or "•" in line:
-            candidate = re.split(r"\s*[·•]\s*", line, maxsplit=1)[0].strip()
+        if any(separator in line for separator in ("·", "•", "*")):
+            candidate = re.split(r"\s*[·•*]\s*", line, maxsplit=1)[0].strip()
             if len(candidate) >= 3 and any(character.isalpha() for character in candidate):
                 return candidate
         address_sender = re.match(
@@ -314,7 +387,15 @@ def _seller_name(text: str) -> str:
     for index, candidate in enumerate(_header_segments(text)):
         if len(candidate) < 3 or len(candidate) > 100:
             continue
+        if candidate[0].isdigit():
+            continue
         if _HEADER_NOISE_PATTERN.search(candidate):
+            continue
+        if candidate.casefold() in {"fa", "fa."}:
+            continue
+        if _is_field_label(candidate):
+            continue
+        if _is_recipient_company(candidate, recipient_keys):
             continue
         if _ADDRESS_ONLY_PATTERN.search(candidate):
             continue

@@ -233,12 +233,74 @@ def test_invoice_ocr_title_works_without_recognized_seller():
             """,
             "EGV Lebensmi: 920093 vom 16.07.2026",
         ),
+        (
+            """
+            Haaner Felsenquelle GmbH · Postfach 3115 · D-42769 Haan
+            R E C H N U N G: 20348444
+            Rechnungsdatum: 13.07.2026
+            """,
+            "Haaner Felse: 20348444 vom 13.07.2026",
+        ),
+        (
+            """
+            Fa.
+            3 F-Handelsgesellschaft mbH
+            Rechnung 2607833
+            Datum: 18.07.2026
+            """,
+            "2607833 vom 18.07.2026",
+        ),
+        (
+            """
+            H. Klümper GmbH & Co. KG Schinkenräucherei
+            Belegnummer Datum Seite
+
+            3F-Handelsgesellschaft mbH  303161  22.07.2026  1/1
+            """,
+            "H. Klümper G: 303161 vom 22.07.2026",
+        ),
+        (
+            """
+            3 F-Handelsgesellschaft
+            Rechnung
+            Kunden-Nr.: 10016  Datum: 10.06.2026
+            Beleg-Nr.: 644111
+            Lieferschein 444919 vom 08.06.2026
+            3F-Handelsgellschaft
+            """,
+            "644111 vom 10.06.2026",
+        ),
+        (
+            """
+            Kartoffel Sion Marco Sion * Bachstrasse 124 * D-50354 Hürth
+            3F Handelsgesellschaft mbH
+            Rechnung
+            Rechnungs-Nr. 60918
+            Rechnungs-Datum 18.07.2026
+            Lieferschein-Nr. 105824 vom 15.07.2026 für 3F Handelsgesellschaft mbH
+            """,
+            "Kartoffel Si: 60918 vom 18.07.2026",
+        ),
     ],
 )
 def test_invoice_ocr_title_supports_real_world_invoice_layouts(text, expected):
     assert (
         title_from_invoice_ocr_text(text, DEFAULT_INVOICE_OCR_TITLE_FORMAT)
         == expected
+    )
+
+
+def test_automatic_title_policy_prefers_structured_invoice_title():
+    text = """
+    SB Union Kassel, Heinrich-Hertz-Str. 29, 34123 Kassel
+    Rechnungskorrektur
+    Belegnummer: GS1067972
+    Belegdatum: 23.07.2026
+    Rechnung wird abgebucht
+    """
+
+    assert title_from_ocr_policy(text, {"strategy": "automatic"}) == (
+        "SB Union Kas: GS1067972 vom 23.07.2026"
     )
 
 

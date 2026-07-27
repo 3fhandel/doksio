@@ -143,6 +143,13 @@ def extract_document_title(text: str) -> str | None:
 def title_from_ocr_policy(text: str, policy: dict | None) -> str | None:
     policy = ocr_policy_with_einvoice_fallback(policy)
     strategy = policy.get("strategy", "automatic")
+    if strategy == "automatic":
+        invoice_title = title_from_invoice_ocr_text(
+            text,
+            DEFAULT_INVOICE_OCR_TITLE_FORMAT,
+        )
+        if invoice_title:
+            return invoice_title
     if strategy == "invoice_ocr":
         title = title_from_invoice_ocr_text(
             text,
