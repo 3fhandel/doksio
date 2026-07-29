@@ -77,6 +77,7 @@ INSTALLED_APPS = [
     "doksio.workflows",
     "doksio.reports",
     "doksio.exports",
+    "doksio.helpcenter",
 ]
 
 MIDDLEWARE = [
@@ -105,6 +106,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "doksio.project.context_processors.doksio_version",
                 "doksio.accounts.context_processors.user_profile",
+                "doksio.helpcenter.context_processors.contextual_help",
             ],
         },
     },

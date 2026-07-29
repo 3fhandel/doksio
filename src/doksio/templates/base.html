@@ -42,6 +42,19 @@
           </div>
           <div class="app-topbar-actions">
             {% if user.is_authenticated %}
+              {% if tenant and contextual_help_topic %}
+                <button
+                  class="btn app-help-button"
+                  type="button"
+                  data-bs-toggle="offcanvas"
+                  data-bs-target="#contextualHelp"
+                  aria-controls="contextualHelp"
+                  aria-label="Hilfe zu dieser Seite"
+                  title="Hilfe zu dieser Seite"
+                >
+                  {% include "includes/icons.html" with icon="circle-help" %}
+                </button>
+              {% endif %}
               <div class="dropdown">
                 <button class="btn app-account-button" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                   <span class="app-account-avatar">{{ user|display_user|slice:":1"|upper }}</span>
@@ -178,6 +191,10 @@
                     <span>Stapelimport</span>
                   </a>
                 {% endif %}
+                <a class="app-sidebar-link {% if app_name == 'helpcenter' %}active{% endif %}" href="{% url 'helpcenter:overview' tenant.slug %}">
+                  {% include "includes/icons.html" with icon="circle-help" %}
+                  <span>Hilfe</span>
+                </a>
                 <a class="app-sidebar-link app-sidebar-link-primary {% if url_name == 'upload' %}active{% endif %}" href="{% url 'documents:upload' tenant.slug %}" data-shortcut-action="upload">
                   {% include "includes/icons.html" with icon="upload" %}
                   <span>Hochladen</span>
@@ -222,6 +239,54 @@
           </div>
         </div>
       </div>
+    {% endif %}
+    {% if tenant and user.is_authenticated and contextual_help_topic %}
+      <aside
+        class="offcanvas offcanvas-end app-help-drawer"
+        tabindex="-1"
+        id="contextualHelp"
+        aria-labelledby="contextualHelpLabel"
+      >
+        <div class="offcanvas-header app-help-drawer-header">
+          <div>
+            <div class="app-help-drawer-eyebrow">Hilfe zu dieser Seite</div>
+            <h2 class="offcanvas-title" id="contextualHelpLabel">{{ contextual_help_topic.title }}</h2>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Schließen"></button>
+        </div>
+        <div class="offcanvas-body app-help-drawer-body">
+          <p class="app-help-drawer-summary">{{ contextual_help_topic.summary }}</p>
+          {% for section in contextual_help_topic.sections %}
+            <section class="app-help-drawer-section">
+              <h3>{{ section.title }}</h3>
+              <p>{{ section.text }}</p>
+              {% if section.steps %}
+                <ol>
+                  {% for step in section.steps %}
+                    <li>{{ step }}</li>
+                  {% endfor %}
+                </ol>
+              {% endif %}
+            </section>
+          {% endfor %}
+          {% if contextual_help_topic.quick_tips %}
+            <aside class="app-help-drawer-tips">
+              <strong>Gut zu wissen</strong>
+              <ul>
+                {% for tip in contextual_help_topic.quick_tips %}
+                  <li>{{ tip }}</li>
+                {% endfor %}
+              </ul>
+            </aside>
+          {% endif %}
+        </div>
+        <div class="app-help-drawer-footer">
+          <a class="btn btn-primary w-100" href="{% url 'helpcenter:overview' tenant.slug %}#{{ contextual_help_topic.slug }}">
+            {% include "includes/icons.html" with icon="book-open" %}
+            <span class="ms-1">Alle Hilfethemen öffnen</span>
+          </a>
+        </div>
+      </aside>
     {% endif %}
     <script>
       document.querySelectorAll("[data-sidebar-toggle]").forEach((button) => {

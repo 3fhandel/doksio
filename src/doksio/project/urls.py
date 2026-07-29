@@ -25,6 +25,7 @@ urlpatterns = [
     path("", include("doksio.workflows.urls")),
     path("", include("doksio.reports.urls")),
     path("", include("doksio.exports.urls")),
+    path("", include("doksio.helpcenter.urls")),
     path("s/health/", health, name="health"),
     path("s/status/", system_status, name="system_status"),
     path("t/<slug:tenant_slug>/status/", tenant_status, name="tenant_status"),

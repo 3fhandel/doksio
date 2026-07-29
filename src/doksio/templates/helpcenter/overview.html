@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Hilfe | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container-fluid px-4">
+      <header class="help-center-header mb-4">
+        <div>
+          <h1 class="h3 mb-1">Hilfe</h1>
+          <p class="text-secondary mb-0">Kurze Anleitungen für die tägliche Arbeit mit Doksio.</p>
+        </div>
+      </header>
+
+      <div class="help-center-layout">
+        <nav class="help-center-index" aria-label="Hilfethemen">
+          <div class="help-center-index-title">Themen</div>
+          {% for topic in help_topics %}
+            <a href="#{{ topic.slug }}">
+              {% include "includes/icons.html" with icon=topic.icon %}
+              <span>{{ topic.title }}</span>
+            </a>
+          {% endfor %}
+        </nav>
+
+        <div class="help-center-topics">
+          {% for topic in help_topics %}
+            <article class="app-card help-topic" id="{{ topic.slug }}">
+              <header class="help-topic-header">
+                <span class="help-topic-icon">
+                  {% include "includes/icons.html" with icon=topic.icon %}
+                </span>
+                <div>
+                  <h2>{{ topic.title }}</h2>
+                  <p>{{ topic.summary }}</p>
+                </div>
+              </header>
+              <div class="help-topic-body">
+                {% for section in topic.sections %}
+                  <section>
+                    <h3>{{ section.title }}</h3>
+                    <p>{{ section.text }}</p>
+                    {% if section.steps %}
+                      <ol>
+                        {% for step in section.steps %}
+                          <li>{{ step }}</li>
+                        {% endfor %}
+                      </ol>
+                    {% endif %}
+                  </section>
+                {% endfor %}
+                {% if topic.quick_tips %}
+                  <aside class="help-topic-tips">
+                    <strong>Gut zu wissen</strong>
+                    <ul>
+                      {% for tip in topic.quick_tips %}
+                        <li>{{ tip }}</li>
+                      {% endfor %}
+                    </ul>
+                  </aside>
+                {% endif %}
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </main>
+{% endblock %}

@@ -1,0 +1,411 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from doksio.accounts.permissions import TenantPermissions
+from doksio.documents.policies import can_administer_tenant, has_tenant_permission
+
+
+@dataclass(frozen=True)
+class HelpSection:
+    title: str
+    text: str
+    steps: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class HelpTopic:
+    slug: str
+    title: str
+    summary: str
+    icon: str
+    sections: tuple[HelpSection, ...]
+    quick_tips: tuple[str, ...] = ()
+    permission_code: str = ""
+    admin_only: bool = False
+
+
+HELP_TOPICS = (
+    HelpTopic(
+        slug="erste-schritte",
+        title="Erste Schritte",
+        summary="Die wichtigsten Bereiche und ein guter Einstieg in Doksio.",
+        icon="home",
+        sections=(
+            HelpSection(
+                title="Dein Arbeitsplatz",
+                text=(
+                    "Das Dashboard zeigt neue Dokumente und deine offenen Aufgaben. "
+                    "Über das linke Menü wechselst du zwischen Ablage, Suche und "
+                    "deinen Arbeitsvorgängen."
+                ),
+            ),
+            HelpSection(
+                title="Ein typischer Ablauf",
+                text="So bearbeitest du einen neuen Vorgang:",
+                steps=(
+                    "Öffne eine Aufgabe auf dem Dashboard oder unter „Meine Aufgaben“.",
+                    "Prüfe Dokument, Kerndaten, Kommentare und verknüpfte Dokumente.",
+                    "Erledige den hervorgehobenen Workflow-Schritt.",
+                ),
+            ),
+        ),
+        quick_tips=(
+            "Deine offenen Aufgaben erkennst du am gelben Zähler im linken Menü.",
+            "Über deinen Namen erreichst du Profil, Benachrichtigungen und Verlauf.",
+        ),
+    ),
+    HelpTopic(
+        slug="dokumente-finden",
+        title="Dokumente finden",
+        summary="Dokumentenboxen durchsuchen und gezielt mit Filtern arbeiten.",
+        icon="search",
+        sections=(
+            HelpSection(
+                title="Durch Dokumentenboxen navigieren",
+                text=(
+                    "Unter „Dokumente“ öffnest du Boxen wie Verzeichnisse. „..“ führt "
+                    "eine Ebene zurück. Unterboxen stehen immer oberhalb der Belege."
+                ),
+            ),
+            HelpSection(
+                title="Die Suche eingrenzen",
+                text="Kombiniere nur die Filter, die du wirklich benötigst:",
+                steps=(
+                    "Gib einen Begriff, eine Nummer oder einen Namen ein.",
+                    (
+                        "Wähle bei Bedarf Dokumentenbox, Zeitraum, Tags oder "
+                        "Workflow-Status."
+                    ),
+                    (
+                        "Aktiviere „Teilwörter finden“ nur für Suchen innerhalb "
+                        "längerer Werte."
+                    ),
+                ),
+            ),
+        ),
+        quick_tips=(
+            "Die Suche neben „Hochladen“ übernimmt die aktuell geöffnete Box.",
+            "Ein Klick auf das Vorschaubild öffnet eine schnelle Dokumentvorschau.",
+        ),
+    ),
+    HelpTopic(
+        slug="dokumente-hochladen",
+        title="Dokumente hochladen",
+        summary="Einzelne oder mehrere Dateien sicher in Doksio ablegen.",
+        icon="upload",
+        sections=(
+            HelpSection(
+                title="Dateien hochladen",
+                text=(
+                    "Dateien können ausgewählt oder per Drag-and-drop "
+                    "hinzugefügt werden."
+                ),
+                steps=(
+                    (
+                        "Wähle die passende Dokumentenbox oder nutze die "
+                        "automatische Zuordnung."
+                    ),
+                    "Füge eine oder mehrere Dateien hinzu.",
+                    "Lass den Titel leer, wenn Doksio ihn automatisch bestimmen soll.",
+                    "Starte den Upload und warte auf die Bestätigung.",
+                ),
+            ),
+            HelpSection(
+                title="Verarbeitung im Hintergrund",
+                text=(
+                    "Nach dem Speichern laufen je nach Dateityp "
+                    "Vorschauerstellung, OCR, "
+                    "eRechnungs-Auswertung und passende Workflows automatisch."
+                ),
+            ),
+        ),
+        quick_tips=(
+            "Dubletten werden erkannt und nicht erneut abgelegt.",
+            (
+                "Mehrere Dateien erhalten jeweils einen eigenen automatisch "
+                "ermittelten Titel."
+            ),
+        ),
+    ),
+    HelpTopic(
+        slug="dokument-bearbeiten",
+        title="Mit Dokumenten arbeiten",
+        summary="Vorschau, Kerndaten, Kommentare und Prüfhilfen verwenden.",
+        icon="file",
+        sections=(
+            HelpSection(
+                title="Die Detailansicht",
+                text=(
+                    "Links stehen Arbeitsinformationen und Aktionen, rechts die "
+                    "Vorschau. Volltext und eRechnungs-Daten lassen sich unter "
+                    "der Vorschau öffnen."
+                ),
+            ),
+            HelpSection(
+                title="Zusammenarbeiten",
+                text=(
+                    "Kommentare bleiben am Dokument erhalten. Mit @Benutzername "
+                    "erwähnst "
+                    "du Kollegen gezielt und löst deren Benachrichtigung aus."
+                ),
+            ),
+            HelpSection(
+                title="Prüfhilfen",
+                text=(
+                    "Die normale Prüfhilfe unterstützt beim zeilenweisen Lesen. "
+                    "Wenn die "
+                    "erweiterte Prüfhilfe für die Box aktiv ist, können zusätzlich "
+                    "persistente Prüfsymbole auf einzelnen Seiten gesetzt werden."
+                ),
+            ),
+        ),
+        quick_tips=(
+            "Ein Rechtsklick entfernt ein gesetztes Prüfsymbol.",
+            "Kerndaten werden in einer eigenen kompakten Ansicht bearbeitet.",
+        ),
+    ),
+    HelpTopic(
+        slug="aufgaben-workflows",
+        title="Aufgaben und Workflows",
+        summary="Offene Arbeit erkennen und Workflow-Schritte sicher abschließen.",
+        icon="workflow",
+        sections=(
+            HelpSection(
+                title="Was ist ein Workflow?",
+                text=(
+                    "Ein Workflow ist ein festgelegter Arbeitsablauf für ein "
+                    "Dokument. Er sorgt dafür, dass notwendige Prüfungen und "
+                    "Bearbeitungsschritte in der richtigen Reihenfolge erfolgen "
+                    "und bei den zuständigen Personen ankommen."
+                ),
+                steps=(
+                    (
+                        "Ein neues Dokument startet automatisch den passenden "
+                        "Workflow, zum Beispiel eine Rechnungsprüfung."
+                    ),
+                    (
+                        "Der Workflow besteht aus einzelnen Schritten, etwa "
+                        "Daten ergänzen, sachlich prüfen und freigeben."
+                    ),
+                    (
+                        "Ein Schritt wird als Aufgabe bei den Benutzern "
+                        "angezeigt, deren Rolle dafür zuständig ist."
+                    ),
+                    (
+                        "Sobald alle Schritte abgeschlossen sind, ist auch der "
+                        "Workflow beendet."
+                    ),
+                ),
+            ),
+            HelpSection(
+                title="Workflow, Schritt und Aufgabe",
+                text=(
+                    "Der Workflow beschreibt den gesamten Ablauf. Ein "
+                    "Workflow-Schritt ist eine einzelne Station darin. Unter "
+                    "„Meine Aufgaben“ siehst du genau die aktuell offenen "
+                    "Schritte, für die du verantwortlich bist."
+                ),
+            ),
+            HelpSection(
+                title="Meine Aufgaben",
+                text=(
+                    "Hier erscheinen alle offenen Schritte, die dir über deine Rollen "
+                    "zugeordnet sind. Bei mehreren Workflows kannst du die "
+                    "Liste filtern."
+                ),
+            ),
+            HelpSection(
+                title="Einen Schritt erledigen",
+                text="Öffne das Dokument und prüfe die hervorgehobene Aufgabe:",
+                steps=(
+                    "Kontrolliere Dokument und vorhandene Informationen.",
+                    "Ergänze erforderliche Metadaten oder Verknüpfungen.",
+                    "Füge einen Kommentar hinzu, wenn der Schritt ihn verlangt.",
+                    "Bestätige den Schritt über die hervorgehobene Aktion.",
+                ),
+            ),
+        ),
+        quick_tips=(
+            (
+                "Ein Workflow-Indikator zeigt, ob ein Dokument noch offene "
+                "Schritte besitzt."
+            ),
+            "Abgeschlossene Schritte bleiben im Dokumenten-Log nachvollziehbar.",
+        ),
+    ),
+    HelpTopic(
+        slug="kommentare",
+        title="Kommentare und Erwähnungen",
+        summary="Kollegen einbeziehen und Gespräche am Dokument nachvollziehen.",
+        icon="message-circle",
+        sections=(
+            HelpSection(
+                title="Jemanden erwähnen",
+                text=(
+                    "Tippe im Kommentar @ und wähle einen Benutzer aus der "
+                    "Vorschlagsliste. "
+                    "Die erwähnte Person erhält abhängig von ihrem Profil eine In-App- "
+                    "oder E-Mail-Benachrichtigung."
+                ),
+            ),
+            HelpSection(
+                title="Im Gespräch bleiben",
+                text=(
+                    "Wer einmal an einem Dokument erwähnt wurde, wird auch über "
+                    "spätere "
+                    "Kommentare informiert. Eigene Kommentare lösen keine "
+                    "Benachrichtigung an dich selbst aus."
+                ),
+            ),
+        ),
+        quick_tips=(
+            "Kommentare verändern die Originaldatei nicht.",
+            (
+                "Die Benachrichtigungskanäle lassen sich im persönlichen "
+                "Profil einstellen."
+            ),
+        ),
+    ),
+    HelpTopic(
+        slug="stapelimport",
+        title="Stapelimport",
+        summary=(
+            "Viele Dateien sichten, Dokumentenboxen zuordnen und gemeinsam "
+            "importieren."
+        ),
+        icon="package",
+        permission_code=TenantPermissions.DOCUMENTS_BATCH_IMPORT,
+        sections=(
+            HelpSection(
+                title="Einen Stapel bearbeiten",
+                text=(
+                    "Ein Stapel bleibt gespeichert, bis er abgeschlossen oder "
+                    "verworfen "
+                    "wird. Bereits getroffene Zuordnungen werden sofort gesichert."
+                ),
+                steps=(
+                    "Lade alle zusammengehörigen Dateien in einen neuen Stapel.",
+                    "Prüfe die Vorschau und den Zuordnungsvorschlag jeder Datei.",
+                    "Wähle die Zielbox oder markiere die Datei zum Überspringen.",
+                    (
+                        "Schließe den Stapel ab, sobald alle offenen Dateien "
+                        "bearbeitet sind."
+                    ),
+                ),
+            ),
+        ),
+        quick_tips=(
+            (
+                "Grün markierte Dateien sind zugeordnet, gelbe benötigen noch "
+                "Aufmerksamkeit."
+            ),
+            "Office-Dateien erhalten nach dem Import eine PDF-Vorschau im Hintergrund.",
+        ),
+    ),
+    HelpTopic(
+        slug="tastenkuerzel",
+        title="Tastenkürzel",
+        summary="Häufige Bereiche und Aktionen schneller erreichen.",
+        icon="keyboard",
+        sections=(
+            HelpSection(
+                title="Eigene Kürzel",
+                text=(
+                    "Unter Profil → Tastenkürzel kannst du ein Feld auswählen und die "
+                    "gewünschte Tastenkombination direkt drücken. Änderungen "
+                    "gelten nur "
+                    "für dein eigenes Benutzerkonto."
+                ),
+            ),
+        ),
+        quick_tips=(
+            "Alt+H öffnet standardmäßig deinen Dokumentenverlauf.",
+            "Bereits vergebene Kombinationen sollten nicht doppelt verwendet werden.",
+        ),
+    ),
+    HelpTopic(
+        slug="administration",
+        title="Administration",
+        summary="Benutzer, Rollen, Dokumentenboxen und Importe konfigurieren.",
+        icon="settings",
+        admin_only=True,
+        sections=(
+            HelpSection(
+                title="Einstellungen strukturiert ändern",
+                text=(
+                    "Die Tenant-Einstellungen sind nach fachlichen Bereichen "
+                    "gegliedert. "
+                    "Änderungen an Rollen, Boxen und Workflows wirken auf die Arbeit "
+                    "mehrerer Benutzer und sollten gezielt getestet werden."
+                ),
+            ),
+            HelpSection(
+                title="Berechtigungen",
+                text=(
+                    "Berechtigungen werden über mehrere Rollen additiv vergeben. "
+                    "Dokumentenbox-Rechte beschränken zusätzlich, welche Ablagen und "
+                    "Dokumente ein Benutzer sehen kann."
+                ),
+            ),
+        ),
+        quick_tips=(
+            (
+                "Status und Hintergrundjobs helfen bei der Kontrolle laufender "
+                "Verarbeitung."
+            ),
+            (
+                "Für Tests können eigene Boxen angelegt und später kontrolliert "
+                "geleert werden."
+            ),
+        ),
+    ),
+)
+
+TOPICS_BY_SLUG = {topic.slug: topic for topic in HELP_TOPICS}
+
+CONTEXT_TOPIC_SLUGS = {
+    ("documents", "dashboard"): "erste-schritte",
+    ("documents", "tasks"): "aufgaben-workflows",
+    ("documents", "list"): "dokumente-finden",
+    ("documents", "box"): "dokumente-finden",
+    ("documents", "detail"): "dokument-bearbeiten",
+    ("documents", "core_metadata_edit"): "dokument-bearbeiten",
+    ("documents", "upload"): "dokumente-hochladen",
+    ("documents", "import_batch_list"): "stapelimport",
+    ("documents", "import_batch_upload"): "stapelimport",
+    ("documents", "import_batch_detail"): "stapelimport",
+    ("search", "documents"): "dokumente-finden",
+    ("workflows", "list"): "aufgaben-workflows",
+    ("accounts", "profile_notifications"): "kommentare",
+    ("accounts", "profile_shortcuts"): "tastenkuerzel",
+}
+
+
+def contextual_help_topic(resolver_match) -> HelpTopic:
+    if resolver_match is None:
+        return TOPICS_BY_SLUG["erste-schritte"]
+    key = (resolver_match.app_name or "", resolver_match.url_name or "")
+    slug = CONTEXT_TOPIC_SLUGS.get(key)
+    if slug is None:
+        if "settings" in (resolver_match.url_name or ""):
+            slug = "administration"
+        else:
+            slug = "erste-schritte"
+    return TOPICS_BY_SLUG[slug]
+
+
+def visible_help_topics(*, user, tenant) -> list[HelpTopic]:
+    is_admin = can_administer_tenant(user, tenant)
+    topics = []
+    for topic in HELP_TOPICS:
+        if topic.admin_only and not is_admin:
+            continue
+        if topic.permission_code and not has_tenant_permission(
+            user,
+            tenant,
+            topic.permission_code,
+        ):
+            continue
+        topics.append(topic)
+    return topics
