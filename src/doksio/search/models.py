@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.contrib.postgres.search import SearchVectorField
 from django.db import models
+from django.db.models.functions import Upper
 
 
 class DocumentSearchIndex(models.Model):
@@ -33,6 +35,10 @@ class DocumentSearchIndex(models.Model):
             models.Index(fields=["tenant", "document"]),
             models.Index(fields=["tenant", "updated_at"]),
             models.Index(fields=["tenant", "title"]),
+            GinIndex(
+                OpClass(Upper("combined_text"), name="gin_trgm_ops"),
+                name="search_combined_text_trgm_gin",
+            ),
         ]
 
     def __str__(self) -> str:

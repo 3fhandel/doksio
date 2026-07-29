@@ -278,6 +278,15 @@ class DocumentSearchForm(forms.Form):
         initial=True,
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
+    partial_words = forms.BooleanField(
+        label="Teilwörter finden",
+        required=False,
+        initial=False,
+        help_text=(
+            "Findet den Suchbegriff auch innerhalb längerer Wörter und Nummern."
+        ),
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
     workflow_status = forms.ChoiceField(
         label="Workflow-Status",
         required=False,

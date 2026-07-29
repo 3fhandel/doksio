@@ -401,6 +401,45 @@ def test_document_search_view_renders_results_for_tenant_member(client):
 
 
 @pytest.mark.django_db
+def test_document_search_view_can_find_partial_words(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(username="alice")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    document, document_file = _create_document(
+        tenant,
+        space,
+        "Referenzbeleg",
+    )
+    OcrJob.objects.create(
+        tenant=tenant,
+        document_file=document_file,
+        status=OcrJob.Status.SUCCEEDED,
+        extracted_text="Interne Referenz R1234",
+    )
+    RebuildDocumentSearchIndex(document=document).execute()
+    client.force_login(user)
+
+    response = client.get(
+        reverse("search:documents", kwargs={"tenant_slug": tenant.slug}),
+        {"q": "1234", "partial_words": "on"},
+    )
+    content = response.content.decode()
+
+    assert response.status_code == 200
+    assert list(response.context["documents"]) == [document]
+    assert "Teilwörter finden" in content
+    assert 'name="partial_words"' in content
+    assert "checked" in content
+    assert "Fundstelle: Volltext" in content
+
+
+@pytest.mark.django_db
 def test_document_search_view_shows_workflow_counts(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()

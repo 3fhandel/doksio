@@ -184,15 +184,25 @@ class SearchDocuments:
 
         query = self.filters.get("q", "")
         has_text_query = bool(query.strip())
+        partial_words = bool(self.filters.get("partial_words"))
         exact_document_id = int(query) if query.strip().isdigit() else None
         if has_text_query and connection.vendor == "postgresql":
             search_query = _postgres_search_query(query)
-            text_filter = Q(search_index__search_vector=search_query) | Q(
-                space__path__icontains=query
-            )
-            if exact_document_id is not None:
-                text_filter |= Q(id=exact_document_id)
-            documents = documents.filter(text_filter)
+            if partial_words:
+                for term in _split_terms(query):
+                    term_filter = Q(
+                        search_index__combined_text__icontains=term,
+                    ) | Q(space__path__icontains=term)
+                    if exact_document_id is not None and term == query.strip():
+                        term_filter |= Q(id=exact_document_id)
+                    documents = documents.filter(term_filter)
+            else:
+                text_filter = Q(search_index__search_vector=search_query) | Q(
+                    space__path__icontains=query
+                )
+                if exact_document_id is not None:
+                    text_filter |= Q(id=exact_document_id)
+                documents = documents.filter(text_filter)
             documents = documents.annotate(
                 search_rank=SearchRank(
                     F("search_index__search_vector"),
