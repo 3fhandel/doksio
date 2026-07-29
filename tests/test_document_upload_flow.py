@@ -27,6 +27,7 @@ from doksio.documents.models import (
     DocumentMetadataField,
     DocumentNavigationContext,
     DocumentRelation,
+    DocumentReviewMarker,
     DocumentSpace,
     DocumentTitleRule,
 )
@@ -1990,6 +1991,141 @@ def test_document_detail_shows_review_assist_without_document_box_setting(client
     content = response.content.decode()
     assert "Prüfhilfe" in content
     assert "data-review-assist-toggle" in content
+    assert "Erweiterte Prüfhilfe" not in content
+    assert "data-advanced-review-assist" not in content
+
+
+@pytest.mark.django_db
+def test_document_review_markers_are_shared_and_persistent(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(
+        tenant=tenant,
+        name="Rechnungen",
+        advanced_review_assist_enabled=True,
+    ).execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    first_user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    second_user = get_user_model().objects.create_user(
+        username="bob",
+        password="secret",
+    )
+    for user in (first_user, second_user):
+        TenantMembership.objects.create(
+            tenant=tenant,
+            user=user,
+            role=roles["viewer"],
+        )
+    document, _document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Invoice 4711",
+        space=space,
+        file_obj=BytesIO(b"%PDF-1.4\n"),
+        original_filename="invoice.pdf",
+        content_type="application/pdf",
+    ).execute()
+    create_url = reverse(
+        "documents:review_marker_create",
+        kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+    )
+    client.force_login(first_user)
+
+    create_response = client.post(
+        create_url,
+        data=json.dumps(
+            {
+                "symbol": "exclamation",
+                "page_number": 2,
+                "x": 0.25,
+                "y": 0.75,
+                "size": 0.055,
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert create_response.status_code == 201
+    marker = DocumentReviewMarker.objects.get(document=document)
+    assert marker.created_by == first_user
+    assert marker.symbol == DocumentReviewMarker.Symbol.EXCLAMATION
+
+    detail_response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        )
+    )
+    detail_content = detail_response.content.decode()
+    assert detail_response.status_code == 200
+    assert "data-advanced-review-assist" in detail_content
+    assert "data-advanced-review-toggle" not in detail_content
+    assert 'aria-label="Prüfmarkierung auswählen"' in detail_content
+    assert 'data-review-symbol="check"' in detail_content
+    assert "document-review-swatch-check active" not in detail_content
+    assert "Symbol verkleinern" in detail_content
+    assert "Symbol vergrößern" in detail_content
+    assert f'"id": {marker.id}' in detail_content
+    assert '"symbol": "exclamation"' in detail_content
+
+    client.force_login(second_user)
+    delete_response = client.post(
+        reverse(
+            "documents:review_marker_delete",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "document_id": document.id,
+                "marker_id": marker.id,
+            },
+        )
+    )
+
+    assert delete_response.status_code == 200
+    assert not DocumentReviewMarker.objects.filter(id=marker.id).exists()
+
+
+@pytest.mark.django_db
+def test_document_review_marker_endpoint_requires_enabled_box(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    document = Document.objects.create(
+        tenant=tenant,
+        space=space,
+        title="Invoice 4711",
+        created_by=user,
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:review_marker_create",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        ),
+        data=json.dumps(
+            {
+                "symbol": "check",
+                "page_number": 1,
+                "x": 0.5,
+                "y": 0.5,
+                "size": 0.045,
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 409
+    assert not DocumentReviewMarker.objects.exists()
 
 
 @pytest.mark.django_db
@@ -4110,6 +4246,7 @@ def test_tenant_admin_can_create_document_box_from_settings(client):
     box = DocumentSpace.objects.get(tenant=tenant)
     assert box.path == "/rechnungen"
     assert box.review_assist_enabled is False
+    assert box.advanced_review_assist_enabled is False
 
 
 @pytest.mark.django_db
@@ -4347,6 +4484,7 @@ def test_tenant_admin_can_update_document_box_from_settings(client):
             "slug": "buchhaltung",
             "parent": "",
             "description": "Finanzdokumente",
+            "advanced_review_assist_enabled": "on",
             "is_active": "on",
         },
     )
@@ -4356,6 +4494,7 @@ def test_tenant_admin_can_update_document_box_from_settings(client):
     assert response.status_code == 302
     assert box.path == "/buchhaltung"
     assert box.review_assist_enabled is False
+    assert box.advanced_review_assist_enabled is True
     assert child.path == "/buchhaltung/archiv"
 
 

@@ -632,6 +632,11 @@ class DocumentSpaceForm(forms.Form):
         required=False,
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
+    advanced_review_assist_enabled = forms.BooleanField(
+        label="Erweiterte Prüfhilfe aktiv",
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
 
     def clean(self) -> dict:
         cleaned_data = super().clean()

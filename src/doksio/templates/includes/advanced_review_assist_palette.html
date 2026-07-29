@@ -1,0 +1,51 @@
+{% if advanced_review_assist_enabled %}
+  <div
+    class="document-review-palette"
+    data-review-marker-palette
+    role="toolbar"
+    aria-label="Prüfmarkierung auswählen"
+  >
+    <button
+      class="document-review-swatch document-review-swatch-check"
+      type="button"
+      data-review-symbol="check"
+      title="Schwarzer Haken auswählen oder deaktivieren"
+      aria-label="Schwarzer Haken"
+      aria-pressed="false"
+    >✓</button>
+    <button
+      class="document-review-swatch document-review-swatch-exclamation"
+      type="button"
+      data-review-symbol="exclamation"
+      title="Rotes Ausrufezeichen auswählen oder deaktivieren"
+      aria-label="Rotes Ausrufezeichen"
+      aria-pressed="false"
+    >!</button>
+    <button
+      class="document-review-swatch document-review-swatch-question"
+      type="button"
+      data-review-symbol="question"
+      title="Gelbes Fragezeichen auswählen oder deaktivieren"
+      aria-label="Gelbes Fragezeichen"
+      aria-pressed="false"
+    >?</button>
+    <span class="document-review-palette-separator" aria-hidden="true"></span>
+    <button
+      class="document-review-size-button"
+      type="button"
+      data-review-size-decrease
+      title="Symbol verkleinern"
+      aria-label="Symbol verkleinern"
+      disabled
+    >−</button>
+    <span class="document-review-size" data-review-marker-size>100 %</span>
+    <button
+      class="document-review-size-button"
+      type="button"
+      data-review-size-increase
+      title="Symbol vergrößern"
+      aria-label="Symbol vergrößern"
+      disabled
+    >+</button>
+  </div>
+{% endif %}

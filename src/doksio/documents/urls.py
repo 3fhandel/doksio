@@ -74,6 +74,19 @@ urlpatterns = [
         name="delete",
     ),
     path(
+        "t/<slug:tenant_slug>/documents/<int:document_id>/review-markers/",
+        views.document_review_marker_create,
+        name="review_marker_create",
+    ),
+    path(
+        (
+            "t/<slug:tenant_slug>/documents/<int:document_id>/"
+            "review-markers/<int:marker_id>/delete/"
+        ),
+        views.document_review_marker_delete,
+        name="review_marker_delete",
+    ),
+    path(
         "t/<slug:tenant_slug>/documents/<int:document_id>/relations/search/",
         views.document_relation_picker_search,
         name="relation_picker_search",

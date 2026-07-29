@@ -79,6 +79,7 @@ from doksio.documents.models import (
     DocumentImportBatchItem,
     DocumentMetadataField,
     DocumentRelation,
+    DocumentReviewMarker,
     DocumentSpace,
     DocumentTitleRule,
 )
@@ -107,6 +108,7 @@ from doksio.documents.services import (
     AddDocumentComment,
     AddDocumentMetadataChoice,
     AddDocumentRelation,
+    AddDocumentReviewMarker,
     CreateDocumentFromUpload,
     CreateDocumentImportBatch,
     CreateDocumentMetadataField,
@@ -119,6 +121,7 @@ from doksio.documents.services import (
     EmptyDocumentSpace,
     FinalizeDocumentImportBatch,
     RemoveDocumentRelation,
+    RemoveDocumentReviewMarker,
     SetDocumentTags,
     SplitPdfDocument,
     UpdateDocumentCoreMetadata,
@@ -2141,6 +2144,16 @@ def document_detail(
     preview_ocr_job = preview_file.latest_ocr_job if preview_file is not None else None
     preview_rotation = _viewer_rotation(preview_file)
     preview_page_rotations = _viewer_page_rotations(preview_file)
+    review_markers = list(
+        document.review_markers.values(
+            "id",
+            "symbol",
+            "page_number",
+            "x",
+            "y",
+            "size",
+        )
+    )
     workflow_instances = list(
         document.workflow_instances.select_related(
             "template",
@@ -2257,6 +2270,10 @@ def document_detail(
             "preview_ocr_job": preview_ocr_job,
             "preview_rotation": preview_rotation,
             "preview_page_rotations": preview_page_rotations,
+            "advanced_review_assist_enabled": (
+                document.space.advanced_review_assist_enabled
+            ),
+            "review_markers": review_markers,
             "comment_form": comment_form,
             "metadata_form": metadata_form,
             "relation_form": relation_form,
@@ -2694,6 +2711,92 @@ def document_file_viewer_settings(
     )
 
 
+def document_review_marker_create(
+    request: HttpRequest,
+    tenant_slug: str,
+    document_id: int,
+) -> JsonResponse:
+    if request.method != "POST":
+        return JsonResponse({"error": "method_not_allowed"}, status=405)
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "authentication_required"}, status=403)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None:
+        raise PermissionDenied
+    document = get_object_or_404(
+        Document.objects.select_related("space"),
+        id=document_id,
+        tenant=tenant,
+        status=Document.Status.ACTIVE,
+    )
+    if not can_view_document(request.user, document):
+        raise PermissionDenied
+    if not document.space.advanced_review_assist_enabled:
+        return JsonResponse({"error": "feature_disabled"}, status=409)
+
+    try:
+        payload = json.loads(request.body.decode() or "{}")
+        marker = AddDocumentReviewMarker(
+            document=document,
+            symbol=str(payload.get("symbol", "")),
+            page_number=int(payload.get("page_number", 0)),
+            x=float(payload.get("x")),
+            y=float(payload.get("y")),
+            size=float(payload.get("size")),
+            actor=request.user,
+        ).execute()
+    except (
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+    ):
+        return JsonResponse({"error": "invalid_payload"}, status=400)
+
+    return JsonResponse(
+        {
+            "id": marker.id,
+            "symbol": marker.symbol,
+            "page_number": marker.page_number,
+            "x": marker.x,
+            "y": marker.y,
+            "size": marker.size,
+        },
+        status=201,
+    )
+
+
+def document_review_marker_delete(
+    request: HttpRequest,
+    tenant_slug: str,
+    document_id: int,
+    marker_id: int,
+) -> JsonResponse:
+    if request.method != "POST":
+        return JsonResponse({"error": "method_not_allowed"}, status=405)
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "authentication_required"}, status=403)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None:
+        raise PermissionDenied
+    marker = get_object_or_404(
+        DocumentReviewMarker.objects.select_related("document__space"),
+        id=marker_id,
+        document_id=document_id,
+        tenant=tenant,
+        document__status=Document.Status.ACTIVE,
+    )
+    if not can_view_document(request.user, marker.document):
+        raise PermissionDenied
+    if not marker.document.space.advanced_review_assist_enabled:
+        return JsonResponse({"error": "feature_disabled"}, status=409)
+
+    RemoveDocumentReviewMarker(marker=marker).execute()
+    return JsonResponse({"ok": True})
+
+
 def audit_log(
     request: HttpRequest,
     tenant_slug: str,
@@ -2830,6 +2933,9 @@ def tenant_settings_document_box_create(
                 datev_document_image_export_enabled=form.cleaned_data[
                     "datev_document_image_export_enabled"
                 ],
+                advanced_review_assist_enabled=form.cleaned_data[
+                    "advanced_review_assist_enabled"
+                ],
             ).execute()
             messages.success(request, "Dokumentenbox wurde erstellt.")
             return redirect(
@@ -2883,6 +2989,9 @@ def tenant_settings_document_box_edit(
                     "datev_document_image_export_enabled"
                 ],
                 review_assist_enabled=document_space.review_assist_enabled,
+                advanced_review_assist_enabled=form.cleaned_data[
+                    "advanced_review_assist_enabled"
+                ],
                 is_active=form.cleaned_data["is_active"],
             ).execute()
             messages.success(request, "Dokumentenbox wurde aktualisiert.")
@@ -2901,6 +3010,9 @@ def tenant_settings_document_box_edit(
                 "description": document_space.description,
                 "datev_document_image_export_enabled": (
                     document_space.datev_document_image_export_enabled
+                ),
+                "advanced_review_assist_enabled": (
+                    document_space.advanced_review_assist_enabled
                 ),
                 "is_active": document_space.is_active,
             },

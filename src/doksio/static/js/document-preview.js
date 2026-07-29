@@ -1,5 +1,6 @@
 function initPreview(root) {
     initReviewAssist(root);
+    const advancedReviewAssist = initAdvancedReviewAssist(root);
 
     const stage = root.querySelector(".document-preview-stage");
     const pages = root.querySelector("[data-pdf-pages]");
@@ -148,6 +149,7 @@ function initPreview(root) {
         const pageElement = document.createElement("div");
         pageElement.className = "document-preview-page";
         pageElement.dataset.pageNumber = String(number);
+        pageElement.dataset.pageRotation = String(rotationForPage(number));
         pageElement.style.width = `${Math.floor(viewport.width)}px`;
         pageElement.style.height = `${Math.floor(viewport.height)}px`;
         const canvas = document.createElement("canvas");
@@ -155,6 +157,7 @@ function initPreview(root) {
         canvas.setAttribute("aria-label", `PDF-Seite ${number}`);
         pageElement.appendChild(canvas);
         pages.appendChild(pageElement);
+        advancedReviewAssist?.decorateTarget(pageElement, number);
         pageObserver.observe(pageElement);
       }
 
@@ -229,6 +232,7 @@ function initPreview(root) {
 
 function initImagePreview(root) {
   initReviewAssist(root);
+  const advancedReviewAssist = initAdvancedReviewAssist(root);
 
   const stage = root.querySelector("[data-image-stage]");
   const frame = root.querySelector("[data-image-frame]");
@@ -301,6 +305,9 @@ function initImagePreview(root) {
     image.style.transform = `rotate(${rotation}deg)`;
     frame.style.width = `${Math.max(Math.round(visualWidth() * scale), 1)}px`;
     frame.style.height = `${Math.max(Math.round(visualHeight() * scale), 1)}px`;
+    frame.dataset.pageRotation = String(rotation);
+    advancedReviewAssist?.decorateTarget(frame, 1);
+    advancedReviewAssist?.refreshTarget(frame);
     updateLabel();
   }
 
@@ -422,6 +429,308 @@ function persistViewerRotation(root, rotation, pageNumber = null) {
   }).catch(function () {
     root.dataset.viewerRotationSaveFailed = "true";
   });
+}
+
+function initAdvancedReviewAssist(root) {
+  if (!root.hasAttribute("data-advanced-review-assist")) {
+    return null;
+  }
+
+  const palette = root.querySelector("[data-review-marker-palette]");
+  const sizeLabel = root.querySelector("[data-review-marker-size]");
+  const sizeDecreaseButton = root.querySelector("[data-review-size-decrease]");
+  const sizeIncreaseButton = root.querySelector("[data-review-size-increase]");
+  const markerData = root.querySelector("#document-review-markers");
+  const createUrl = root.dataset.reviewMarkerCreateUrl;
+  const deleteUrl = root.dataset.reviewMarkerDeleteUrl;
+  if (!palette || !markerData || !createUrl || !deleteUrl) {
+    return null;
+  }
+
+  let markers = [];
+  try {
+    markers = JSON.parse(markerData.textContent);
+  } catch (_error) {
+    markers = [];
+  }
+
+  let selectedSymbol = null;
+  const baseSize = 0.045;
+  const sizeStep = baseSize * 0.25;
+  const minimumSize = baseSize * 0.5;
+  const maximumSize = baseSize * 3;
+  let selectedSize = Number.parseFloat(
+    window.localStorage.getItem("doksio-review-marker-size") || "0.045",
+  );
+  if (!Number.isFinite(selectedSize)) {
+    selectedSize = baseSize;
+  }
+  selectedSize = Math.min(
+    maximumSize,
+    Math.max(
+      minimumSize,
+      Math.round(selectedSize / sizeStep) * sizeStep,
+    ),
+  );
+
+  function rotationForTarget(target) {
+    return normalizeRotation(
+      Number.parseInt(target.dataset.pageRotation || "0", 10),
+    );
+  }
+
+  function canonicalToDisplay(x, y, rotation) {
+    if (rotation === 90) {
+      return { x: 1 - y, y: x };
+    }
+    if (rotation === 180) {
+      return { x: 1 - x, y: 1 - y };
+    }
+    if (rotation === 270) {
+      return { x: y, y: 1 - x };
+    }
+    return { x, y };
+  }
+
+  function displayToCanonical(x, y, rotation) {
+    if (rotation === 90) {
+      return { x: y, y: 1 - x };
+    }
+    if (rotation === 180) {
+      return { x: 1 - x, y: 1 - y };
+    }
+    if (rotation === 270) {
+      return { x: 1 - y, y: x };
+    }
+    return { x, y };
+  }
+
+  function symbolText(symbol) {
+    return {
+      check: "✓",
+      exclamation: "!",
+      question: "?",
+    }[symbol] || "?";
+  }
+
+  function updateSizeLabel() {
+    if (sizeLabel) {
+      sizeLabel.textContent = `${Math.round(selectedSize / baseSize * 100)} %`;
+    }
+    if (sizeDecreaseButton) {
+      sizeDecreaseButton.disabled = (
+        !selectedSymbol || selectedSize <= minimumSize
+      );
+    }
+    if (sizeIncreaseButton) {
+      sizeIncreaseButton.disabled = (
+        !selectedSymbol || selectedSize >= maximumSize
+      );
+    }
+  }
+
+  function changeSelectedSize(direction) {
+    selectedSize = Math.min(
+      maximumSize,
+      Math.max(minimumSize, selectedSize + direction * sizeStep),
+    );
+    window.localStorage.setItem(
+      "doksio-review-marker-size",
+      String(selectedSize),
+    );
+    updateSizeLabel();
+  }
+
+  function markerElement(marker, target) {
+    const element = document.createElement("button");
+    const displayPosition = canonicalToDisplay(
+      Number(marker.x),
+      Number(marker.y),
+      rotationForTarget(target),
+    );
+    element.type = "button";
+    element.className = `document-review-marker document-review-marker-${marker.symbol}`;
+    element.dataset.reviewMarkerId = String(marker.id);
+    element.textContent = symbolText(marker.symbol);
+    element.style.left = `${displayPosition.x * 100}%`;
+    element.style.top = `${displayPosition.y * 100}%`;
+    element.style.setProperty(
+      "--review-marker-pixels",
+      `${Math.max(14, Math.min(target.clientWidth, target.clientHeight) * marker.size)}px`,
+    );
+    element.dataset.reviewMarkerTooltip = "Rechtsklick zum Entfernen";
+    element.classList.toggle(
+      "document-review-marker-tooltip-above",
+      displayPosition.y > 0.82,
+    );
+    element.setAttribute("aria-label", `${element.textContent} Prüfmarkierung`);
+    return element;
+  }
+
+  function renderTargetMarkers(target, pageNumber) {
+    const layer = target.querySelector(":scope > [data-review-marker-layer]");
+    if (!layer) {
+      return;
+    }
+    layer.querySelectorAll("[data-review-marker-id]").forEach(function (marker) {
+      marker.remove();
+    });
+    markers
+      .filter((marker) => Number(marker.page_number) === pageNumber)
+      .forEach(function (marker) {
+        layer.appendChild(markerElement(marker, target));
+      });
+  }
+
+  function decorateTarget(target, pageNumber) {
+    target.dataset.reviewMarkerPage = String(pageNumber);
+    let layer = target.querySelector(":scope > [data-review-marker-layer]");
+    if (!layer) {
+      layer = document.createElement("div");
+      layer.className = "document-review-marker-layer";
+      layer.dataset.reviewMarkerLayer = "";
+      layer.innerHTML = [
+        '<span class="document-advanced-crosshair-x"></span>',
+        '<span class="document-advanced-crosshair-y"></span>',
+      ].join("");
+      target.appendChild(layer);
+    }
+    target.classList.toggle(
+      "document-advanced-review-active",
+      Boolean(selectedSymbol),
+    );
+    renderTargetMarkers(target, pageNumber);
+  }
+
+  function refreshTarget(target) {
+    const pageNumber = Number(target.dataset.reviewMarkerPage || "1");
+    renderTargetMarkers(target, pageNumber);
+  }
+
+  function updateToolState() {
+    root.querySelectorAll("[data-review-marker-page]").forEach(function (target) {
+      target.classList.toggle(
+        "document-advanced-review-active",
+        Boolean(selectedSymbol),
+      );
+    });
+    updateSizeLabel();
+  }
+
+  function updateCrosshair(target, event) {
+    const layer = target.querySelector(":scope > [data-review-marker-layer]");
+    if (!layer) {
+      return;
+    }
+    const rect = target.getBoundingClientRect();
+    layer.style.setProperty(
+      "--advanced-review-x",
+      `${event.clientX - rect.left}px`,
+    );
+    layer.style.setProperty(
+      "--advanced-review-y",
+      `${event.clientY - rect.top}px`,
+    );
+  }
+
+  async function createMarker(target, event) {
+    const rect = target.getBoundingClientRect();
+    const displayX = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    const displayY = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
+    const position = displayToCanonical(
+      displayX,
+      displayY,
+      rotationForTarget(target),
+    );
+    const response = await fetch(createUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": csrfToken(),
+      },
+      body: JSON.stringify({
+        symbol: selectedSymbol,
+        page_number: Number(target.dataset.reviewMarkerPage || "1"),
+        x: position.x,
+        y: position.y,
+        size: selectedSize,
+      }),
+    });
+    if (!response.ok) {
+      root.dataset.reviewMarkerSaveFailed = "true";
+      return;
+    }
+    markers.push(await response.json());
+    refreshTarget(target);
+  }
+
+  async function deleteMarker(markerElementToDelete) {
+    const markerId = markerElementToDelete.dataset.reviewMarkerId;
+    const response = await fetch(deleteUrl.replace("/0/delete/", `/${markerId}/delete/`), {
+      method: "POST",
+      headers: { "X-CSRFToken": csrfToken() },
+    });
+    if (!response.ok) {
+      root.dataset.reviewMarkerDeleteFailed = "true";
+      return;
+    }
+    markers = markers.filter((marker) => String(marker.id) !== markerId);
+    markerElementToDelete.remove();
+  }
+
+  palette.addEventListener("click", function (event) {
+    const swatch = event.target.closest("[data-review-symbol]");
+    if (!swatch) {
+      return;
+    }
+    selectedSymbol = selectedSymbol === swatch.dataset.reviewSymbol
+      ? null
+      : swatch.dataset.reviewSymbol;
+    palette.querySelectorAll("[data-review-symbol]").forEach(function (button) {
+      const selected = button.dataset.reviewSymbol === selectedSymbol;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-pressed", selected ? "true" : "false");
+    });
+    updateToolState();
+  });
+  sizeDecreaseButton?.addEventListener("click", function () {
+    changeSelectedSize(-1);
+  });
+  sizeIncreaseButton?.addEventListener("click", function () {
+    changeSelectedSize(1);
+  });
+  root.addEventListener("mousemove", function (event) {
+    if (!selectedSymbol) {
+      return;
+    }
+    const target = event.target.closest("[data-review-marker-page]");
+    if (target) {
+      updateCrosshair(target, event);
+    }
+  });
+  root.addEventListener("click", function (event) {
+    if (
+      !selectedSymbol
+      || event.button !== 0
+      || event.target.closest("[data-review-marker-id]")
+    ) {
+      return;
+    }
+    const target = event.target.closest("[data-review-marker-page]");
+    if (target) {
+      createMarker(target, event);
+    }
+  });
+  root.addEventListener("contextmenu", function (event) {
+    const marker = event.target.closest("[data-review-marker-id]");
+    if (!marker) {
+      return;
+    }
+    event.preventDefault();
+    deleteMarker(marker);
+  });
+  updateSizeLabel();
+  return { decorateTarget, refreshTarget };
 }
 
 function initReviewAssist(root) {

@@ -36,6 +36,7 @@ from doksio.documents.models import (
     DocumentImportBatchItem,
     DocumentMetadataField,
     DocumentRelation,
+    DocumentReviewMarker,
     DocumentSpace,
     DocumentTag,
     DocumentTagAssignment,
@@ -410,6 +411,7 @@ class CreateDocumentSpace:
     datev_document_image_export_enabled: bool = False
     space_kind: str = DocumentSpace.SpaceKind.GENERAL
     review_assist_enabled: bool = False
+    advanced_review_assist_enabled: bool = False
     is_active: bool = True
 
     @transaction.atomic
@@ -435,6 +437,9 @@ class CreateDocumentSpace:
                 ),
                 "space_kind": self.space_kind,
                 "review_assist_enabled": self.review_assist_enabled,
+                "advanced_review_assist_enabled": (
+                    self.advanced_review_assist_enabled
+                ),
                 "is_active": self.is_active,
             },
         )
@@ -451,6 +456,7 @@ class UpdateDocumentSpace:
     datev_document_image_export_enabled: bool = False
     space_kind: str = DocumentSpace.SpaceKind.GENERAL
     review_assist_enabled: bool = False
+    advanced_review_assist_enabled: bool = False
     is_active: bool = True
 
     @transaction.atomic
@@ -478,6 +484,9 @@ class UpdateDocumentSpace:
         )
         self.document_space.space_kind = self.space_kind
         self.document_space.review_assist_enabled = self.review_assist_enabled
+        self.document_space.advanced_review_assist_enabled = (
+            self.advanced_review_assist_enabled
+        )
         self.document_space.is_active = self.is_active
         self.document_space.save(
             update_fields=[
@@ -489,6 +498,7 @@ class UpdateDocumentSpace:
                 "datev_document_image_export_enabled",
                 "space_kind",
                 "review_assist_enabled",
+                "advanced_review_assist_enabled",
                 "is_active",
                 "updated_at",
             ]
@@ -2909,6 +2919,51 @@ class AddDocumentComment:
                 document=self.document,
                 document_comment=comment,
             ).execute()
+
+
+@dataclass(frozen=True)
+class AddDocumentReviewMarker:
+    document: Document
+    symbol: str
+    page_number: int
+    x: float
+    y: float
+    size: float
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> DocumentReviewMarker:
+        if not self.document.space.advanced_review_assist_enabled:
+            raise ValueError("Advanced review assist is not enabled.")
+        if self.symbol not in DocumentReviewMarker.Symbol.values:
+            raise ValueError("Unknown review marker symbol.")
+        if self.page_number < 1:
+            raise ValueError("Review marker page number must be positive.")
+        if not 0 <= self.x <= 1 or not 0 <= self.y <= 1:
+            raise ValueError("Review marker coordinates must be normalized.")
+        if not 0.015 <= self.size <= 0.15:
+            raise ValueError("Review marker size is out of range.")
+
+        marker = DocumentReviewMarker.objects.create(
+            tenant=self.document.tenant,
+            document=self.document,
+            symbol=self.symbol,
+            page_number=self.page_number,
+            x=self.x,
+            y=self.y,
+            size=self.size,
+            created_by=self.actor,
+        )
+        return marker
+
+
+@dataclass(frozen=True)
+class RemoveDocumentReviewMarker:
+    marker: DocumentReviewMarker
+
+    @transaction.atomic
+    def execute(self) -> None:
+        self.marker.delete()
 
 
 def _normalize_tag_name(name: str) -> tuple[str, str]:

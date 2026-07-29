@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -42,6 +43,7 @@ class DocumentSpace(models.Model):
         default=SpaceKind.GENERAL,
     )
     review_assist_enabled = models.BooleanField(default=False)
+    advanced_review_assist_enabled = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     deleted_at = models.DateTimeField(blank=True, null=True)
     deleted_by = models.ForeignKey(
@@ -536,6 +538,66 @@ class DocumentComment(models.Model):
 
     def __str__(self) -> str:
         return f"Comment on {self.document_id} at {self.created_at}"
+
+
+class DocumentReviewMarker(models.Model):
+    """A shared review symbol anchored to normalized document-page coordinates."""
+
+    class Symbol(models.TextChoices):
+        CHECK = "check", "Schwarzer Haken"
+        EXCLAMATION = "exclamation", "Rotes Ausrufezeichen"
+        QUESTION = "question", "Gelbes Fragezeichen"
+
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="document_review_markers",
+    )
+    document = models.ForeignKey(
+        Document,
+        on_delete=models.CASCADE,
+        related_name="review_markers",
+    )
+    page_number = models.PositiveIntegerField(default=1)
+    symbol = models.CharField(max_length=30, choices=Symbol.choices)
+    x = models.FloatField(
+        validators=[MinValueValidator(0), MaxValueValidator(1)],
+    )
+    y = models.FloatField(
+        validators=[MinValueValidator(0), MaxValueValidator(1)],
+    )
+    size = models.FloatField(
+        default=0.045,
+        validators=[MinValueValidator(0.015), MaxValueValidator(0.15)],
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="created_document_review_markers",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["page_number", "created_at", "id"]
+        indexes = [
+            models.Index(fields=["tenant", "document", "page_number"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(x__gte=0, x__lte=1),
+                name="documents_review_marker_x_range",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(y__gte=0, y__lte=1),
+                name="documents_review_marker_y_range",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(size__gte=0.015, size__lte=0.15),
+                name="documents_review_marker_size_range",
+            ),
+        ]
 
 
 class DocumentNavigationContext(models.Model):

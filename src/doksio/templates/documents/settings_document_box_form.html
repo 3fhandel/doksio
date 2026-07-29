@@ -67,6 +67,20 @@
             {{ form.datev_document_image_export_enabled.errors }}
           </div>
         </div>
+        <div class="col-12">
+          <div class="border rounded-3 p-3 bg-light-subtle">
+            <div class="form-check">
+              {{ form.advanced_review_assist_enabled }}
+              <label class="form-check-label fw-semibold" for="{{ form.advanced_review_assist_enabled.id_for_label }}">
+                Erweiterte Prüfhilfe aktiv
+              </label>
+            </div>
+            <div class="form-text">
+              Ermöglicht gemeinsame, persistente Prüfmarkierungen direkt auf dem Dokument.
+            </div>
+            {{ form.advanced_review_assist_enabled.errors }}
+          </div>
+        </div>
       </div>
       <button class="btn btn-primary mt-4" type="submit">{{ submit_label }}</button>
     </form>

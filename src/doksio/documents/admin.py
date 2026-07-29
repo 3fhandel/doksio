@@ -11,6 +11,7 @@ from doksio.documents.models import (
     DocumentMetadataField,
     DocumentNavigationContext,
     DocumentOfficeConversionJob,
+    DocumentReviewMarker,
     DocumentSpace,
     DocumentTag,
     DocumentTagAssignment,
@@ -68,6 +69,31 @@ class DocumentSpaceAdmin(admin.ModelAdmin):
     list_filter = ["tenant", "space_kind", "is_active"]
     search_fields = ["name", "slug", "path"]
     readonly_fields = ["path", "created_at", "updated_at"]
+
+
+@admin.register(DocumentReviewMarker)
+class DocumentReviewMarkerAdmin(admin.ModelAdmin):
+    list_display = [
+        "document",
+        "page_number",
+        "symbol",
+        "tenant",
+        "created_by",
+        "created_at",
+    ]
+    list_filter = ["tenant", "symbol"]
+    search_fields = ["document__title"]
+    readonly_fields = [
+        "tenant",
+        "document",
+        "page_number",
+        "symbol",
+        "x",
+        "y",
+        "size",
+        "created_by",
+        "created_at",
+    ]
 
 
 @admin.register(DocumentTitleRule)
