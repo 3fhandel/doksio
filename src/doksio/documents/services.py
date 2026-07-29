@@ -2859,6 +2859,18 @@ class AddDocumentComment:
         if not body:
             raise ValueError("Document comment body cannot be empty.")
 
+        previously_mentioned_users = list(
+            get_user_model()
+            .objects.filter(
+                mentioned_document_comments__document=self.document,
+                tenant_memberships__tenant=self.document.tenant,
+                tenant_memberships__is_active=True,
+                is_active=True,
+            )
+            .exclude(id=getattr(self.actor, "id", None))
+            .select_related("doksio_profile")
+            .distinct()
+        )
         comment = DocumentComment.objects.create(
             tenant=self.document.tenant,
             document=self.document,
@@ -2872,7 +2884,18 @@ class AddDocumentComment:
         ]
         if mentioned_users:
             comment.mentioned_users.set(mentioned_users)
-            self._notify_mentioned_users(comment, mentioned_users)
+        notification_users = {
+            user.id: user
+            for user in [*previously_mentioned_users, *mentioned_users]
+        }
+        if notification_users:
+            self._notify_comment_users(
+                comment,
+                list(notification_users.values()),
+                directly_mentioned_user_ids={
+                    user.id for user in mentioned_users
+                },
+            )
 
         RecordAuditEvent(
             tenant=self.document.tenant,
@@ -2889,10 +2912,12 @@ class AddDocumentComment:
         _schedule_search_index_rebuild(self.document)
         return comment
 
-    def _notify_mentioned_users(
+    def _notify_comment_users(
         self,
         comment: DocumentComment,
-        mentioned_users: list,
+        users: list,
+        *,
+        directly_mentioned_user_ids: set[int],
     ) -> None:
         from doksio.accounts.models import Notification
         from doksio.accounts.services import CreateNotification
@@ -2905,14 +2930,27 @@ class AddDocumentComment:
                 "document_id": self.document.id,
             },
         )
-        for user in mentioned_users:
+        for user in users:
+            directly_mentioned = user.id in directly_mentioned_user_ids
             CreateNotification(
                 tenant=self.document.tenant,
                 recipient=user,
                 notification_type=Notification.Type.DOCUMENT_COMMENT_MENTION,
-                title="Du wurdest erwähnt",
+                title=(
+                    "Du wurdest erwähnt"
+                    if directly_mentioned
+                    else "Neuer Kommentar"
+                ),
                 body=(
-                    f"{actor_name} hat dich in einem Kommentar erwähnt.\n\n"
+                    (
+                        f"{actor_name} hat dich in einem Kommentar erwähnt."
+                        if directly_mentioned
+                        else (
+                            f"{actor_name} hat ein Dokument kommentiert, "
+                            "in dem du zuvor erwähnt wurdest."
+                        )
+                    )
+                    + "\n\n"
                     f"Dokument: {self.document.title}"
                 ),
                 link_url=link_url,

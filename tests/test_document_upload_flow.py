@@ -2424,6 +2424,59 @@ def test_add_document_comment_mentions_tenant_user_and_notifies():
 
 
 @pytest.mark.django_db
+def test_previously_mentioned_user_is_notified_about_later_comments():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    author = get_user_model().objects.create_user(username="alice")
+    mentioned_user = get_user_model().objects.create_user(username="bob")
+    unrelated_user = get_user_model().objects.create_user(username="charlie")
+    for user in (author, mentioned_user, unrelated_user):
+        TenantMembership.objects.create(
+            tenant=tenant,
+            user=user,
+            role=roles["member"],
+        )
+    document, _document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Invoice 4711",
+        space=space,
+        file_obj=BytesIO(b"invoice content"),
+        original_filename="invoice.pdf",
+        content_type="application/pdf",
+        created_by=author,
+    ).execute()
+    first_comment = AddDocumentComment(
+        document=document,
+        body="Bitte @bob prüfen.",
+        actor=author,
+    ).execute()
+    second_comment = AddDocumentComment(
+        document=document,
+        body="Hier ist noch eine Ergänzung.",
+        actor=author,
+    ).execute()
+
+    notifications = list(
+        Notification.objects.filter(recipient=mentioned_user).order_by("created_at")
+    )
+    assert len(notifications) == 2
+    assert notifications[0].document_comment == first_comment
+    assert notifications[0].title == "Du wurdest erwähnt"
+    assert notifications[1].document_comment == second_comment
+    assert notifications[1].title == "Neuer Kommentar"
+    assert "zuvor erwähnt" in notifications[1].body
+    assert not Notification.objects.filter(recipient=unrelated_user).exists()
+
+    AddDocumentComment(
+        document=document,
+        body="Ich antworte selbst.",
+        actor=mentioned_user,
+    ).execute()
+    assert Notification.objects.filter(recipient=mentioned_user).count() == 2
+
+
+@pytest.mark.django_db
 def test_add_document_comment_respects_disabled_mention_notifications():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
