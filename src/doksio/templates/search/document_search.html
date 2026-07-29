@@ -80,10 +80,14 @@
               </fieldset>
 
               <fieldset class="search-filter-group">
-                <legend>Darstellung</legend>
+                <legend>Sortierung</legend>
                 <label class="form-label" for="{{ form.sort.id_for_label }}">{{ form.sort.label }}</label>
                 {{ form.sort }}
-                <div class="form-check mt-3">
+              </fieldset>
+
+              <fieldset class="search-filter-group">
+                <legend>Suchoptionen</legend>
+                <div class="form-check">
                   {{ form.partial_words }}
                   <label class="form-check-label" for="{{ form.partial_words.id_for_label }}">{{ form.partial_words.label }}</label>
                 </div>

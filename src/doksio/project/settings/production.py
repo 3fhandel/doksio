@@ -7,9 +7,10 @@ from .base import *  # noqa: F403
 DEBUG = False
 
 MIDDLEWARE = [
+    "doksio.project.middleware.RequestTimingMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
-    *MIDDLEWARE[1:],  # noqa: F405
+    *MIDDLEWARE[2:],  # noqa: F405
 ]
 
 STORAGES["staticfiles"] = {  # noqa: F405

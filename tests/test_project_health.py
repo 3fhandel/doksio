@@ -14,6 +14,19 @@ from doksio.project.version import build_version
 from doksio.tenancy.models import Tenant
 
 
+def test_production_middleware_keeps_request_timing_enabled():
+    from doksio.project.settings.production import MIDDLEWARE
+
+    assert MIDDLEWARE[0] == "doksio.project.middleware.RequestTimingMiddleware"
+    assert MIDDLEWARE.count(
+        "doksio.project.middleware.RequestTimingMiddleware"
+    ) == 1
+    assert MIDDLEWARE.count("django.middleware.security.SecurityMiddleware") == 1
+    assert MIDDLEWARE.index(
+        "whitenoise.middleware.WhiteNoiseMiddleware"
+    ) < MIDDLEWARE.index("django.contrib.sessions.middleware.SessionMiddleware")
+
+
 def test_health_endpoint(client):
     response = client.get("/s/health/")
 

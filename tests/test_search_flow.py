@@ -385,7 +385,11 @@ def test_document_search_view_renders_results_for_tenant_member(client):
     assert "details-summary-title" in content
     assert "Ablage" in content
     assert "Zeitraum und Status" in content
-    assert "Darstellung" in content
+    assert "Sortierung" in content
+    assert "Suchoptionen" in content
+    assert content.index('class="search-filter-drawer"') < content.index(
+        'name="partial_words"'
+    )
     assert "PDF" in content
     assert "Fundstelle: Volltext" in content
     assert "Spezialmaschine" in content
