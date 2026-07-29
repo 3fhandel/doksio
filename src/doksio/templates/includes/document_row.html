@@ -36,7 +36,7 @@
       {% endif %}
     </div>
     <div class="document-row-meta">
-      <span class="document-row-box">{{ document.space.path }}</span>
+      {% if not hide_box_path %}<span class="document-row-box">{{ document.space.path }}</span>{% endif %}
       <span aria-label="Dateityp {{ document|document_file_type }}">{{ document|document_file_type }}</span>
       <span>Belegdatum {{ document.document_date|date:"d.m.Y"|default:"-" }}</span>
       <span>{{ document.created_at|date:"d.m.Y H:i" }}</span>

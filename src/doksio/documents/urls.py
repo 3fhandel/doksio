@@ -11,6 +11,11 @@ urlpatterns = [
     path("t/<slug:tenant_slug>/dashboard/", views.dashboard, name="dashboard"),
     path("t/<slug:tenant_slug>/tasks/", views.task_list, name="tasks"),
     path("t/<slug:tenant_slug>/documents/", views.document_list, name="list"),
+    path(
+        "t/<slug:tenant_slug>/documents/boxes/<int:box_id>/",
+        views.document_list,
+        name="box",
+    ),
     path("t/<slug:tenant_slug>/logs/", views.audit_log, name="audit_log"),
     path(
         "t/<slug:tenant_slug>/documents/upload/",

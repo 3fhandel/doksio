@@ -159,6 +159,32 @@ def filter_document_spaces_for_user(
     return spaces.filter(allowed_space_query)
 
 
+def filter_navigable_document_spaces_for_user(
+    spaces: QuerySet[DocumentSpace],
+    user: AbstractBaseUser | AnonymousUser,
+    tenant: Tenant,
+    permission_code: str,
+) -> QuerySet[DocumentSpace]:
+    """Include accessible spaces and their ancestor shells for tree navigation."""
+    accessible_spaces = filter_document_spaces_for_user(
+        spaces,
+        user,
+        tenant,
+        permission_code,
+    )
+    accessible_rows = list(accessible_spaces.values_list("id", "path"))
+    if not accessible_rows:
+        return spaces.none()
+
+    accessible_ids = [space_id for space_id, _path in accessible_rows]
+    ancestor_paths = set()
+    for _space_id, path in accessible_rows:
+        path_parts = [part for part in path.split("/") if part]
+        for depth in range(1, len(path_parts)):
+            ancestor_paths.add(f"/{'/'.join(path_parts[:depth])}")
+    return spaces.filter(Q(id__in=accessible_ids) | Q(path__in=ancestor_paths))
+
+
 def has_tenant_role(
     user: AbstractBaseUser | AnonymousUser,
     tenant: Tenant,

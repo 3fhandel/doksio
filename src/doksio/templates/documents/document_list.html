@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load doksio_extras %}
 
-{% block title %}Dokumente | Doksio{% endblock %}
+{% block title %}{% if current_box %}{{ current_box.name }}{% else %}Dokumente{% endif %} | Doksio{% endblock %}
 
 {% block body %}
   <main class="app-page">
@@ -14,50 +14,101 @@
         {% endfor %}
       {% endif %}
 
-      <div class="d-flex align-items-center justify-content-between mb-4">
+      <div class="d-flex align-items-center justify-content-between mb-3">
         <div>
-          <h1 class="h3 mb-1">Dokumente</h1>
-          {% if tenant %}
-            <p class="text-secondary mb-0">{{ tenant.name }}</p>
-          {% endif %}
+          <h1 class="h3 mb-1">{% if current_box %}{{ current_box.name }}{% else %}Dokumente{% endif %}</h1>
+          <p class="text-secondary mb-0">
+            {% if current_box %}{{ current_box.path }}{% else %}/ · {{ tenant.name }}{% endif %}
+          </p>
         </div>
-        {% if tenant %}
-          <div class="d-flex gap-2">
-            <a class="btn btn-primary" href="{% url 'documents:upload' tenant.slug %}">
-              {% include "includes/icons.html" with icon="upload" %}
-              <span class="ms-1">Hochladen</span>
-            </a>
-          </div>
-        {% endif %}
+        <div class="d-flex gap-2">
+          <a class="btn btn-outline-secondary" href="{% url 'search:documents' tenant.slug %}{% if current_box_accessible %}?box={{ current_box.id }}{% endif %}">
+            {% include "includes/icons.html" with icon="search" %}
+            <span class="ms-1">Suchen</span>
+          </a>
+          <a class="btn btn-primary" href="{% url 'documents:upload' tenant.slug %}{% if current_box_accessible %}?space={{ current_box.id }}{% endif %}">
+            {% include "includes/icons.html" with icon="upload" %}
+            <span class="ms-1">Hochladen</span>
+          </a>
+        </div>
       </div>
 
-      {% if documents %}
-        <div class="app-card">
-          <div class="d-flex align-items-center justify-content-between gap-3 border-bottom px-4 py-3">
-            <h2 class="h5 mb-0">Alle Dokumente</h2>
-            <span class="text-secondary small">{{ documents_count }} Dokumente</span>
+      <section class="app-card document-explorer">
+        <div class="document-explorer-header">
+          <div>
+            <h2 class="h5 mb-0">Inhalt</h2>
+            <div class="small text-secondary mt-1">
+              {{ child_boxes|length }} Box{{ child_boxes|length|pluralize:"en" }}
+              {% if current_box %}· {{ documents_count }} Dokument{{ documents_count|pluralize:"e" }}{% endif %}
+            </div>
           </div>
-          <div class="document-row-list">
-            {% for document in documents %}
-              {% with document_nav_position=documents_page_obj.start_index|add:forloop.counter0 %}
-                {% include "includes/document_row.html" with document=document tenant=tenant document_nav=document_nav document_nav_position=document_nav_position %}
-              {% endwith %}
-            {% endfor %}
-          </div>
-          {% include "includes/pagination.html" with page_obj=documents_page_obj page_param="page" label="Dokumentenseiten" %}
-        </div>
-      {% else %}
-        <div class="app-card p-4 text-center">
-          <h2 class="h5">Noch keine Dokumente</h2>
-          <p class="text-secondary">Lade das erste Dokument hoch, um den Ablagefluss zu testen.</p>
-          {% if tenant %}
-            <a class="btn btn-primary" href="{% url 'documents:upload' tenant.slug %}">
-              {% include "includes/icons.html" with icon="upload" %}
-              <span class="ms-1">Dokument hochladen</span>
-            </a>
+          {% if current_box %}
+            <form method="get" class="document-explorer-sort">
+              <label for="document-sort">Sortierung</label>
+              <select class="form-select form-select-sm" id="document-sort" name="sort" onchange="this.form.submit()">
+                <option value="created_desc" {% if document_sort == "created_desc" %}selected{% endif %}>Neueste zuerst</option>
+                <option value="created_asc" {% if document_sort == "created_asc" %}selected{% endif %}>Älteste zuerst</option>
+                <option value="date_desc" {% if document_sort == "date_desc" %}selected{% endif %}>Belegdatum absteigend</option>
+                <option value="date_asc" {% if document_sort == "date_asc" %}selected{% endif %}>Belegdatum aufsteigend</option>
+                <option value="title_asc" {% if document_sort == "title_asc" %}selected{% endif %}>Titel A–Z</option>
+                <option value="title_desc" {% if document_sort == "title_desc" %}selected{% endif %}>Titel Z–A</option>
+              </select>
+            </form>
           {% endif %}
         </div>
-      {% endif %}
+
+        <div class="document-explorer-entries">
+          {% if parent_url %}
+            <a class="document-explorer-folder document-explorer-parent" href="{{ parent_url }}">
+              <span class="document-explorer-folder-icon">
+                {% include "includes/icons.html" with icon="folder-up" %}
+              </span>
+              <span class="document-explorer-folder-main">
+                <strong>..</strong>
+                <span>{% if current_box.parent %}{{ current_box.parent.path }}{% else %}Root{% endif %}</span>
+              </span>
+              <span class="document-explorer-folder-action">Verzeichnis hoch</span>
+            </a>
+          {% endif %}
+
+          {% for box in child_boxes %}
+            <a class="document-explorer-folder" href="{% url 'documents:box' tenant.slug box.id %}">
+              <span class="document-explorer-folder-icon">
+                {% include "includes/icons.html" with icon="folder" %}
+              </span>
+              <span class="document-explorer-folder-main">
+                <strong>{{ box.name }}</strong>
+                <span>{{ box.description|default:box.path }}</span>
+              </span>
+              <span class="document-explorer-folder-action">Öffnen</span>
+            </a>
+          {% endfor %}
+
+          {% if documents %}
+            <div class="document-row-list document-explorer-documents">
+              {% for document in documents %}
+                {% with document_nav_position=documents_page_obj.start_index|add:forloop.counter0 %}
+                  {% include "includes/document_row.html" with document=document tenant=tenant document_nav=document_nav document_nav_position=document_nav_position hide_box_path=True %}
+                {% endwith %}
+              {% endfor %}
+            </div>
+          {% elif current_box and not child_boxes %}
+            <div class="document-explorer-empty">
+              <strong>Diese Dokumentenbox ist leer.</strong>
+              <span>Hier liegen noch keine Dokumente oder weiteren Boxen.</span>
+            </div>
+          {% elif not current_box and not child_boxes %}
+            <div class="document-explorer-empty">
+              <strong>Keine Dokumentenboxen verfügbar.</strong>
+              <span>Für diesen Mandanten wurden noch keine sichtbaren Boxen eingerichtet.</span>
+            </div>
+          {% endif %}
+        </div>
+
+        {% if documents_page_obj.paginator.num_pages > 1 %}
+          {% include "includes/pagination.html" with page_obj=documents_page_obj page_param="page" label="Dokumentenseiten" %}
+        {% endif %}
+      </section>
     </div>
   </main>
 {% endblock %}

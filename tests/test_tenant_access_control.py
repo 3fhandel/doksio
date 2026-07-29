@@ -4,12 +4,17 @@ from io import BytesIO
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.urls import reverse
 
 from doksio.accounts.access import AccessControl
 from doksio.accounts.models import TenantMembership, TenantRole
 from doksio.accounts.permissions import TenantPermissions
 from doksio.accounts.services import EnsureDefaultTenantRoles
-from doksio.documents.policies import can_view_document
+from doksio.documents.models import DocumentSpace
+from doksio.documents.policies import (
+    can_view_document,
+    filter_navigable_document_spaces_for_user,
+)
 from doksio.documents.services import CreateDocumentFromUpload, CreateDocumentSpace
 from doksio.tenancy.models import Tenant
 
@@ -163,3 +168,70 @@ def test_role_without_global_or_box_access_does_not_grant_document_access():
     ).execute()
 
     assert can_view_document(user, document) is False
+
+
+@pytest.mark.django_db
+def test_document_explorer_uses_ancestor_boxes_only_as_navigation_shells(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    view_permission = roles["viewer"].permissions.get(
+        code=TenantPermissions.DOCUMENTS_VIEW
+    )
+    parent_box = CreateDocumentSpace(tenant=tenant, name="Einkauf").execute()
+    child_box = CreateDocumentSpace(
+        tenant=tenant,
+        name="Rechnungen",
+        parent=parent_box,
+    ).execute()
+    hidden_box = CreateDocumentSpace(tenant=tenant, name="Personal").execute()
+    role = TenantRole.objects.create(
+        tenant=tenant,
+        name="Rechnungszugriff",
+        slug="rechnungszugriff",
+        can_access_all_document_spaces=False,
+    )
+    role.permissions.set([view_permission])
+    role.document_spaces.set([child_box])
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    membership = TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=role,
+    )
+    membership.roles.set([role])
+    parent_document, _file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Nicht sichtbarer Elternbeleg",
+        space=parent_box,
+        file_obj=BytesIO(b"parent"),
+        original_filename="parent.pdf",
+        content_type="application/pdf",
+    ).execute()
+    client.force_login(user)
+
+    navigable_spaces = filter_navigable_document_spaces_for_user(
+        DocumentSpace.objects.filter(tenant=tenant),
+        user,
+        tenant,
+        TenantPermissions.DOCUMENTS_VIEW,
+    )
+    assert set(navigable_spaces) == {parent_box, child_box}
+
+    root_response = client.get(
+        reverse("documents:list", kwargs={"tenant_slug": tenant.slug})
+    )
+    assert list(root_response.context["child_boxes"]) == [parent_box]
+    assert hidden_box.name not in root_response.content.decode()
+
+    parent_response = client.get(
+        reverse(
+            "documents:box",
+            kwargs={"tenant_slug": tenant.slug, "box_id": parent_box.id},
+        )
+    )
+    assert list(parent_response.context["child_boxes"]) == [child_box]
+    assert parent_document not in parent_response.context["documents"]
+    assert parent_response.context["current_box_accessible"] is False

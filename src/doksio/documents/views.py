@@ -11,7 +11,7 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.files.storage import default_storage
 from django.core.mail import get_connection
-from django.db.models import Case, Count, F, IntegerField, Q, Value, When
+from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.http import (
     FileResponse,
     Http404,
@@ -85,9 +85,11 @@ from doksio.documents.models import (
 )
 from doksio.documents.navigation import (
     create_document_navigation,
+    document_box_ordering,
     document_ids_for_navigation_context,
     document_ids_from_navigation,
     navigation_context_from_token,
+    normalize_document_box_sort,
 )
 from doksio.documents.policies import (
     can_administer_tenant,
@@ -103,6 +105,7 @@ from doksio.documents.policies import (
     can_view_document,
     filter_document_spaces_for_user,
     filter_documents_for_user,
+    filter_navigable_document_spaces_for_user,
 )
 from doksio.documents.services import (
     AddDocumentComment,
@@ -1266,7 +1269,11 @@ def task_list(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     )
 
 
-def document_list(request: HttpRequest, tenant_slug: str) -> HttpResponse:
+def document_list(
+    request: HttpRequest,
+    tenant_slug: str,
+    box_id: int | None = None,
+) -> HttpResponse:
     if not request.user.is_authenticated:
         return _tenant_login_redirect(request, tenant_slug)
 
@@ -1274,36 +1281,93 @@ def document_list(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     if tenant is None:
         raise PermissionDenied
 
-    documents_queryset = _with_workflow_counts(
-        filter_documents_for_user(
-            Document.objects.filter(tenant=tenant)
-            .select_related("space", "tenant")
-            .prefetch_related("files")
-            .order_by("-created_at", "-id"),
-            request.user,
-            tenant,
-        )
+    base_spaces = DocumentSpace.objects.filter(
+        tenant=tenant,
+        is_active=True,
+        deleted_at__isnull=True,
     )
+    accessible_spaces = filter_document_spaces_for_user(
+        base_spaces,
+        request.user,
+        tenant,
+        TenantPermissions.DOCUMENTS_VIEW,
+    )
+    navigable_spaces = filter_navigable_document_spaces_for_user(
+        base_spaces,
+        request.user,
+        tenant,
+        TenantPermissions.DOCUMENTS_VIEW,
+    )
+    current_box = None
+    if box_id is not None:
+        current_box = get_object_or_404(navigable_spaces, id=box_id)
+
+    child_boxes = list(
+        navigable_spaces.filter(parent=current_box).order_by("name", "id")
+    )
+    document_sort = normalize_document_box_sort(request.GET.get("sort", ""))
+    if current_box is None:
+        documents_queryset = Document.objects.none()
+    else:
+        documents_queryset = _with_workflow_counts(
+            filter_documents_for_user(
+                Document.objects.filter(
+                    tenant=tenant,
+                    space=current_box,
+                )
+                .select_related("space", "tenant")
+                .prefetch_related("files")
+                .order_by(*document_box_ordering(document_sort)),
+                request.user,
+                tenant,
+            )
+        )
     documents_page_obj = paginate_queryset(
         request,
         documents_queryset,
         per_page=25,
     )
-    document_nav = create_document_navigation(
-        request=request,
-        tenant=tenant,
-        namespace="documents",
-        total_count=documents_page_obj.paginator.count,
+    document_nav = ""
+    if current_box is not None and documents_page_obj.paginator.count:
+        document_nav = create_document_navigation(
+            request=request,
+            tenant=tenant,
+            namespace=f"document-box:{current_box.id}",
+            total_count=documents_page_obj.paginator.count,
+        )
+    parent_url = ""
+    if current_box is not None:
+        if current_box.parent_id is None:
+            parent_url = reverse(
+                "documents:list",
+                kwargs={"tenant_slug": tenant.slug},
+            )
+        else:
+            parent_url = reverse(
+                "documents:box",
+                kwargs={
+                    "tenant_slug": tenant.slug,
+                    "box_id": current_box.parent_id,
+                },
+            )
+    current_box_accessible = (
+        current_box is not None
+        and accessible_spaces.filter(id=current_box.id).exists()
     )
     return render(
         request,
         "documents/document_list.html",
         {
             "tenant": tenant,
+            "current_box": current_box,
+            "current_box_accessible": current_box_accessible,
+            "child_boxes": child_boxes,
+            "parent_url": parent_url,
             "documents": documents_page_obj.object_list,
             "documents_count": documents_page_obj.paginator.count,
             "documents_page_obj": documents_page_obj,
             "document_nav": document_nav,
+            "document_sort": document_sort,
             "can_manage_settings": can_administer_tenant(request.user, tenant),
         },
     )
@@ -1450,7 +1514,27 @@ def document_upload(request: HttpRequest, tenant_slug: str) -> HttpResponse:
                     )
                 return redirect("documents:dashboard", tenant_slug=tenant.slug)
     else:
-        form = DocumentUploadForm(tenant=tenant, user=request.user)
+        initial = {}
+        requested_space_id = request.GET.get("space", "")
+        if requested_space_id.isdigit():
+            requested_space = filter_document_spaces_for_user(
+                DocumentSpace.objects.filter(
+                    tenant=tenant,
+                    id=int(requested_space_id),
+                    is_active=True,
+                    deleted_at__isnull=True,
+                ),
+                request.user,
+                tenant,
+                TenantPermissions.DOCUMENTS_UPLOAD,
+            ).first()
+            if requested_space is not None:
+                initial["space"] = requested_space
+        form = DocumentUploadForm(
+            tenant=tenant,
+            user=request.user,
+            initial=initial,
+        )
 
     return render(
         request,

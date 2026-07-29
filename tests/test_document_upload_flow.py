@@ -31,6 +31,7 @@ from doksio.documents.models import (
     DocumentSpace,
     DocumentTitleRule,
 )
+from doksio.documents.navigation import document_ids_for_navigation_context
 from doksio.documents.services import (
     AddDocumentComment,
     CreateDocumentBoxScanOptimizationJob,
@@ -3204,7 +3205,10 @@ def test_document_navigation_spans_the_complete_paginated_list(client):
     ]
     client.force_login(user)
     list_url = (
-        reverse("documents:list", kwargs={"tenant_slug": tenant.slug})
+        reverse(
+            "documents:box",
+            kwargs={"tenant_slug": tenant.slug, "box_id": space.id},
+        )
         + "?page=1"
     )
 
@@ -3216,7 +3220,7 @@ def test_document_navigation_spans_the_complete_paginated_list(client):
         source_key__isnull=False,
     )
     assert navigation.document_ids == []
-    assert navigation.namespace == "documents"
+    assert navigation.namespace == f"document-box:{space.id}"
     assert navigation.query_string == ""
     assert navigation.total_count == 26
 
@@ -3609,7 +3613,10 @@ def test_admin_can_soft_delete_document_and_cancel_open_workflows(client):
     assert event.data["cancelled_workflow_instance_ids"] == [instance.id]
 
     response = client.get(
-        reverse("documents:list", kwargs={"tenant_slug": tenant.slug})
+        reverse(
+            "documents:box",
+            kwargs={"tenant_slug": tenant.slug, "box_id": space.id},
+        )
     )
     assert response.context["documents_count"] == 0
     assert "Zu löschen" not in response.content.decode()
@@ -3822,7 +3829,10 @@ def test_document_list_paginates_documents(client):
     client.force_login(user)
 
     response = client.get(
-        reverse("documents:list", kwargs={"tenant_slug": tenant.slug})
+        reverse(
+            "documents:box",
+            kwargs={"tenant_slug": tenant.slug, "box_id": space.id},
+        )
     )
 
     documents = list(response.context["documents"])
@@ -3837,13 +3847,205 @@ def test_document_list_paginates_documents(client):
     assert "Workflow offen 0/1" in content
 
     response = client.get(
-        reverse("documents:list", kwargs={"tenant_slug": tenant.slug}),
+        reverse(
+            "documents:box",
+            kwargs={"tenant_slug": tenant.slug, "box_id": space.id},
+        ),
         {"page": "2"},
     )
 
     documents = list(response.context["documents"])
     assert len(documents) == 5
     assert documents[0].title == "Dokument 4"
+
+
+@pytest.mark.django_db
+def test_document_explorer_shows_direct_boxes_and_documents(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    root_box = CreateDocumentSpace(
+        tenant=tenant,
+        name="Einkauf",
+        description="Dokumente des Einkaufs",
+    ).execute()
+    child_box = CreateDocumentSpace(
+        tenant=tenant,
+        name="Rechnungen",
+        parent=root_box,
+    ).execute()
+    sibling_box = CreateDocumentSpace(
+        tenant=tenant,
+        name="Personal",
+    ).execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    root_document = Document.objects.create(
+        tenant=tenant,
+        space=root_box,
+        title="Direkter Beleg",
+        created_by=user,
+    )
+    child_document = Document.objects.create(
+        tenant=tenant,
+        space=child_box,
+        title="Untergeordneter Beleg",
+        created_by=user,
+    )
+    client.force_login(user)
+
+    root_response = client.get(
+        reverse("documents:list", kwargs={"tenant_slug": tenant.slug})
+    )
+    root_content = root_response.content.decode()
+    assert root_response.status_code == 200
+    assert root_box in root_response.context["child_boxes"]
+    assert sibling_box in root_response.context["child_boxes"]
+    assert list(root_response.context["documents"]) == []
+    assert "Einkauf" in root_content
+    assert "Personal" in root_content
+
+    box_response = client.get(
+        reverse(
+            "documents:box",
+            kwargs={"tenant_slug": tenant.slug, "box_id": root_box.id},
+        )
+    )
+    box_content = box_response.content.decode()
+    assert box_response.status_code == 200
+    assert box_response.context["current_box"] == root_box
+    assert list(box_response.context["child_boxes"]) == [child_box]
+    assert list(box_response.context["documents"]) == [root_document]
+    assert "Untergeordneter Beleg" not in box_content
+    assert ">..</strong>" in box_content
+    assert "?space=" + str(root_box.id) in box_content
+    assert (
+        reverse("search:documents", kwargs={"tenant_slug": tenant.slug})
+        + "?box="
+        + str(root_box.id)
+        in box_content
+    )
+
+    child_response = client.get(
+        reverse(
+            "documents:box",
+            kwargs={"tenant_slug": tenant.slug, "box_id": child_box.id},
+        )
+    )
+    assert list(child_response.context["documents"]) == [child_document]
+    assert child_response.context["parent_url"] == reverse(
+        "documents:box",
+        kwargs={"tenant_slug": tenant.slug, "box_id": root_box.id},
+    )
+
+
+@pytest.mark.django_db
+def test_upload_from_document_explorer_preselects_box(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    client.force_login(user)
+
+    response = client.get(
+        reverse("documents:upload", kwargs={"tenant_slug": tenant.slug}),
+        {"space": str(space.id)},
+    )
+
+    assert response.status_code == 200
+    assert response.context["form"]["space"].value() == space.id
+
+
+@pytest.mark.django_db
+def test_document_explorer_sorts_only_documents_in_current_box(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    child_box = CreateDocumentSpace(
+        tenant=tenant,
+        name="Unterbox",
+        parent=space,
+    ).execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    document_b = Document.objects.create(
+        tenant=tenant,
+        space=space,
+        title="Beta",
+        document_date=date(2026, 1, 10),
+        created_by=user,
+    )
+    document_a = Document.objects.create(
+        tenant=tenant,
+        space=space,
+        title="Alpha",
+        document_date=date(2026, 2, 10),
+        created_by=user,
+    )
+    document_without_date = Document.objects.create(
+        tenant=tenant,
+        space=space,
+        title="Ohne Datum",
+        document_date=None,
+        created_by=user,
+    )
+    client.force_login(user)
+    box_url = reverse(
+        "documents:box",
+        kwargs={"tenant_slug": tenant.slug, "box_id": space.id},
+    )
+
+    title_response = client.get(box_url, {"sort": "title_asc"})
+    assert list(title_response.context["documents"]) == [
+        document_a,
+        document_b,
+        document_without_date,
+    ]
+    assert list(title_response.context["child_boxes"]) == [child_box]
+    assert title_response.context["document_sort"] == "title_asc"
+
+    date_response = client.get(box_url, {"sort": "date_desc"})
+    assert list(date_response.context["documents"]) == [
+        document_a,
+        document_b,
+        document_without_date,
+    ]
+    assert date_response.context["document_nav"]
+    navigation = DocumentNavigationContext.objects.get(
+        token=date_response.context["document_nav"]
+    )
+    assert list(
+        document_ids_for_navigation_context(
+            context=navigation,
+            tenant=tenant,
+            user=user,
+        )
+    ) == [
+        document_a.id,
+        document_b.id,
+        document_without_date.id,
+    ]
 
 
 @pytest.mark.django_db
@@ -3880,7 +4082,10 @@ def test_document_list_uses_thumbnail_in_document_row(client, monkeypatch):
     client.force_login(user)
 
     response = client.get(
-        reverse("documents:list", kwargs={"tenant_slug": tenant.slug})
+        reverse(
+            "documents:box",
+            kwargs={"tenant_slug": tenant.slug, "box_id": space.id},
+        )
     )
 
     content = response.content.decode()
@@ -4204,7 +4409,10 @@ def test_document_list_shows_einvoice_signal_in_document_row(client):
     client.force_login(user)
 
     response = client.get(
-        reverse("documents:list", kwargs={"tenant_slug": tenant.slug})
+        reverse(
+            "documents:box",
+            kwargs={"tenant_slug": tenant.slug, "box_id": space.id},
+        )
     )
 
     content = response.content.decode()

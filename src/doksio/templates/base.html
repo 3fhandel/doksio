@@ -136,7 +136,7 @@
                     </span>
                   {% endif %}
                 </a>
-                <a class="app-sidebar-link {% if app_name == 'documents' and url_name == 'list' or app_name == 'documents' and url_name == 'detail' or app_name == 'documents' and url_name == 'core_metadata_edit' %}active{% endif %}" href="{% url 'documents:list' tenant.slug %}" data-shortcut-action="documents">
+                <a class="app-sidebar-link {% if app_name == 'documents' and url_name == 'list' or app_name == 'documents' and url_name == 'box' or app_name == 'documents' and url_name == 'detail' or app_name == 'documents' and url_name == 'core_metadata_edit' %}active{% endif %}" href="{% url 'documents:list' tenant.slug %}" data-shortcut-action="documents">
                   {% include "includes/icons.html" with icon="file" %}
                   <span>Dokumente</span>
                 </a>

@@ -4,7 +4,7 @@ import hashlib
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError
-from django.db.models import Min
+from django.db.models import F, Min
 from django.http import QueryDict
 from django.utils import timezone
 
@@ -14,6 +14,33 @@ from doksio.documents.models import Document, DocumentNavigationContext
 from doksio.documents.policies import filter_documents_for_user
 from doksio.workflows.models import WorkflowTask
 from doksio.workflows.policies import filter_workflow_tasks_for_user
+
+DOCUMENT_BOX_SORT_OPTIONS = {
+    "created_desc": ("-created_at", "-id"),
+    "created_asc": ("created_at", "id"),
+    "date_desc": (
+        F("document_date").desc(nulls_last=True),
+        "-created_at",
+        "-id",
+    ),
+    "date_asc": (
+        F("document_date").asc(nulls_last=True),
+        "-created_at",
+        "-id",
+    ),
+    "title_asc": ("title", "id"),
+    "title_desc": ("-title", "-id"),
+}
+
+
+def normalize_document_box_sort(value: str) -> str:
+    if value in DOCUMENT_BOX_SORT_OPTIONS:
+        return value
+    return "created_desc"
+
+
+def document_box_ordering(value: str):
+    return DOCUMENT_BOX_SORT_OPTIONS[normalize_document_box_sort(value)]
 
 
 def create_document_navigation(
@@ -102,6 +129,20 @@ def document_ids_from_navigation(*, token: str, tenant, user) -> list[int]:
 
 def document_ids_for_navigation_context(*, context, tenant, user):
     query_data = QueryDict(context.query_string)
+    if context.namespace.startswith("document-box:"):
+        raw_space_id = context.namespace.removeprefix("document-box:")
+        if not raw_space_id.isdigit():
+            return Document.objects.none().values_list("id", flat=True)
+        documents = filter_documents_for_user(
+            Document.objects.filter(
+                tenant=tenant,
+                space_id=int(raw_space_id),
+            ).order_by(*document_box_ordering(query_data.get("sort", ""))),
+            user,
+            tenant,
+        )
+        return documents.values_list("id", flat=True)
+
     if context.namespace in {"documents", "dashboard-documents"}:
         documents = filter_documents_for_user(
             Document.objects.filter(tenant=tenant).order_by("-created_at", "-id"),
