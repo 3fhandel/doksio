@@ -21,7 +21,9 @@
         <section class="app-card">
           <div class="workflow-task-list">
             {% for task in workflow_tasks %}
-              {% include "includes/workflow_task_row.html" with task=task tenant=tenant workflow_task_document_nav=workflow_task_document_nav %}
+              {% with document_nav_position=workflow_tasks_page_obj.start_index|add:forloop.counter0 %}
+                {% include "includes/workflow_task_row.html" with task=task tenant=tenant workflow_task_document_nav=workflow_task_document_nav document_nav_position=document_nav_position %}
+              {% endwith %}
             {% endfor %}
           </div>
           {% include "includes/pagination.html" with page_obj=workflow_tasks_page_obj page_param="page" label="Aufgabenseiten" %}

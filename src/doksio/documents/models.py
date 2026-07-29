@@ -551,6 +551,9 @@ class DocumentNavigationContext(models.Model):
     )
     token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     source_key = models.CharField(max_length=64)
+    namespace = models.CharField(max_length=40, blank=True)
+    query_string = models.TextField(blank=True)
+    total_count = models.PositiveIntegerField(default=0)
     document_ids = models.JSONField(default=list)
     updated_at = models.DateTimeField(auto_now=True)
 

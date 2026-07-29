@@ -84,7 +84,9 @@ from doksio.documents.models import (
 )
 from doksio.documents.navigation import (
     create_document_navigation,
+    document_ids_for_navigation_context,
     document_ids_from_navigation,
+    navigation_context_from_token,
 )
 from doksio.documents.policies import (
     can_administer_tenant,
@@ -658,6 +660,7 @@ def _document_detail_context_url(
     document_id: int,
     back_url: str,
     nav_param: str,
+    nav_position: int | None = None,
 ) -> str:
     url = reverse(
         "documents:detail",
@@ -666,6 +669,8 @@ def _document_detail_context_url(
     query_data = {"back": back_url}
     if nav_param:
         query_data["nav"] = nav_param
+    if nav_position is not None:
+        query_data["nav_position"] = nav_position
     query = urlencode(query_data)
     return f"{url}?{query}"
 
@@ -678,6 +683,57 @@ def _document_navigation_context(
     back_url: str,
 ) -> dict:
     nav_param = request.GET.get("nav", "")
+    navigation = navigation_context_from_token(
+        token=nav_param,
+        tenant=tenant,
+        user=request.user,
+    )
+    if navigation is not None and navigation.namespace:
+        try:
+            position = int(request.GET.get("nav_position", ""))
+        except ValueError:
+            position = 0
+        if position < 1 or position > navigation.total_count:
+            return {"document_nav_param": nav_param}
+
+        document_ids = document_ids_for_navigation_context(
+            context=navigation,
+            tenant=tenant,
+            user=request.user,
+        )
+        current_index = position - 1
+        window_start = max(current_index - 1, 0)
+        window = list(document_ids[window_start : current_index + 2])
+        window_index = current_index - window_start
+        if window_index >= len(window) or window[window_index] != document.id:
+            return {"document_nav_param": nav_param}
+
+        previous_document_url = ""
+        next_document_url = ""
+        if window_index > 0:
+            previous_document_url = _document_detail_context_url(
+                tenant_slug=tenant.slug,
+                document_id=window[window_index - 1],
+                back_url=back_url,
+                nav_param=nav_param,
+                nav_position=position - 1,
+            )
+        if window_index + 1 < len(window):
+            next_document_url = _document_detail_context_url(
+                tenant_slug=tenant.slug,
+                document_id=window[window_index + 1],
+                back_url=back_url,
+                nav_param=nav_param,
+                nav_position=position + 1,
+            )
+        return {
+            "document_nav_param": nav_param,
+            "document_nav_current": position,
+            "document_nav_total": navigation.total_count,
+            "previous_document_url": previous_document_url,
+            "next_document_url": next_document_url,
+        }
+
     document_ids = document_ids_from_navigation(
         token=nav_param,
         tenant=tenant,
@@ -703,6 +759,7 @@ def _document_navigation_context(
                 document_id=candidate.id,
                 back_url=back_url,
                 nav_param=nav_param,
+                nav_position=None,
             )
             break
     for next_id in document_ids[index + 1 :]:
@@ -713,6 +770,7 @@ def _document_navigation_context(
                 document_id=candidate.id,
                 back_url=back_url,
                 nav_param=nav_param,
+                nav_position=None,
             )
             break
     return {
@@ -1126,14 +1184,14 @@ def dashboard(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     document_nav = create_document_navigation(
         request=request,
         tenant=tenant,
-        document_ids=documents_queryset.values_list("id", flat=True),
         namespace="dashboard-documents",
+        total_count=documents_page_obj.paginator.count,
     )
     workflow_task_document_nav = create_document_navigation(
         request=request,
         tenant=tenant,
-        document_ids=workflow_tasks_queryset.values_list("document_id", flat=True),
         namespace="dashboard-tasks",
+        total_count=workflow_documents_count,
     )
     return render(
         request,
@@ -1185,8 +1243,8 @@ def task_list(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     workflow_task_document_nav = create_document_navigation(
         request=request,
         tenant=tenant,
-        document_ids=workflow_tasks_queryset.values_list("document_id", flat=True),
         namespace="tasks",
+        total_count=workflow_documents_count,
     )
     return render(
         request,
@@ -1231,8 +1289,8 @@ def document_list(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     document_nav = create_document_navigation(
         request=request,
         tenant=tenant,
-        document_ids=documents_queryset.values_list("id", flat=True),
         namespace="documents",
+        total_count=documents_page_obj.paginator.count,
     )
     return render(
         request,
@@ -1865,12 +1923,6 @@ def document_detail(
     )
     if not can_view_document(request.user, document):
         raise PermissionDenied
-    if request.method == "GET":
-        RecordDocumentView(
-            tenant=tenant,
-            user=request.user,
-            document=document,
-        ).execute()
 
     back_url = _safe_return_url(
         request,
@@ -1882,6 +1934,12 @@ def document_detail(
         document=document,
         back_url=back_url,
     )
+    if request.method == "GET":
+        RecordDocumentView(
+            tenant=tenant,
+            user=request.user,
+            document=document,
+        ).execute()
     comment_form = DocumentCommentForm()
     metadata_fields = effective_metadata_fields(document.space)
     metadata_form = DocumentMetadataForm(

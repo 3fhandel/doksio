@@ -1414,10 +1414,13 @@ def test_task_list_shows_my_open_workflow_tasks_paginated(client):
         step_type="task",
         assigned_role=roles["admin"],
     ).execute()
+    documents = []
     for index in range(30):
+        document = _create_document(tenant, space, title=f"Rechnung {index}")
+        documents.append(document)
         StartWorkflowForDocument(
             template=visible_template,
-            document=_create_document(tenant, space, title=f"Rechnung {index}"),
+            document=document,
         ).execute()
     StartWorkflowForDocument(
         template=hidden_template,
@@ -1443,6 +1446,39 @@ def test_task_list_shows_my_open_workflow_tasks_paginated(client):
     assert "Sachlich prüfen" in content
     assert "Administrativ prüfen" not in content
     assert "page=1" in content
+    assert "nav_position=26" in content
+
+    detail_response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "document_id": documents[25].id,
+            },
+        ),
+        {
+            "back": response.wsgi_request.get_full_path(),
+            "nav": str(response.context["workflow_task_document_nav"]),
+            "nav_position": "26",
+        },
+    )
+    detail_content = detail_response.content.decode()
+    assert detail_response.status_code == 200
+    assert "Dokument 26 von 30" in detail_content
+    assert (
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": documents[24].id},
+        )
+        in detail_content
+    )
+    assert (
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": documents[26].id},
+        )
+        in detail_content
+    )
 
 
 @pytest.mark.django_db

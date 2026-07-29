@@ -458,8 +458,8 @@ def profile_history(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     document_nav = create_document_navigation(
         request=request,
         tenant=tenant,
-        document_ids=(entry.document_id for entry in history),
         namespace="history",
+        total_count=len(history),
     )
     return render(
         request,

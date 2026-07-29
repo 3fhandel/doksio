@@ -35,7 +35,7 @@
     {% if task.step.instructions %}
       <div class="workflow-task-instructions">{{ task.step.instructions|truncatechars:110 }}</div>
     {% endif %}
-    <a class="workflow-task-document-title" href="{% url 'documents:detail' tenant.slug task.document.id %}?back={{ request.get_full_path|urlencode }}{% if workflow_task_document_nav %}&amp;nav={{ workflow_task_document_nav|urlencode }}{% endif %}">
+    <a class="workflow-task-document-title" href="{% url 'documents:detail' tenant.slug task.document.id %}?back={{ request.get_full_path|urlencode }}{% if workflow_task_document_nav %}&amp;nav={{ workflow_task_document_nav|urlencode }}{% endif %}{% if document_nav_position %}&amp;nav_position={{ document_nav_position }}{% endif %}">
       {{ task.document.title }}
     </a>
     <div class="document-row-meta workflow-task-meta">
@@ -67,7 +67,7 @@
         {% include "includes/icons.html" with icon="workflow" %}
       </span>
     </div>
-    <a class="btn btn-sm btn-primary workflow-task-open" href="{% url 'documents:detail' tenant.slug task.document.id %}?back={{ request.get_full_path|urlencode }}{% if workflow_task_document_nav %}&amp;nav={{ workflow_task_document_nav|urlencode }}{% endif %}">
+    <a class="btn btn-sm btn-primary workflow-task-open" href="{% url 'documents:detail' tenant.slug task.document.id %}?back={{ request.get_full_path|urlencode }}{% if workflow_task_document_nav %}&amp;nav={{ workflow_task_document_nav|urlencode }}{% endif %}{% if document_nav_position %}&amp;nav_position={{ document_nav_position }}{% endif %}">
       Öffnen
     </a>
   </div>

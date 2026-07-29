@@ -55,7 +55,9 @@
           {% if workflow_tasks %}
             <div class="workflow-task-list">
               {% for task in workflow_tasks %}
-                {% include "includes/workflow_task_row.html" with task=task tenant=tenant workflow_task_document_nav=workflow_task_document_nav %}
+                {% with document_nav_position=workflow_tasks_page_obj.start_index|add:forloop.counter0 %}
+                  {% include "includes/workflow_task_row.html" with task=task tenant=tenant workflow_task_document_nav=workflow_task_document_nav document_nav_position=document_nav_position %}
+                {% endwith %}
               {% endfor %}
             </div>
             {% include "includes/pagination.html" with page_obj=workflow_tasks_page_obj page_param="tasks_page" label="Aufgabenseiten" %}
@@ -80,7 +82,9 @@
           {% if documents %}
             <div class="document-row-list">
               {% for document in documents %}
-                {% include "includes/document_row.html" with document=document tenant=tenant document_nav=document_nav %}
+                {% with document_nav_position=documents_page_obj.start_index|add:forloop.counter0 %}
+                  {% include "includes/document_row.html" with document=document tenant=tenant document_nav=document_nav document_nav_position=document_nav_position %}
+                {% endwith %}
               {% endfor %}
             </div>
             {% include "includes/pagination.html" with page_obj=documents_page_obj page_param="uploads_page" label="Uploadseiten" %}

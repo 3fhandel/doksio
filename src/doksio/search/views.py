@@ -63,8 +63,8 @@ def document_search(request: HttpRequest, tenant_slug: str) -> HttpResponse:
         document_nav = create_document_navigation(
             request=request,
             tenant=tenant,
-            document_ids=documents_queryset.values_list("id", flat=True),
             namespace="search",
+            total_count=documents_count,
         )
     search_duration_seconds = (
         perf_counter() - search_started_at

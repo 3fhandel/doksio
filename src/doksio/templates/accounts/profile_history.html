@@ -34,7 +34,7 @@
             {% endif %}
           {% endwith %}
           <span class="history-document-main">
-            <a href="{% url 'documents:detail' tenant.slug entry.document.id %}?back={{ request.get_full_path|urlencode }}&amp;nav={{ document_nav|urlencode }}">
+            <a href="{% url 'documents:detail' tenant.slug entry.document.id %}?back={{ request.get_full_path|urlencode }}&amp;nav={{ document_nav|urlencode }}&amp;nav_position={{ forloop.counter }}">
               {{ entry.document.title }}
             </a>
             <span>{{ entry.document.space.path }} · {{ entry.document|document_file_type }}</span>
@@ -42,7 +42,7 @@
           <time datetime="{{ entry.last_viewed_at|date:'c' }}">
             {{ entry.last_viewed_at|date:"d.m.Y H:i" }}
           </time>
-          <a class="btn btn-sm btn-primary history-document-open" href="{% url 'documents:detail' tenant.slug entry.document.id %}?back={{ request.get_full_path|urlencode }}&amp;nav={{ document_nav|urlencode }}">
+          <a class="btn btn-sm btn-primary history-document-open" href="{% url 'documents:detail' tenant.slug entry.document.id %}?back={{ request.get_full_path|urlencode }}&amp;nav={{ document_nav|urlencode }}&amp;nav_position={{ forloop.counter }}">
             Öffnen
           </a>
         </article>

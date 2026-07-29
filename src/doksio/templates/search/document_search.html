@@ -168,7 +168,9 @@
         {% if documents %}
           <div class="document-row-list search-result-list">
             {% for document in documents %}
-              {% include "includes/document_row.html" with document=document tenant=tenant document_nav=document_nav show_tags=True %}
+              {% with document_nav_position=documents_page_obj.start_index|add:forloop.counter0 %}
+                {% include "includes/document_row.html" with document=document tenant=tenant document_nav=document_nav document_nav_position=document_nav_position show_tags=True %}
+              {% endwith %}
             {% endfor %}
           </div>
           <div class="app-card mt-3">

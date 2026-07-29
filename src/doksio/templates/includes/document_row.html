@@ -30,7 +30,7 @@
         <span class="document-row-title">{{ document.title }}</span>
         <span class="badge text-bg-danger">Gelöscht</span>
       {% else %}
-        <a class="document-row-title" href="{% url 'documents:detail' tenant.slug document.id %}?back={{ request.get_full_path|urlencode }}{% if document_nav %}&amp;nav={{ document_nav|urlencode }}{% endif %}">
+        <a class="document-row-title" href="{% url 'documents:detail' tenant.slug document.id %}?back={{ request.get_full_path|urlencode }}{% if document_nav %}&amp;nav={{ document_nav|urlencode }}{% endif %}{% if document_nav_position %}&amp;nav_position={{ document_nav_position }}{% endif %}">
           {{ document.title }}
         </a>
       {% endif %}
@@ -93,7 +93,7 @@
       {% endif %}
     </div>
     {% if document.status != "deleted" %}
-      <a class="btn btn-sm btn-primary document-row-open" href="{% url 'documents:detail' tenant.slug document.id %}?back={{ request.get_full_path|urlencode }}{% if document_nav %}&amp;nav={{ document_nav|urlencode }}{% endif %}">
+      <a class="btn btn-sm btn-primary document-row-open" href="{% url 'documents:detail' tenant.slug document.id %}?back={{ request.get_full_path|urlencode }}{% if document_nav %}&amp;nav={{ document_nav|urlencode }}{% endif %}{% if document_nav_position %}&amp;nav_position={{ document_nav_position }}{% endif %}">
         Öffnen
       </a>
     {% endif %}

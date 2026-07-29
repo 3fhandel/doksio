@@ -11,7 +11,7 @@ from django.urls import reverse
 from doksio.accounts.models import TenantMembership, TenantRole
 from doksio.accounts.permissions import TenantPermissions
 from doksio.accounts.services import EnsureDefaultTenantRoles
-from doksio.documents.models import DocumentMetadataField
+from doksio.documents.models import DocumentMetadataField, DocumentNavigationContext
 from doksio.documents.services import (
     AddDocumentComment,
     CreateDocumentFromUpload,
@@ -398,6 +398,7 @@ def test_document_search_view_renders_results_for_tenant_member(client):
     )
     assert f"back={quote(response.wsgi_request.get_full_path(), safe='/')}" in content
     assert f"nav={response.context['document_nav']}" in content
+    assert "nav_position=1" in content
 
 
 @pytest.mark.django_db
@@ -437,6 +438,74 @@ def test_document_search_view_can_find_partial_words(client):
     assert 'name="partial_words"' in content
     assert "checked" in content
     assert "Fundstelle: Volltext" in content
+
+
+@pytest.mark.django_db
+def test_search_navigation_rebuilds_filtered_result_list(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(username="alice")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    documents = [
+        _create_document(tenant, space, f"Referenz R1234-{index}")[0]
+        for index in range(3)
+    ]
+    _create_document(tenant, space, "Anderes Dokument")
+    client.force_login(user)
+
+    search_url = reverse(
+        "search:documents",
+        kwargs={"tenant_slug": tenant.slug},
+    )
+    response = client.get(
+        search_url,
+        {"q": "1234", "partial_words": "on", "sort": "created_desc"},
+    )
+    navigation = DocumentNavigationContext.objects.get(
+        token=response.context["document_nav"],
+    )
+
+    detail_response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "document_id": documents[1].id,
+            },
+        ),
+        {
+            "back": response.wsgi_request.get_full_path(),
+            "nav": navigation.token,
+            "nav_position": "2",
+        },
+    )
+    content = detail_response.content.decode()
+
+    assert detail_response.status_code == 200
+    assert navigation.document_ids == []
+    assert navigation.namespace == "search"
+    assert navigation.total_count == 3
+    assert "partial_words=on" in navigation.query_string
+    assert "Dokument 2 von 3" in content
+    assert (
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": documents[2].id},
+        )
+        in content
+    )
+    assert (
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": documents[0].id},
+        )
+        in content
+    )
 
 
 @pytest.mark.django_db
