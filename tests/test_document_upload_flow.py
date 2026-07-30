@@ -28,9 +28,9 @@ from doksio.documents.models import (
     DocumentBoxScanOptimizationJob,
     DocumentComment,
     DocumentFile,
-    DocumentInbox,
     DocumentImportBatch,
     DocumentImportBatchItem,
+    DocumentInbox,
     DocumentMetadataField,
     DocumentNavigationContext,
     DocumentRelation,
@@ -566,9 +566,7 @@ def test_inbox_access_is_scoped_by_role(client):
         slug="personal",
     )
     role.permissions.add(
-        *TenantPermission.objects.filter(
-            code__in=["inboxes.view", "inboxes.process"]
-        )
+        *TenantPermission.objects.filter(code__in=["inboxes.view", "inboxes.process"])
     )
     allowed_inbox = DocumentInbox.objects.create(
         tenant=tenant,
@@ -1648,94 +1646,6 @@ def test_document_file_viewer_settings_persist_rotation(client):
 
 
 @pytest.mark.django_db
-def test_document_detail_can_send_original_file_as_email_attachment(
-    client,
-    monkeypatch,
-):
-    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
-    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
-    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
-    user = get_user_model().objects.create_user(
-        username="alice",
-        password="secret",
-    )
-    TenantMembership.objects.create(
-        tenant=tenant,
-        user=user,
-        role=roles["viewer"],
-    )
-    TenantSmtpSettings.objects.create(
-        tenant=tenant,
-        host="smtp.example.test",
-        port=587,
-        security=TenantSmtpSettings.Security.STARTTLS,
-        username="doksio@example.test",
-        password="secret",
-        from_email="doksio@example.test",
-        from_name="Doksio",
-        is_active=True,
-    )
-    document, _document_file = CreateDocumentFromUpload(
-        tenant=tenant,
-        title="Invoice 4711",
-        space=space,
-        file_obj=BytesIO(b"invoice content"),
-        original_filename="invoice.pdf",
-        content_type="application/pdf",
-    ).execute()
-    sent_messages = []
-
-    def fake_send(email_message):
-        sent_messages.append(email_message)
-        return 1
-
-    monkeypatch.setattr(
-        "doksio.documents.views.EmailMultiAlternatives.send",
-        fake_send,
-    )
-    client.force_login(user)
-
-    response = client.post(
-        reverse(
-            "documents:detail",
-            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
-        ),
-        {
-            "action": "share_attachment_email",
-            "recipient": "kunde@example.test",
-            "message": "Bitte prüfen.",
-        },
-    )
-
-    assert response.status_code == 302
-    assert len(sent_messages) == 1
-    email_message = sent_messages[0]
-    assert email_message.to == ["kunde@example.test"]
-    assert email_message.subject == "Doksio Dokument: Invoice 4711"
-    assert "Bitte prüfen." in email_message.body
-    assert "Dokument in Doksio:" in email_message.body
-    assert email_message.alternatives[0][1] == "text/html"
-    assert "Dokument in Doksio öffnen" in email_message.alternatives[0][0]
-    assert email_message.attachments[0][0] == "invoice.pdf"
-    assert email_message.attachments[0][1] == b"invoice content"
-    mime_message = email_message.message()
-    assert mime_message.get_content_type() == "multipart/mixed"
-    assert any(
-        part.get("Content-ID") == "<doksio-logo>" for part in mime_message.walk()
-    )
-    assert any(
-        part.get_filename() == "invoice.pdf"
-        and part.get_content_disposition() == "attachment"
-        for part in mime_message.walk()
-    )
-    assert email_message.attachments[0][2] == "application/pdf"
-    assert AuditEvent.objects.filter(
-        event_type="document.shared",
-        object_id=str(document.id),
-    ).exists()
-
-
-@pytest.mark.django_db
 def test_document_detail_offers_native_share_with_original_attachment(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
@@ -1778,6 +1688,8 @@ def test_document_detail_offers_native_share_with_original_attachment(client):
     assert f'data-share-file-url="{expected_file_url}"' in content
     assert 'data-share-file-name="invoice.pdf"' in content
     assert 'data-share-file-type="application/pdf"' in content
+    assert "Mail mit Anhang" not in content
+    assert "share_attachment_email" not in content
 
 
 @pytest.mark.django_db

@@ -289,6 +289,7 @@ def test_profile_view_saves_notifications(client):
         profile.notification_preferences["document_comment_mention"]["in_app"] is True
     )
     assert profile.notification_preferences["import_failed"]["in_app"] is False
+    assert profile.notification_preferences["document_reminder"]["in_app"] is False
 
 
 @pytest.mark.django_db
@@ -308,6 +309,7 @@ def test_profile_notifications_view_renders_workflow_notification_setting(client
     assert "Neue Workflow-Aufgabe" in content
     assert "Wenn dir ein Workflow-Schritt zugeordnet wird" in content
     assert "Importfehler" in content
+    assert "Wiedervorlage fällig" in content
 
 
 @pytest.mark.django_db

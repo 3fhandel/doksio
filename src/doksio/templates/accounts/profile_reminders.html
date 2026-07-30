@@ -1,0 +1,76 @@
+{% extends "accounts/profile_base.html" %}
+{% load doksio_extras %}
+
+{% block profile_content %}
+  <section class="app-card profile-card">
+    <div class="profile-section border-bottom">
+      <div class="d-flex align-items-start justify-content-between gap-3">
+        <div>
+          <h2 class="h5 mb-1">Meine Wiedervorlagen</h2>
+          <p class="text-secondary mb-0">
+            {{ reminders_page_obj.paginator.count }} offene Wiedervorlage{{ reminders_page_obj.paginator.count|pluralize:"n" }}, nach Datum sortiert.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="document-row-list">
+      {% for reminder in reminders %}
+        <article class="history-document-row">
+          {% with thumbnail=reminder.document|document_thumbnail_file preview=reminder.document|document_quick_preview_file %}
+            {% if thumbnail and preview %}
+              <button
+                class="document-row-thumbnail document-row-thumbnail-button"
+                type="button"
+                data-document-quick-preview
+                data-preview-src="{% url 'documents:download' tenant.slug preview.id %}?inline=1"
+                data-preview-content-type="{{ preview.content_type }}"
+                data-preview-title="{{ reminder.document.title }}"
+                aria-label="Schnellvorschau für {{ reminder.document.title }} öffnen"
+                title="Schnellvorschau öffnen"
+              >
+                <img src="{% url 'documents:download' tenant.slug thumbnail.id %}?inline=1" alt="Vorschau {{ reminder.document.title }}">
+              </button>
+            {% else %}
+              <span class="document-row-thumbnail">
+                <span class="document-row-thumbnail-fallback">
+                  {% include "includes/icons.html" with icon="file" %}
+                  <span>{{ reminder.document|document_file_type }}</span>
+                </span>
+              </span>
+            {% endif %}
+          {% endwith %}
+
+          <span class="history-document-main">
+            <a href="{% url 'documents:detail' tenant.slug reminder.document.id %}?back={{ request.get_full_path|urlencode }}&amp;nav={{ document_nav|urlencode }}&amp;nav_position={{ reminders_page_obj.start_index|add:forloop.counter0 }}">
+              {{ reminder.document.title }}
+            </a>
+            <span>{{ reminder.document.space.path }} · {{ reminder.note }}</span>
+          </span>
+
+          <span class="badge {% if reminder.is_due %}text-bg-warning{% else %}text-bg-light{% endif %}">
+            {% if reminder.is_due %}Fällig{% endif %} {{ reminder.remind_on|date:"d.m.Y" }}
+          </span>
+
+          <div class="d-flex gap-2">
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="complete">
+              <input type="hidden" name="reminder_id" value="{{ reminder.id }}">
+              <button class="btn btn-sm btn-outline-success" type="submit">Erledigt</button>
+            </form>
+            <a class="btn btn-sm btn-primary history-document-open" href="{% url 'documents:detail' tenant.slug reminder.document.id %}?back={{ request.get_full_path|urlencode }}&amp;nav={{ document_nav|urlencode }}&amp;nav_position={{ reminders_page_obj.start_index|add:forloop.counter0 }}">
+              Öffnen
+            </a>
+          </div>
+        </article>
+      {% empty %}
+        <div class="p-5 text-center text-secondary">
+          Keine offenen Wiedervorlagen.
+        </div>
+      {% endfor %}
+    </div>
+
+    {% include "includes/pagination.html" with page_obj=reminders_page_obj page_param="page" label="Wiedervorlageseiten" %}
+  </section>
+{% endblock %}

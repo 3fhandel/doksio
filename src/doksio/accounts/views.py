@@ -7,6 +7,7 @@ from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.encoding import force_str
 from django.utils.http import url_has_allowed_host_and_scheme, urlsafe_base64_decode
 
@@ -30,9 +31,11 @@ from doksio.accounts.oidc import (
 )
 from doksio.accounts.permissions import TenantPermissions
 from doksio.accounts.services import MarkAllNotificationsRead, MarkNotificationRead
-from doksio.documents.models import Document
+from doksio.documents.models import Document, DocumentReminder
 from doksio.documents.navigation import create_document_navigation
 from doksio.documents.policies import can_administer_tenant, filter_documents_for_user
+from doksio.documents.services import CompleteDocumentReminder
+from doksio.pagination import paginate_queryset
 from doksio.tenancy.models import Tenant
 from doksio.tenancy.services import get_tenant_for_user
 
@@ -351,8 +354,7 @@ def profile_notifications(request: HttpRequest, tenant_slug: str) -> HttpRespons
         if form.is_valid():
             notification_preferences = notification_preferences_from_form(form)
             user_profile.notifications_enabled = any(
-                channels["in_app"]
-                for channels in notification_preferences.values()
+                channels["in_app"] for channels in notification_preferences.values()
             )
             user_profile.workflow_notifications_enabled = notification_preferences[
                 Notification.Type.WORKFLOW_TASK_CREATED
@@ -428,6 +430,63 @@ def profile_shortcuts(request: HttpRequest, tenant_slug: str) -> HttpResponse:
             "form": form,
             "shortcut_actions": KEYBOARD_SHORTCUT_ACTIONS,
             "active_profile_section": "shortcuts",
+            "can_manage_settings": can_administer_tenant(request.user, tenant),
+        },
+    )
+
+
+def profile_reminders(request: HttpRequest, tenant_slug: str) -> HttpResponse:
+    login_redirect = _redirect_to_login(request, tenant_slug)
+    if login_redirect is not None:
+        return login_redirect
+
+    tenant, _user_profile = _profile_context(request, tenant_slug)
+    accessible_documents = filter_documents_for_user(
+        Document.objects.filter(tenant=tenant),
+        request.user,
+        tenant,
+        TenantPermissions.DOCUMENTS_VIEW,
+    )
+    reminders = (
+        DocumentReminder.objects.filter(
+            tenant=tenant,
+            recipient=request.user,
+            document__in=accessible_documents,
+            completed_at__isnull=True,
+        )
+        .select_related("document", "document__space")
+        .prefetch_related("document__files")
+    )
+
+    if request.method == "POST" and request.POST.get("action") == "complete":
+        reminder = get_object_or_404(reminders, id=request.POST.get("reminder_id"))
+        CompleteDocumentReminder(
+            reminder=reminder,
+            recipient=request.user,
+        ).execute()
+        messages.success(request, "Wiedervorlage wurde erledigt.")
+        return redirect("accounts:profile_reminders", tenant_slug=tenant.slug)
+
+    reminders = reminders.order_by("remind_on", "id")
+    reminders_page_obj = paginate_queryset(request, reminders, per_page=25)
+    today = timezone.localdate()
+    for reminder in reminders_page_obj.object_list:
+        reminder.is_due = reminder.remind_on <= today
+    document_nav = create_document_navigation(
+        request=request,
+        tenant=tenant,
+        namespace="reminders",
+        total_count=reminders_page_obj.paginator.count,
+    )
+    return render(
+        request,
+        "accounts/profile_reminders.html",
+        {
+            "tenant": tenant,
+            "reminders": reminders_page_obj.object_list,
+            "reminders_page_obj": reminders_page_obj,
+            "document_nav": document_nav,
+            "active_profile_section": "reminders",
             "can_manage_settings": can_administer_tenant(request.user, tenant),
         },
     )

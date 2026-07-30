@@ -10,7 +10,11 @@ from django.utils import timezone
 
 from doksio.accounts.models import DocumentViewHistory
 from doksio.accounts.permissions import TenantPermissions
-from doksio.documents.models import Document, DocumentNavigationContext
+from doksio.documents.models import (
+    Document,
+    DocumentNavigationContext,
+    DocumentReminder,
+)
 from doksio.documents.policies import filter_documents_for_user
 from doksio.workflows.models import WorkflowTask
 from doksio.workflows.policies import filter_workflow_tasks_for_user
@@ -191,6 +195,24 @@ def document_ids_for_navigation_context(*, context, tenant, user):
             .values_list("document_id", flat=True)[:20]
         )
 
+    if context.namespace == "reminders":
+        accessible_documents = filter_documents_for_user(
+            Document.objects.filter(tenant=tenant),
+            user,
+            tenant,
+            TenantPermissions.DOCUMENTS_VIEW,
+        )
+        return (
+            DocumentReminder.objects.filter(
+                tenant=tenant,
+                recipient=user,
+                document__in=accessible_documents,
+                completed_at__isnull=True,
+            )
+            .order_by("remind_on", "id")
+            .values_list("document_id", flat=True)
+        )
+
     if context.namespace == "search":
         from doksio.search.forms import DocumentSearchForm
         from doksio.search.services import SearchDocuments
@@ -198,10 +220,14 @@ def document_ids_for_navigation_context(*, context, tenant, user):
         form = DocumentSearchForm(query_data, tenant=tenant, user=user)
         if not form.is_valid():
             return Document.objects.none().values_list("id", flat=True)
-        return SearchDocuments(
-            tenant=tenant,
-            filters=form.cleaned_data,
-            user=user,
-        ).execute().values_list("id", flat=True)
+        return (
+            SearchDocuments(
+                tenant=tenant,
+                filters=form.cleaned_data,
+                user=user,
+            )
+            .execute()
+            .values_list("id", flat=True)
+        )
 
     return Document.objects.none().values_list("id", flat=True)

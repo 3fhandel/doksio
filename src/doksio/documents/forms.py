@@ -12,8 +12,8 @@ from doksio.accounts.permissions import TenantPermissions
 from doksio.documents.metadata import metadata_field_slug_is_available
 from doksio.documents.models import (
     Document,
-    DocumentInbox,
     DocumentImportBatchItem,
+    DocumentInbox,
     DocumentMetadataField,
     DocumentSpace,
     DocumentTitleRule,
@@ -136,9 +136,7 @@ class DocumentTitleRuleForm(forms.ModelForm):
             "regex_replace": forms.TextInput(attrs={"class": "form-control"}),
             "einvoice_format": forms.TextInput(attrs={"class": "form-control"}),
             "fallback_strategy": forms.Select(attrs={"class": "form-select"}),
-            "invoice_ocr_format": forms.TextInput(
-                attrs={"class": "form-control"}
-            ),
+            "invoice_ocr_format": forms.TextInput(attrs={"class": "form-control"}),
             "invoice_ocr_fallback_strategy": forms.Select(
                 attrs={"class": "form-select"}
             ),
@@ -260,15 +258,13 @@ class DocumentTitleRuleForm(forms.ModelForm):
         rule.is_default = not document_spaces or not document_spaces.exists()
         uses_invoice_ocr = rule.strategy == DocumentTitleRule.Strategy.INVOICE_OCR or (
             rule.strategy == DocumentTitleRule.Strategy.EINVOICE
-            and rule.fallback_strategy
-            == DocumentTitleRule.FallbackStrategy.INVOICE_OCR
+            and rule.fallback_strategy == DocumentTitleRule.FallbackStrategy.INVOICE_OCR
         )
         uses_regex = (
             rule.strategy == DocumentTitleRule.Strategy.REGEX
             or (
                 rule.strategy == DocumentTitleRule.Strategy.EINVOICE
-                and rule.fallback_strategy
-                == DocumentTitleRule.FallbackStrategy.REGEX
+                and rule.fallback_strategy == DocumentTitleRule.FallbackStrategy.REGEX
             )
             or (
                 uses_invoice_ocr
@@ -326,9 +322,7 @@ class DocumentInboxForm(forms.ModelForm):
         widgets = {
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "slug": forms.TextInput(attrs={"class": "form-control"}),
-            "description": forms.Textarea(
-                attrs={"class": "form-control", "rows": 3}
-            ),
+            "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
             "access_roles": forms.CheckboxSelectMultiple(
                 attrs={"class": "form-check-input"}
             ),
@@ -345,13 +339,11 @@ class DocumentInboxForm(forms.ModelForm):
             tenant=tenant,
             is_active=True,
         ).order_by("-is_system_role", "name")
-        self.fields["allowed_target_spaces"].queryset = (
-            DocumentSpace.objects.filter(
-                tenant=tenant,
-                is_active=True,
-                deleted_at__isnull=True,
-            ).order_by("path")
-        )
+        self.fields["allowed_target_spaces"].queryset = DocumentSpace.objects.filter(
+            tenant=tenant,
+            is_active=True,
+            deleted_at__isnull=True,
+        ).order_by("path")
 
     def clean_slug(self) -> str:
         value = slugify(self.cleaned_data["slug"])
@@ -367,9 +359,7 @@ class DocumentInboxForm(forms.ModelForm):
     def clean_allowed_target_spaces(self):
         spaces = self.cleaned_data.get("allowed_target_spaces")
         if spaces is None or not spaces.exists():
-            raise forms.ValidationError(
-                "Wähle mindestens eine erlaubte Zielbox aus."
-            )
+            raise forms.ValidationError("Wähle mindestens eine erlaubte Zielbox aus.")
         return spaces
 
 
@@ -502,6 +492,34 @@ class DocumentBoxTitleRefreshForm(forms.Form):
     )
 
 
+class DocumentReminderForm(forms.Form):
+    remind_on = forms.DateField(
+        label="Datum",
+        input_formats=["%d.%m.%Y", "%Y-%m-%d"],
+        widget=forms.DateInput(
+            attrs={
+                "class": "form-control",
+                "type": "text",
+                "inputmode": "numeric",
+                "placeholder": "TT.MM.JJJJ",
+                "data-smart-date": "true",
+            },
+            format="%d.%m.%Y",
+        ),
+    )
+    note = forms.CharField(
+        label="Bemerkung",
+        max_length=500,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 2,
+                "placeholder": "z. B. Vertrag kündigen",
+            }
+        ),
+    )
+
+
 class DocumentCoreMetadataForm(forms.Form):
     def __init__(
         self,
@@ -568,18 +586,6 @@ class DocumentDeleteForm(forms.Form):
         label="Löschgrund",
         choices=DOCUMENT_DELETE_REASON_CHOICES,
         widget=forms.Select(attrs={"class": "form-select"}),
-    )
-
-
-class DocumentShareAttachmentForm(forms.Form):
-    recipient = forms.EmailField(
-        label="Empfänger",
-        widget=forms.EmailInput(attrs={"class": "form-control"}),
-    )
-    message = forms.CharField(
-        label="Nachricht",
-        required=False,
-        widget=forms.Textarea(attrs={"class": "form-control", "rows": 4}),
     )
 
 
@@ -751,6 +757,11 @@ class DocumentSpaceForm(forms.Form):
     )
     advanced_review_assist_enabled = forms.BooleanField(
         label="Erweiterte Prüfhilfe aktiv",
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+    reminders_enabled = forms.BooleanField(
+        label="Wiedervorlagen aktiv",
         required=False,
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )

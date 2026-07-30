@@ -48,4 +48,9 @@ urlpatterns = [
         views.profile_history,
         name="profile_history",
     ),
+    path(
+        "t/<slug:tenant_slug>/profile/reminders/",
+        views.profile_reminders,
+        name="profile_reminders",
+    ),
 ]

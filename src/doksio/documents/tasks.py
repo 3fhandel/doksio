@@ -5,13 +5,18 @@ from datetime import timedelta
 
 from celery import shared_task
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
+from django.urls import reverse
 from django.utils import timezone
 
+from doksio.accounts.models import Notification
+from doksio.accounts.services import CreateNotification
 from doksio.documents.models import (
     DocumentBoxScanOptimizationJob,
     DocumentBoxTitleRefreshJob,
     DocumentOfficeConversionJob,
+    DocumentReminder,
     DocumentSpace,
 )
 from doksio.documents.services import (
@@ -23,6 +28,58 @@ from doksio.documents.services import (
     RunDocumentBoxScanOptimizationBatch,
     RunDocumentBoxTitleRefreshBatch,
 )
+
+
+@shared_task
+def dispatch_due_document_reminders() -> dict:
+    due_ids = list(
+        DocumentReminder.objects.filter(
+            completed_at__isnull=True,
+            notified_at__isnull=True,
+            remind_on__lte=timezone.localdate(),
+            document__status="active",
+            document__space__reminders_enabled=True,
+            tenant__is_active=True,
+            recipient__is_active=True,
+        ).values_list("id", flat=True)
+    )
+    notified = 0
+    for reminder_id in due_ids:
+        with transaction.atomic():
+            reminder = (
+                DocumentReminder.objects.select_for_update()
+                .select_related("tenant", "document", "document__space", "recipient")
+                .filter(
+                    id=reminder_id,
+                    completed_at__isnull=True,
+                    notified_at__isnull=True,
+                    document__status="active",
+                    document__space__reminders_enabled=True,
+                )
+                .first()
+            )
+            if reminder is None:
+                continue
+            due_label = reminder.remind_on.strftime("%d.%m.%Y")
+            CreateNotification(
+                tenant=reminder.tenant,
+                recipient=reminder.recipient,
+                notification_type=Notification.Type.DOCUMENT_REMINDER,
+                title=f"Wiedervorlage: {reminder.document.title}",
+                body=f"{reminder.note}\nFällig am {due_label}",
+                link_url=reverse(
+                    "documents:detail",
+                    kwargs={
+                        "tenant_slug": reminder.tenant.slug,
+                        "document_id": reminder.document_id,
+                    },
+                ),
+                document=reminder.document,
+            ).execute()
+            reminder.notified_at = timezone.now()
+            reminder.save(update_fields=["notified_at", "updated_at"])
+            notified += 1
+    return {"checked": len(due_ids), "notified": notified}
 
 
 @shared_task

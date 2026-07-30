@@ -49,6 +49,8 @@ def test_help_overview_shows_user_topics_and_hides_restricted_topics(client):
     assert "Aufgaben und Workflows" in content
     assert "Was ist ein Workflow?" in content
     assert "Workflow, Schritt und Aufgabe" in content
+    assert "Wiedervorlagen" in content
+    assert "Profil &gt; Wiedervorlagen" in content
     assert 'id="administration"' not in content
     assert 'id="stapelimport"' not in content
     assert (

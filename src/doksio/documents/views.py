@@ -11,7 +11,7 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.files.storage import default_storage
 from django.core.mail import get_connection
-from django.db.models import Case, Count, IntegerField, Q, Value, When
+from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Q, Value, When
 from django.http import (
     FileResponse,
     Http404,
@@ -59,7 +59,7 @@ from doksio.documents.forms import (
     DocumentMetadataFieldForm,
     DocumentMetadataForm,
     DocumentRelationForm,
-    DocumentShareAttachmentForm,
+    DocumentReminderForm,
     DocumentSpaceDeleteForm,
     DocumentSpaceEmptyForm,
     DocumentSpaceForm,
@@ -76,11 +76,12 @@ from doksio.documents.models import (
     DocumentBoxScanOptimizationJob,
     DocumentBoxTitleRefreshJob,
     DocumentFile,
-    DocumentInbox,
     DocumentImportBatch,
     DocumentImportBatchItem,
+    DocumentInbox,
     DocumentMetadataField,
     DocumentRelation,
+    DocumentReminder,
     DocumentReviewMarker,
     DocumentSpace,
     DocumentTitleRule,
@@ -94,8 +95,8 @@ from doksio.documents.navigation import (
     normalize_document_box_sort,
 )
 from doksio.documents.policies import (
-    can_administer_tenant,
     can_access_document_import_batch,
+    can_administer_tenant,
     can_batch_import_documents,
     can_delete_document,
     can_download_document_file,
@@ -106,8 +107,8 @@ from doksio.documents.policies import (
     can_upload_document,
     can_view_audit,
     can_view_document,
-    filter_document_spaces_for_user,
     filter_document_inboxes_for_user,
+    filter_document_spaces_for_user,
     filter_documents_for_user,
     filter_navigable_document_spaces_for_user,
     has_tenant_permission,
@@ -117,13 +118,15 @@ from doksio.documents.services import (
     AddDocumentMetadataChoice,
     AddDocumentRelation,
     AddDocumentReviewMarker,
+    CompleteDocumentReminder,
     CreateDocumentFromUpload,
-    CreateDocumentInbox,
     CreateDocumentImportBatch,
+    CreateDocumentInbox,
     CreateDocumentMetadataField,
     CreateDocumentSpace,
     DeleteDocument,
     DeleteDocumentInbox,
+    DeleteDocumentReminder,
     DeleteDocumentSpace,
     DiscardDocumentImportBatch,
     DocumentSplitPart,
@@ -132,6 +135,7 @@ from doksio.documents.services import (
     FinalizeDocumentImportBatch,
     RemoveDocumentRelation,
     RemoveDocumentReviewMarker,
+    SaveDocumentReminder,
     SetDocumentTags,
     SplitPdfDocument,
     UpdateDocumentCoreMetadata,
@@ -218,7 +222,7 @@ BROWSER_IMAGE_PREVIEW_CONTENT_TYPES = {
 }
 
 
-def _with_workflow_counts(documents):
+def _with_document_row_indicators(documents, user):
     return documents.annotate(
         comment_count=Count("comments", distinct=True),
         workflow_total_count=Count("workflow_instances", distinct=True),
@@ -235,6 +239,13 @@ def _with_workflow_counts(documents):
                 workflow_instances__status=WorkflowInstance.Status.RUNNING,
             ),
             distinct=True,
+        ),
+        has_personal_reminder=Exists(
+            DocumentReminder.objects.filter(
+                document_id=OuterRef("pk"),
+                recipient=user,
+                completed_at__isnull=True,
+            )
         ),
     )
 
@@ -753,9 +764,7 @@ def _document_navigation_context(
         tenant=tenant,
         user=request.user,
     )
-    if not document_ids and (
-        "," in nav_param or nav_param.isdigit()
-    ):
+    if not document_ids and ("," in nav_param or nav_param.isdigit()):
         document_ids = _parse_legacy_document_nav_param(nav_param)
     if document.id not in document_ids:
         return {"document_nav_param": nav_param}
@@ -1020,62 +1029,6 @@ def _smtp_connection(smtp_settings: TenantSmtpSettings):
     )
 
 
-def _send_document_attachment_email(
-    *,
-    document: Document,
-    document_file: DocumentFile,
-    smtp_settings: TenantSmtpSettings,
-    recipient: str,
-    message: str,
-    document_url: str,
-    actor,
-) -> None:
-    body_parts = []
-    if message.strip():
-        body_parts.append(message.strip())
-    body_parts.append(f"Dokument in Doksio: {document_url}")
-    body = "\n\n".join(body_parts)
-
-    with default_storage.open(document_file.storage_key, "rb") as stored_file:
-        attachment_content = stored_file.read()
-
-    email = EmailMultiAlternatives(
-        subject=f"Doksio Dokument: {document.title}",
-        body=body,
-        from_email=_smtp_from_email(smtp_settings),
-        to=[recipient],
-        connection=_smtp_connection(smtp_settings),
-    )
-    attach_branded_html(
-        email,
-        heading=document.title,
-        content=message.strip() or "Ein Dokument wurde über Doksio mit dir geteilt.",
-        tenant_name=document.tenant.name,
-        action_url=document_url,
-        action_label="Dokument in Doksio öffnen",
-    )
-    email.attach(
-        document_file.original_filename,
-        attachment_content,
-        document_file.content_type,
-    )
-    email.send()
-
-    RecordAuditEvent(
-        tenant=document.tenant,
-        actor=actor,
-        event_type="document.shared",
-        object_type="documents.Document",
-        object_id=str(document.id),
-        data={
-            "document_id": document.id,
-            "document_file_id": document_file.id,
-            "mode": "email_attachment",
-            "recipient": recipient,
-        },
-    ).execute()
-
-
 def dashboard_redirect(request: HttpRequest) -> HttpResponse:
     if not request.user.is_authenticated:
         return _system_login_redirect(request)
@@ -1115,7 +1068,16 @@ def _open_workflow_tasks_for_user(request: HttpRequest, tenant):
             "step",
         )
         .prefetch_related("document__files")
-        .annotate(document_comment_count=Count("document__comments", distinct=True))
+        .annotate(
+            document_comment_count=Count("document__comments", distinct=True),
+            document_has_personal_reminder=Exists(
+                DocumentReminder.objects.filter(
+                    document_id=OuterRef("document_id"),
+                    recipient=request.user,
+                    completed_at__isnull=True,
+                )
+            ),
+        )
         .order_by("created_at", "id"),
         request.user,
         tenant,
@@ -1160,7 +1122,7 @@ def dashboard(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     if tenant is None:
         raise PermissionDenied
 
-    documents_queryset = _with_workflow_counts(
+    documents_queryset = _with_document_row_indicators(
         filter_documents_for_user(
             Document.objects.filter(tenant=tenant)
             .select_related("space", "tenant")
@@ -1168,7 +1130,8 @@ def dashboard(request: HttpRequest, tenant_slug: str) -> HttpResponse:
             .order_by("-created_at", "-id"),
             request.user,
             tenant,
-        )
+        ),
+        request.user,
     )
     documents_page_obj = paginate_queryset(
         request,
@@ -1317,7 +1280,7 @@ def document_list(
     if current_box is None:
         documents_queryset = Document.objects.none()
     else:
-        documents_queryset = _with_workflow_counts(
+        documents_queryset = _with_document_row_indicators(
             filter_documents_for_user(
                 Document.objects.filter(
                     tenant=tenant,
@@ -1328,7 +1291,8 @@ def document_list(
                 .order_by(*document_box_ordering(document_sort)),
                 request.user,
                 tenant,
-            )
+            ),
+            request.user,
         )
     documents_page_obj = paginate_queryset(
         request,
@@ -1359,8 +1323,7 @@ def document_list(
                 },
             )
     current_box_accessible = (
-        current_box is not None
-        and accessible_spaces.filter(id=current_box.id).exists()
+        current_box is not None and accessible_spaces.filter(id=current_box.id).exists()
     )
     return render(
         request,
@@ -2112,7 +2075,6 @@ def document_detail(
         metadata=document.metadata,
     )
     relation_form = DocumentRelationForm(document=document, user=request.user)
-    share_attachment_form = DocumentShareAttachmentForm()
     tag_form = DocumentTagForm(
         tenant=tenant,
         initial={
@@ -2123,7 +2085,22 @@ def document_detail(
     )
     start_workflow_form = StartWorkflowForm(tenant=tenant)
     complete_workflow_task_form = CompleteWorkflowTaskForm()
-    share_attachment_modal_open = False
+    document_reminder = DocumentReminder.objects.filter(
+        document=document,
+        recipient=request.user,
+        completed_at__isnull=True,
+    ).first()
+    document_reminder_form = DocumentReminderForm(
+        initial=(
+            {
+                "remind_on": document_reminder.remind_on,
+                "note": document_reminder.note,
+            }
+            if document_reminder
+            else None
+        )
+    )
+    document_reminder_modal_open = False
     document_share_url = request.build_absolute_uri(
         reverse(
             "documents:detail",
@@ -2148,6 +2125,43 @@ def document_detail(
                 ).execute()
                 messages.success(request, "Kommentar wurde hinzugefügt.")
                 return redirect(request.get_full_path())
+        elif action == "save_reminder":
+            document_reminder_form = DocumentReminderForm(request.POST)
+            if document_reminder_form.is_valid():
+                try:
+                    document_reminder = SaveDocumentReminder(
+                        document=document,
+                        recipient=request.user,
+                        remind_on=document_reminder_form.cleaned_data["remind_on"],
+                        note=document_reminder_form.cleaned_data["note"],
+                    ).execute()
+                except ValueError as error:
+                    messages.error(request, str(error))
+                else:
+                    messages.success(request, "Wiedervorlage wurde gespeichert.")
+                    return redirect(request.get_full_path())
+            document_reminder_modal_open = True
+        elif action in {"complete_reminder", "delete_reminder"}:
+            document_reminder = get_object_or_404(
+                DocumentReminder,
+                id=request.POST.get("reminder_id"),
+                document=document,
+                recipient=request.user,
+                completed_at__isnull=True,
+            )
+            if action == "complete_reminder":
+                CompleteDocumentReminder(
+                    reminder=document_reminder,
+                    recipient=request.user,
+                ).execute()
+                messages.success(request, "Wiedervorlage wurde erledigt.")
+            else:
+                DeleteDocumentReminder(
+                    reminder=document_reminder,
+                    recipient=request.user,
+                ).execute()
+                messages.success(request, "Wiedervorlage wurde entfernt.")
+            return redirect(request.get_full_path())
         elif action == "update_tags":
             tag_form = DocumentTagForm(request.POST, tenant=tenant)
             if tag_form.is_valid():
@@ -2267,41 +2281,6 @@ def document_detail(
                 else:
                     messages.success(request, "Workflow-Aufgabe wurde erledigt.")
                     return redirect(request.get_full_path())
-        elif action == "share_attachment_email":
-            share_attachment_form = DocumentShareAttachmentForm(request.POST)
-            if share_attachment_form.is_valid():
-                document_file = _document_original_file(document)
-                if document_file is None:
-                    messages.error(request, "Dieses Dokument hat keine Originaldatei.")
-                    return redirect(request.get_full_path())
-                if not can_download_document_file(request.user, document_file):
-                    raise PermissionDenied
-
-                smtp_settings = TenantSmtpSettings.objects.filter(
-                    tenant=tenant,
-                    is_active=True,
-                ).first()
-                if smtp_settings is None:
-                    messages.error(
-                        request,
-                        "Für diesen Mandanten sind keine aktiven "
-                        "SMTP-Einstellungen hinterlegt.",
-                    )
-                    return redirect(request.get_full_path())
-
-                _send_document_attachment_email(
-                    document=document,
-                    document_file=document_file,
-                    smtp_settings=smtp_settings,
-                    recipient=share_attachment_form.cleaned_data["recipient"],
-                    message=share_attachment_form.cleaned_data["message"],
-                    document_url=document_share_url,
-                    actor=request.user,
-                )
-                messages.success(request, "Dokument wurde per E-Mail gesendet.")
-                return redirect(request.get_full_path())
-            share_attachment_modal_open = True
-
     preview_file, preview_kind = _document_preview(document)
     preview_ocr_job = preview_file.latest_ocr_job if preview_file is not None else None
     preview_rotation = _viewer_rotation(preview_file)
@@ -2408,11 +2387,6 @@ def document_detail(
             )
             + "?inline=1"
         )
-    share_can_send_attachment = (
-        share_attachment_file is not None
-        and can_download_document_file(request.user, share_attachment_file)
-        and TenantSmtpSettings.objects.filter(tenant=tenant, is_active=True).exists()
-    )
     document_can_split = (
         share_attachment_file is not None
         and share_attachment_file.content_type == "application/pdf"
@@ -2437,6 +2411,13 @@ def document_detail(
             ),
             "review_markers": review_markers,
             "comment_form": comment_form,
+            "document_reminder": document_reminder,
+            "document_reminder_form": document_reminder_form,
+            "document_reminder_is_due": (
+                document_reminder is not None
+                and document_reminder.remind_on <= timezone.localdate()
+            ),
+            "document_reminder_modal_open": document_reminder_modal_open,
             "metadata_form": metadata_form,
             "relation_form": relation_form,
             "document_relations": _document_relations_for_display(
@@ -2444,12 +2425,9 @@ def document_detail(
                 request.user,
             ),
             "relation_picker_spaces": relation_picker_spaces,
-            "share_attachment_form": share_attachment_form,
             "share_attachment_file": share_attachment_file,
             "share_attachment_download_url": share_attachment_download_url,
             "share_can_open_mail_client": share_can_open_mail_client,
-            "share_can_send_attachment": share_can_send_attachment,
-            "share_attachment_modal_open": share_attachment_modal_open,
             "document_can_split": document_can_split,
             "document_share_url": document_share_url,
             "share_mailto_url": share_mailto_url,
@@ -2736,18 +2714,22 @@ def document_relation_picker_search(
             tenant=tenant,
             deleted_at__isnull=True,
         )
-    documents = SearchDocuments(
-        tenant=tenant,
-        user=request.user,
-        filters={
-            "q": query,
-            "box": selected_space,
-            "include_child_boxes": include_children,
-            "workflow_status": workflow_status,
-            "document_status": "active",
-            "sort": "relevance" if query else "created_desc",
-        },
-    ).execute().exclude(id=document.id)
+    documents = (
+        SearchDocuments(
+            tenant=tenant,
+            user=request.user,
+            filters={
+                "q": query,
+                "box": selected_space,
+                "include_child_boxes": include_children,
+                "workflow_status": workflow_status,
+                "document_status": "active",
+                "sort": "relevance" if query else "created_desc",
+            },
+        )
+        .execute()
+        .exclude(id=document.id)
+    )
 
     def thumbnail_url(candidate: Document) -> str:
         thumbnail = next(
@@ -3135,9 +3117,7 @@ def tenant_settings_inbox_create(
                 slug=form.cleaned_data["slug"],
                 description=form.cleaned_data["description"],
                 access_roles=tuple(form.cleaned_data["access_roles"]),
-                allowed_target_spaces=tuple(
-                    form.cleaned_data["allowed_target_spaces"]
-                ),
+                allowed_target_spaces=tuple(form.cleaned_data["allowed_target_spaces"]),
                 is_active=form.cleaned_data["is_active"],
                 actor=request.user,
             ).execute()
@@ -3189,9 +3169,7 @@ def tenant_settings_inbox_edit(
                 slug=form.cleaned_data["slug"],
                 description=form.cleaned_data["description"],
                 access_roles=tuple(form.cleaned_data["access_roles"]),
-                allowed_target_spaces=tuple(
-                    form.cleaned_data["allowed_target_spaces"]
-                ),
+                allowed_target_spaces=tuple(form.cleaned_data["allowed_target_spaces"]),
                 is_active=form.cleaned_data["is_active"],
                 actor=request.user,
             ).execute()
@@ -3268,6 +3246,7 @@ def tenant_settings_document_box_create(
                 advanced_review_assist_enabled=form.cleaned_data[
                     "advanced_review_assist_enabled"
                 ],
+                reminders_enabled=form.cleaned_data["reminders_enabled"],
             ).execute()
             messages.success(request, "Dokumentenbox wurde erstellt.")
             return redirect(
@@ -3324,6 +3303,7 @@ def tenant_settings_document_box_edit(
                 advanced_review_assist_enabled=form.cleaned_data[
                     "advanced_review_assist_enabled"
                 ],
+                reminders_enabled=form.cleaned_data["reminders_enabled"],
                 is_active=form.cleaned_data["is_active"],
             ).execute()
             messages.success(request, "Dokumentenbox wurde aktualisiert.")
@@ -3346,6 +3326,7 @@ def tenant_settings_document_box_edit(
                 "advanced_review_assist_enabled": (
                     document_space.advanced_review_assist_enabled
                 ),
+                "reminders_enabled": document_space.reminders_enabled,
                 "is_active": document_space.is_active,
             },
         )
@@ -3753,9 +3734,9 @@ def tenant_settings_background_jobs(
                 "completed_at": job.completed_at,
             }
         )
-    for job in tenant.document_box_title_refresh_jobs.select_related(
-        "document_space"
-    )[:10]:
+    for job in tenant.document_box_title_refresh_jobs.select_related("document_space")[
+        :10
+    ]:
         recent_jobs.append(
             {
                 "title": f"Titel neu berechnen: {job.document_space.path}",
@@ -4318,9 +4299,7 @@ def tenant_settings_title_rule_delete(
             else ", ".join(rule.document_spaces.values_list("path", flat=True))
         )
         rule_id_value = rule.id
-        document_space_ids = list(
-            rule.document_spaces.values_list("id", flat=True)
-        )
+        document_space_ids = list(rule.document_spaces.values_list("id", flat=True))
         rule.delete()
         RecordAuditEvent(
             tenant=tenant,

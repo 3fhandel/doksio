@@ -44,6 +44,7 @@ class DocumentSpace(models.Model):
     )
     review_assist_enabled = models.BooleanField(default=False)
     advanced_review_assist_enabled = models.BooleanField(default=False)
+    reminders_enabled = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     deleted_at = models.DateTimeField(blank=True, null=True)
     deleted_by = models.ForeignKey(
@@ -499,6 +500,55 @@ class DocumentRelation(models.Model):
         if document.id == self.first_document_id:
             return self.second_document
         return self.first_document
+
+
+class DocumentReminder(models.Model):
+    """Personal reminder for revisiting a document."""
+
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="document_reminders",
+    )
+    document = models.ForeignKey(
+        Document,
+        on_delete=models.CASCADE,
+        related_name="reminders",
+    )
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="document_reminders",
+    )
+    remind_on = models.DateField()
+    note = models.CharField(max_length=500)
+    notified_at = models.DateTimeField(blank=True, null=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["remind_on", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["document", "recipient"],
+                condition=models.Q(completed_at__isnull=True),
+                name="unique_active_document_reminder_per_user",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["completed_at", "notified_at", "remind_on"],
+                name="documents_reminder_due_idx",
+            ),
+            models.Index(
+                fields=["tenant", "recipient", "remind_on"],
+                name="documents_reminder_user_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.document}: {self.remind_on:%d.%m.%Y}"
 
 
 class DocumentComment(models.Model):

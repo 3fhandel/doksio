@@ -84,6 +84,13 @@
       {% else %}
         <span class="document-row-indicator document-row-indicator-empty" aria-hidden="true"></span>
       {% endif %}
+      {% if document.has_personal_reminder %}
+        <span class="document-row-indicator document-row-reminder-indicator" title="Persönliche Wiedervorlage vorhanden" aria-label="Persönliche Wiedervorlage vorhanden">
+          {% include "includes/icons.html" with icon="clock" %}
+        </span>
+      {% else %}
+        <span class="document-row-indicator document-row-indicator-empty" aria-hidden="true"></span>
+      {% endif %}
       {% if document.workflow_total_count %}
         <div class="document-row-indicator document-row-workflow search-result-workflow {% if document.workflow_open_count %}search-result-workflow-open{% else %}search-result-workflow-done{% endif %}" title="{% if document.workflow_open_count %}Workflow offen{% else %}Workflow erledigt{% endif %} {{ document.workflow_completed_count }}/{{ document.workflow_total_count }}" aria-label="{% if document.workflow_open_count %}Workflow offen{% else %}Workflow erledigt{% endif %} {{ document.workflow_completed_count }}/{{ document.workflow_total_count }}">
           {% include "includes/icons.html" with icon="workflow" %}

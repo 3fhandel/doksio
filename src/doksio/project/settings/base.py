@@ -174,6 +174,10 @@ CELERY_RESULT_BACKEND = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60
 CELERY_BEAT_SCHEDULE = {
+    "dispatch-due-document-reminders": {
+        "task": "doksio.documents.tasks.dispatch_due_document_reminders",
+        "schedule": 60.0,
+    },
     "process-due-email-import-sources": {
         "task": "doksio.ingestion.tasks.process_due_email_import_sources",
         "schedule": 60.0,

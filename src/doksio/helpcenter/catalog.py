@@ -159,10 +159,23 @@ HELP_TOPICS = (
                     "persistente Prüfsymbole auf einzelnen Seiten gesetzt werden."
                 ),
             ),
+            HelpSection(
+                title="Wiedervorlagen",
+                text=(
+                    "Wenn Wiedervorlagen für die Dokumentenbox aktiviert sind, "
+                    "öffnest du sie über die Schaltfläche Wiedervorlage am Dokument. "
+                    "Dort kannst du ein Datum und eine persönliche Bemerkung hinterlegen. "
+                    "Am gewählten Tag benachrichtigt dich Doksio. Die Kanäle "
+                    "In-App und E-Mail stellst du in deinem Profil ein. Unter "
+                    "Profil > Wiedervorlagen findest du alle offenen persönlichen "
+                    "Termine nach Datum sortiert."
+                ),
+            ),
         ),
         quick_tips=(
             "Ein Rechtsklick entfernt ein gesetztes Prüfsymbol.",
             "Kerndaten werden in einer eigenen kompakten Ansicht bearbeitet.",
+            "Erledigte Wiedervorlagen kannst du direkt am Dokument abschließen.",
         ),
     ),
     HelpTopic(
@@ -391,6 +404,7 @@ CONTEXT_TOPIC_SLUGS = {
     ("search", "documents"): "dokumente-finden",
     ("workflows", "list"): "aufgaben-workflows",
     ("accounts", "profile_notifications"): "kommentare",
+    ("accounts", "profile_reminders"): "dokument-bearbeiten",
     ("accounts", "profile_shortcuts"): "tastenkuerzel",
 }
 

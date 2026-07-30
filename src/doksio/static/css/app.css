@@ -3243,6 +3243,18 @@ body {
   height: 0.95rem;
 }
 
+.document-row-reminder-indicator {
+  border: 1px solid #f59e0b;
+  border-radius: 0.5rem;
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.document-row-reminder-indicator svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
 .document-row-meta {
   display: flex;
   flex-wrap: wrap;

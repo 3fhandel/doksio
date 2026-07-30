@@ -32,11 +32,12 @@ from doksio.documents.models import (
     DocumentBoxTitleRefreshJob,
     DocumentComment,
     DocumentFile,
-    DocumentInbox,
     DocumentImportBatch,
     DocumentImportBatchItem,
+    DocumentInbox,
     DocumentMetadataField,
     DocumentRelation,
+    DocumentReminder,
     DocumentReviewMarker,
     DocumentSpace,
     DocumentTag,
@@ -403,6 +404,67 @@ def _schedule_search_index_rebuild(document: Document) -> None:
 
 
 @dataclass(frozen=True)
+class SaveDocumentReminder:
+    document: Document
+    recipient: get_user_model()
+    remind_on: date
+    note: str
+
+    @transaction.atomic
+    def execute(self) -> DocumentReminder:
+        if not self.document.space.reminders_enabled:
+            raise ValueError(
+                "Wiedervorlagen sind für diese Dokumentenbox nicht aktiviert."
+            )
+        reminder = (
+            DocumentReminder.objects.select_for_update()
+            .filter(
+                document=self.document,
+                recipient=self.recipient,
+                completed_at__isnull=True,
+            )
+            .first()
+        )
+        if reminder is None:
+            return DocumentReminder.objects.create(
+                tenant=self.document.tenant,
+                document=self.document,
+                recipient=self.recipient,
+                remind_on=self.remind_on,
+                note=self.note.strip(),
+            )
+        reminder.remind_on = self.remind_on
+        reminder.note = self.note.strip()
+        reminder.notified_at = None
+        reminder.save(update_fields=["remind_on", "note", "notified_at", "updated_at"])
+        return reminder
+
+
+@dataclass(frozen=True)
+class CompleteDocumentReminder:
+    reminder: DocumentReminder
+    recipient: get_user_model()
+
+    def execute(self) -> DocumentReminder:
+        if self.reminder.recipient_id != self.recipient.id:
+            raise ValueError("Diese Wiedervorlage gehört einem anderen Benutzer.")
+        self.reminder.completed_at = timezone.now()
+        self.reminder.save(update_fields=["completed_at", "updated_at"])
+        return self.reminder
+
+
+@dataclass(frozen=True)
+class DeleteDocumentReminder:
+    reminder: DocumentReminder
+    recipient: get_user_model()
+
+    def execute(self) -> None:
+        if self.reminder.recipient_id != self.recipient.id:
+            raise ValueError("Diese Wiedervorlage gehört einem anderen Benutzer.")
+        self.reminder.delete()
+
+
+@dataclass(frozen=True)
 class CreateDocumentSpace:
     tenant: Tenant
     name: str
@@ -413,6 +475,7 @@ class CreateDocumentSpace:
     space_kind: str = DocumentSpace.SpaceKind.GENERAL
     review_assist_enabled: bool = False
     advanced_review_assist_enabled: bool = False
+    reminders_enabled: bool = False
     is_active: bool = True
 
     @transaction.atomic
@@ -438,9 +501,8 @@ class CreateDocumentSpace:
                 ),
                 "space_kind": self.space_kind,
                 "review_assist_enabled": self.review_assist_enabled,
-                "advanced_review_assist_enabled": (
-                    self.advanced_review_assist_enabled
-                ),
+                "advanced_review_assist_enabled": (self.advanced_review_assist_enabled),
+                "reminders_enabled": self.reminders_enabled,
                 "is_active": self.is_active,
             },
         )
@@ -458,6 +520,7 @@ class UpdateDocumentSpace:
     space_kind: str = DocumentSpace.SpaceKind.GENERAL
     review_assist_enabled: bool = False
     advanced_review_assist_enabled: bool = False
+    reminders_enabled: bool = False
     is_active: bool = True
 
     @transaction.atomic
@@ -488,6 +551,7 @@ class UpdateDocumentSpace:
         self.document_space.advanced_review_assist_enabled = (
             self.advanced_review_assist_enabled
         )
+        self.document_space.reminders_enabled = self.reminders_enabled
         self.document_space.is_active = self.is_active
         self.document_space.save(
             update_fields=[
@@ -500,6 +564,7 @@ class UpdateDocumentSpace:
                 "space_kind",
                 "review_assist_enabled",
                 "advanced_review_assist_enabled",
+                "reminders_enabled",
                 "is_active",
                 "updated_at",
             ]
@@ -964,16 +1029,13 @@ class DeleteDocumentInbox:
 
     @transaction.atomic
     def execute(self) -> None:
-        if self.inbox.batches.filter(
-            status=DocumentImportBatch.Status.OPEN
-        ).exists():
+        if self.inbox.batches.filter(status=DocumentImportBatch.Status.OPEN).exists():
             raise ValueError(
                 "Ein Posteingang mit offenen Stapeln kann nicht gelöscht werden."
             )
         if self.inbox.import_sources.exists():
             raise ValueError(
-                "Der Posteingang wird noch von mindestens einer Importquelle "
-                "verwendet."
+                "Der Posteingang wird noch von mindestens einer Importquelle verwendet."
             )
         tenant = self.inbox.tenant
         inbox_id = self.inbox.id
@@ -3004,16 +3066,13 @@ class AddDocumentComment:
         if mentioned_users:
             comment.mentioned_users.set(mentioned_users)
         notification_users = {
-            user.id: user
-            for user in [*previously_mentioned_users, *mentioned_users]
+            user.id: user for user in [*previously_mentioned_users, *mentioned_users]
         }
         if notification_users:
             self._notify_comment_users(
                 comment,
                 list(notification_users.values()),
-                directly_mentioned_user_ids={
-                    user.id for user in mentioned_users
-                },
+                directly_mentioned_user_ids={user.id for user in mentioned_users},
             )
 
         RecordAuditEvent(
@@ -3056,9 +3115,7 @@ class AddDocumentComment:
                 recipient=user,
                 notification_type=Notification.Type.DOCUMENT_COMMENT_MENTION,
                 title=(
-                    "Du wurdest erwähnt"
-                    if directly_mentioned
-                    else "Neuer Kommentar"
+                    "Du wurdest erwähnt" if directly_mentioned else "Neuer Kommentar"
                 ),
                 body=(
                     (

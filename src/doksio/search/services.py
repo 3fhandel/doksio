@@ -9,13 +9,18 @@ from typing import Any
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db import connection
-from django.db.models import Count, DecimalField, F, Q, QuerySet
+from django.db.models import Count, DecimalField, Exists, F, OuterRef, Q, QuerySet
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast
 from django.utils import timezone
 
 from doksio.accounts.permissions import TenantPermissions
-from doksio.documents.models import Document, DocumentMetadataField, DocumentSpace
+from doksio.documents.models import (
+    Document,
+    DocumentMetadataField,
+    DocumentReminder,
+    DocumentSpace,
+)
 from doksio.documents.policies import filter_documents_for_user, has_tenant_permission
 from doksio.search.models import DocumentSearchIndex
 from doksio.tenancy.models import Tenant
@@ -263,6 +268,16 @@ class SearchDocuments:
                 distinct=True,
             ),
         )
+        if self.user is not None and self.user.is_authenticated:
+            documents = documents.annotate(
+                has_personal_reminder=Exists(
+                    DocumentReminder.objects.filter(
+                        document_id=OuterRef("pk"),
+                        recipient=self.user,
+                        completed_at__isnull=True,
+                    )
+                )
+            )
         workflow_status = self.filters.get("workflow_status")
         if workflow_status == "none":
             documents = documents.filter(workflow_total_count=0)

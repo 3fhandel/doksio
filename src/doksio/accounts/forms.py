@@ -54,6 +54,7 @@ NOTIFICATION_EVENTS = [
         "document_comment_mention",
         NOTIFICATION_TYPE_LABELS["document_comment_mention"],
     ),
+    ("document_reminder", NOTIFICATION_TYPE_LABELS["document_reminder"]),
     ("import_failed", NOTIFICATION_TYPE_LABELS["import_failed"]),
 ]
 

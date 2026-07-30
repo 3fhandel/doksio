@@ -25,6 +25,7 @@ def default_notification_preferences() -> dict[str, dict[str, bool]]:
         "workflow_started": {"in_app": True, "email": False},
         "workflow_task_created": {"in_app": True, "email": False},
         "document_comment_mention": {"in_app": True, "email": True},
+        "document_reminder": {"in_app": True, "email": False},
         "import_failed": {"in_app": True, "email": False},
     }
 
@@ -33,6 +34,7 @@ NOTIFICATION_TYPE_LABELS = {
     "workflow_started": "Workflow gestartet",
     "workflow_task_created": "Neue Workflow-Aufgabe",
     "document_comment_mention": "Ich wurde erwähnt",
+    "document_reminder": "Wiedervorlage fällig",
     "import_failed": "Importfehler",
 }
 
@@ -77,6 +79,7 @@ class Notification(models.Model):
         )
         IMPORT_FAILED = "import_failed", "Importfehler"
         DOCUMENT_ALARM = "document_alarm", "Dokumentenalarm"
+        DOCUMENT_REMINDER = "document_reminder", "Wiedervorlage"
 
     tenant = models.ForeignKey(
         "tenancy.Tenant",

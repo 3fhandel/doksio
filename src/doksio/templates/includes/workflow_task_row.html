@@ -63,6 +63,13 @@
       {% else %}
         <span class="document-row-indicator document-row-indicator-empty" aria-hidden="true"></span>
       {% endif %}
+      {% if task.document_has_personal_reminder %}
+        <span class="document-row-indicator document-row-reminder-indicator" title="Persönliche Wiedervorlage vorhanden" aria-label="Persönliche Wiedervorlage vorhanden">
+          {% include "includes/icons.html" with icon="clock" %}
+        </span>
+      {% else %}
+        <span class="document-row-indicator document-row-indicator-empty" aria-hidden="true"></span>
+      {% endif %}
       <span class="document-row-indicator document-row-workflow search-result-workflow search-result-workflow-open" title="Workflow offen" aria-label="Workflow offen">
         {% include "includes/icons.html" with icon="workflow" %}
       </span>

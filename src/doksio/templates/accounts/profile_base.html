@@ -31,6 +31,9 @@
             <a class="list-group-item list-group-item-action {% if active_profile_section == 'shortcuts' %}active{% endif %}" href="{% url 'accounts:profile_shortcuts' tenant.slug %}">
               Tastenkürzel
             </a>
+            <a class="list-group-item list-group-item-action {% if active_profile_section == 'reminders' %}active{% endif %}" href="{% url 'accounts:profile_reminders' tenant.slug %}">
+              Wiedervorlagen
+            </a>
             <a class="list-group-item list-group-item-action {% if active_profile_section == 'history' %}active{% endif %}" href="{% url 'accounts:profile_history' tenant.slug %}">
               Verlauf
             </a>

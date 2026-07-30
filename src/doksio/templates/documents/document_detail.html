@@ -24,6 +24,20 @@
           <div class="text-secondary">{{ document.space.path }} · {{ document.tenant.name }}</div>
         </div>
         <div class="d-flex align-items-center flex-wrap justify-content-end gap-2">
+          {% if document.space.reminders_enabled %}
+            <button
+              class="btn btn-sm {% if document_reminder_is_due %}btn-warning{% else %}btn-outline-secondary{% endif %}"
+              type="button"
+              data-bs-toggle="modal"
+              data-bs-target="#documentReminderModal"
+            >
+              {% include "includes/icons.html" with icon="clock" %}
+              <span>Wiedervorlage</span>
+              {% if document_reminder %}
+                <span class="ms-1">{{ document_reminder.remind_on|date:"d.m.Y" }}</span>
+              {% endif %}
+            </button>
+          {% endif %}
           <div class="dropdown">
             <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
               Teilen
@@ -52,12 +66,6 @@
                   {% if not share_can_open_mail_client %}aria-disabled="true" disabled{% endif %}
                 >
                   Über System teilen
-                </button>
-              </li>
-              <li><hr class="dropdown-divider"></li>
-              <li>
-                <button class="dropdown-item{% if not share_can_send_attachment %} disabled{% endif %}" type="button" data-bs-toggle="modal" data-bs-target="#documentShareAttachmentModal"{% if not share_can_send_attachment %} aria-disabled="true" disabled{% endif %}>
-                  Mail mit Anhang
                 </button>
               </li>
             </ul>
@@ -734,44 +742,66 @@
       </section>
     </div>
 
-    <div class="modal fade" id="documentShareAttachmentModal" tabindex="-1" aria-labelledby="documentShareAttachmentModalLabel" aria-hidden="true">
-      <div class="modal-dialog">
-        <form class="modal-content" method="post">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="share_attachment_email">
-          <div class="modal-header">
-            <h2 class="modal-title h5" id="documentShareAttachmentModalLabel">Dokument per E-Mail senden</h2>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
-          </div>
-          <div class="modal-body">
-            {% if share_attachment_file %}
-              <div class="alert alert-light border small">
-                Anhang: {{ share_attachment_file.original_filename }} · {{ share_attachment_file.byte_size|filesizeformat }}
+    {% if document.space.reminders_enabled %}
+      <div class="modal fade" id="documentReminderModal" tabindex="-1" aria-labelledby="documentReminderModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <div>
+                <h2 class="modal-title h5 mb-0" id="documentReminderModalLabel">Wiedervorlage</h2>
+                {% if document_reminder %}
+                  <div class="small text-secondary mt-1">
+                    {% if document_reminder_is_due %}Jetzt fällig{% else %}Aktuell am {{ document_reminder.remind_on|date:"d.m.Y" }}{% endif %}
+                  </div>
+                {% endif %}
               </div>
-            {% endif %}
-            {% if not share_can_send_attachment %}
-              <div class="alert alert-warning">
-                Für den Versand mit Anhang müssen aktive SMTP-Einstellungen vorhanden sein und du brauchst Download-Berechtigung für die Originaldatei.
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+            </div>
+            <div class="modal-body">
+              <form id="documentReminderSaveForm" method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="save_reminder">
+                <div class="mb-3">
+                  <label class="form-label" for="{{ document_reminder_form.remind_on.id_for_label }}">Datum</label>
+                  {{ document_reminder_form.remind_on }}
+                  {{ document_reminder_form.remind_on.errors }}
+                </div>
+                <div>
+                  <label class="form-label" for="{{ document_reminder_form.note.id_for_label }}">Bemerkung</label>
+                  {{ document_reminder_form.note }}
+                  {{ document_reminder_form.note.errors }}
+                </div>
+              </form>
+            </div>
+            <div class="modal-footer justify-content-between">
+              <div class="d-flex gap-2">
+                {% if document_reminder %}
+                  <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="complete_reminder">
+                    <input type="hidden" name="reminder_id" value="{{ document_reminder.id }}">
+                    <button class="btn btn-success" type="submit">Erledigt</button>
+                  </form>
+                  <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="delete_reminder">
+                    <input type="hidden" name="reminder_id" value="{{ document_reminder.id }}">
+                    <button class="btn btn-outline-danger" type="submit">Entfernen</button>
+                  </form>
+                {% endif %}
               </div>
-            {% endif %}
-            <div class="mb-3">
-              <label class="form-label" for="{{ share_attachment_form.recipient.id_for_label }}">Empfänger</label>
-              {{ share_attachment_form.recipient }}
-              {{ share_attachment_form.recipient.errors }}
-            </div>
-            <div>
-              <label class="form-label" for="{{ share_attachment_form.message.id_for_label }}">Nachricht</label>
-              {{ share_attachment_form.message }}
-              {{ share_attachment_form.message.errors }}
+              <div class="d-flex gap-2">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button class="btn btn-primary" type="submit" form="documentReminderSaveForm">
+                  {% if document_reminder %}Änderungen speichern{% else %}Anlegen{% endif %}
+                </button>
+              </div>
             </div>
           </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
-            <button class="btn btn-primary" type="submit"{% if not share_can_send_attachment %} disabled{% endif %}>Senden</button>
-          </div>
-        </form>
+        </div>
       </div>
-    </div>
+    {% endif %}
+
     <div class="modal fade" id="documentRelationPickerModal" tabindex="-1" aria-labelledby="documentRelationPickerModalLabel" aria-hidden="true">
       <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content" data-document-relation-picker data-search-url="{% url 'documents:relation_picker_search' document.tenant.slug document.id %}">
@@ -922,7 +952,7 @@
         const fileType = button.getAttribute("data-share-file-type") || "application/octet-stream";
         const title = button.getAttribute("data-share-title") || "Doksio Dokument";
         const text = button.getAttribute("data-share-text") || "";
-        const unsupportedMessage = "Dieser Browser kann Dateien nicht über das System teilen. Nutze alternativ \"Mail mit Anhang\", damit Doksio die Mail versendet.";
+        const unsupportedMessage = "Dieser Browser kann Dateien nicht über das System teilen.";
 
         if (!fileUrl || !navigator.share || !navigator.canShare || typeof File === "undefined") {
           window.alert(unsupportedMessage);
@@ -1110,10 +1140,10 @@
           search();
         });
     })();
-    {% if share_attachment_modal_open %}
-      const shareAttachmentModal = document.getElementById("documentShareAttachmentModal");
-      if (shareAttachmentModal && window.bootstrap) {
-        window.bootstrap.Modal.getOrCreateInstance(shareAttachmentModal).show();
+    {% if document_reminder_modal_open %}
+      const documentReminderModal = document.getElementById("documentReminderModal");
+      if (documentReminderModal && window.bootstrap) {
+        window.bootstrap.Modal.getOrCreateInstance(documentReminderModal).show();
       }
     {% endif %}
   </script>
