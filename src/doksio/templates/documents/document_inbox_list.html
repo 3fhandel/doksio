@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% load doksio_extras %}
+
+{% block title %}Posteingänge | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container-fluid px-4">
+      {% if messages %}
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+
+      <header class="d-flex align-items-start justify-content-between gap-3 mb-3">
+        <div>
+          <h1 class="h3 mb-1">Posteingänge</h1>
+          <p class="text-secondary mb-0">Eingegangene Dateien prüfen und sicher einer Dokumentenbox zuordnen.</p>
+        </div>
+        {% if selected_inbox and can_create_batch %}
+          <a class="btn btn-primary" href="{% url 'documents:import_batch_upload' tenant.slug %}?inbox={{ selected_inbox.id }}">
+            {% include "includes/icons.html" with icon="upload" %}
+            <span class="ms-1">Dateien einliefern</span>
+          </a>
+        {% endif %}
+      </header>
+
+      <div class="inbox-workspace">
+        <aside class="app-card inbox-navigation">
+          <div class="inbox-navigation-title">Posteingänge</div>
+          {% for inbox in inboxes %}
+            <a class="inbox-navigation-item {% if selected_inbox.id == inbox.id %}active{% endif %}" href="{% url 'documents:inbox_detail' tenant.slug inbox.id %}">
+              <span class="inbox-navigation-icon">{% include "includes/icons.html" with icon="inbox" %}</span>
+              <span class="inbox-navigation-copy">
+                <strong>{{ inbox.name }}</strong>
+                <small>{{ inbox.description|default:"Noch nicht zugeordnete Dokumente" }}</small>
+              </span>
+              {% if inbox.open_items_count %}
+                <span class="inbox-navigation-count">{{ inbox.open_items_count }}</span>
+              {% endif %}
+            </a>
+          {% empty %}
+            <div class="p-3 small text-secondary">Keine zugänglichen Posteingänge eingerichtet.</div>
+          {% endfor %}
+          {% if can_manage_settings %}
+            <a class="inbox-navigation-settings" href="{% url 'documents:settings_inboxes' tenant.slug %}">
+              {% include "includes/icons.html" with icon="settings" %}
+              <span>Posteingänge verwalten</span>
+            </a>
+          {% endif %}
+          {% if can_create_batch %}
+            <a class="inbox-navigation-settings" href="{% url 'documents:import_batch_upload' tenant.slug %}">
+              {% include "includes/icons.html" with icon="package" %}
+              <span>Direkten Stapel anlegen</span>
+            </a>
+          {% endif %}
+        </aside>
+
+        <section class="app-card inbox-content">
+          <div class="inbox-content-header">
+            <div>
+              <h2>{% if selected_inbox %}{{ selected_inbox.name }}{% else %}Direkte Stapelimporte{% endif %}</h2>
+              <p>
+                {% if selected_inbox %}
+                  {{ selected_inbox.description|default:"Dateien warten auf Prüfung und Zuordnung." }}
+                {% else %}
+                  Bestehende Stapel ohne zugeordneten Posteingang.
+                {% endif %}
+              </p>
+            </div>
+          </div>
+
+          <div class="inbox-batch-list">
+            {% for batch in page_obj %}
+              <article class="inbox-batch-row">
+                <span class="inbox-batch-symbol">{% include "includes/icons.html" with icon="package" %}</span>
+                <div class="inbox-batch-main">
+                  <strong>{{ batch.title }}</strong>
+                  <span>
+                    {{ batch.items_count }} Datei{{ batch.items_count|pluralize:"en" }}
+                    · {% if batch.created_by %}{{ batch.created_by|display_user }}{% else %}System{% endif %}
+                    · {{ batch.created_at|date:"d.m.Y H:i" }}
+                  </span>
+                </div>
+                <div class="inbox-batch-progress">
+                  {% if batch.status == "open" %}
+                    <span class="badge text-bg-warning">{{ batch.staged_count }} offen</span>
+                    {% if batch.error_count %}<span class="badge text-bg-danger">{{ batch.error_count }} Fehler</span>{% endif %}
+                  {% elif batch.status == "completed" %}
+                    <span class="badge text-bg-success">{{ batch.imported_count }} importiert</span>
+                  {% else %}
+                    <span class="badge text-bg-secondary">{{ batch.get_status_display }}</span>
+                  {% endif %}
+                </div>
+                <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:import_batch_detail' tenant.slug batch.id %}">
+                  {% if batch.status == "open" %}Wieder aufnehmen{% else %}Anzeigen{% endif %}
+                </a>
+              </article>
+            {% empty %}
+              <div class="inbox-empty-state">
+                {% include "includes/icons.html" with icon="inbox" %}
+                <strong>Dieser Posteingang ist leer.</strong>
+                <span>Neue Dateien erscheinen hier, sobald sie eingeliefert wurden.</span>
+              </div>
+            {% endfor %}
+          </div>
+          {% include "includes/pagination.html" with page_obj=page_obj page_param="page" label="Posteingangsseiten" %}
+        </section>
+      </div>
+    </div>
+  </main>
+{% endblock %}

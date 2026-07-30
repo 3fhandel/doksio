@@ -796,6 +796,50 @@ class DocumentOfficeConversionJob(models.Model):
         return f"Office-Konvertierung {self.source_file_id} {self.status}"
 
 
+class DocumentInbox(models.Model):
+    """Permission-scoped staging queue before final document classification."""
+
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="document_inboxes",
+    )
+    name = models.CharField(max_length=160)
+    slug = models.SlugField(max_length=80)
+    description = models.TextField(blank=True)
+    access_roles = models.ManyToManyField(
+        "accounts.TenantRole",
+        blank=True,
+        related_name="document_inboxes",
+    )
+    allowed_target_spaces = models.ManyToManyField(
+        DocumentSpace,
+        blank=True,
+        related_name="target_for_document_inboxes",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "slug"],
+                name="unique_document_inbox_slug_per_tenant",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["tenant", "is_active", "name"],
+                name="documents_d_tenant__d345c2_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class DocumentImportBatch(models.Model):
     """Staging area for multi-file imports before documents are created."""
 
@@ -808,6 +852,13 @@ class DocumentImportBatch(models.Model):
         "tenancy.Tenant",
         on_delete=models.CASCADE,
         related_name="document_import_batches",
+    )
+    inbox = models.ForeignKey(
+        DocumentInbox,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="batches",
     )
     title = models.CharField(max_length=255)
     status = models.CharField(

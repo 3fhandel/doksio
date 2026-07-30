@@ -16,6 +16,10 @@ class TenantPermissions:
     DOCUMENTS_VIEW = "documents.view"
     DOCUMENTS_UPLOAD = "documents.upload"
     DOCUMENTS_BATCH_IMPORT = "documents.batch_import"
+    INBOXES_VIEW = "inboxes.view"
+    INBOXES_PROCESS = "inboxes.process"
+    INBOXES_ACCESS_ALL = "inboxes.access_all"
+    INBOXES_MANAGE = "inboxes.manage"
     DOCUMENTS_SPLIT = "documents.split"
     DOCUMENTS_DOWNLOAD = "documents.download"
     DOCUMENTS_DELETE = "documents.delete"
@@ -61,6 +65,35 @@ PERMISSION_DEFINITIONS = [
         description=(
             "Mehrseitige PDF-Dokumente in mehrere neue Dokumente aufteilen."
         ),
+    ),
+    PermissionDefinition(
+        code=TenantPermissions.INBOXES_VIEW,
+        label="Posteingänge anzeigen",
+        category="Posteingänge",
+        sort_order=10,
+    ),
+    PermissionDefinition(
+        code=TenantPermissions.INBOXES_PROCESS,
+        label="Posteingänge bearbeiten",
+        category="Posteingänge",
+        sort_order=20,
+        description="Eingänge prüfen, Zielboxen zuordnen und importieren.",
+    ),
+    PermissionDefinition(
+        code=TenantPermissions.INBOXES_ACCESS_ALL,
+        label="Auf alle Posteingänge zugreifen",
+        category="Posteingänge",
+        sort_order=30,
+        description=(
+            "Gibt Zugriff auf alle Posteingänge des Tenants. Ohne dieses Recht "
+            "gelten die an der Rolle ausgewählten Posteingänge."
+        ),
+    ),
+    PermissionDefinition(
+        code=TenantPermissions.INBOXES_MANAGE,
+        label="Posteingänge verwalten",
+        category="Posteingänge",
+        sort_order=40,
     ),
     PermissionDefinition(
         code=TenantPermissions.DOCUMENTS_DOWNLOAD,
@@ -139,6 +172,10 @@ DEFAULT_ROLE_PERMISSIONS = {
         TenantPermissions.DOCUMENTS_VIEW,
         TenantPermissions.DOCUMENTS_UPLOAD,
         TenantPermissions.DOCUMENTS_BATCH_IMPORT,
+        TenantPermissions.INBOXES_VIEW,
+        TenantPermissions.INBOXES_PROCESS,
+        TenantPermissions.INBOXES_ACCESS_ALL,
+        TenantPermissions.INBOXES_MANAGE,
         TenantPermissions.DOCUMENTS_SPLIT,
         TenantPermissions.DOCUMENTS_DOWNLOAD,
         TenantPermissions.DOCUMENTS_DELETE,
@@ -156,6 +193,9 @@ DEFAULT_ROLE_PERMISSIONS = {
         TenantPermissions.DOCUMENTS_VIEW,
         TenantPermissions.DOCUMENTS_UPLOAD,
         TenantPermissions.DOCUMENTS_BATCH_IMPORT,
+        TenantPermissions.INBOXES_VIEW,
+        TenantPermissions.INBOXES_PROCESS,
+        TenantPermissions.INBOXES_ACCESS_ALL,
         TenantPermissions.DOCUMENTS_SPLIT,
         TenantPermissions.DOCUMENTS_DOWNLOAD,
         TenantPermissions.WORKFLOWS_USE,

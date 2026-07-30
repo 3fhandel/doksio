@@ -7,16 +7,21 @@ from django import forms
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.utils.text import slugify
 
+from doksio.accounts.models import TenantRole
 from doksio.accounts.permissions import TenantPermissions
 from doksio.documents.metadata import metadata_field_slug_is_available
 from doksio.documents.models import (
     Document,
+    DocumentInbox,
     DocumentImportBatchItem,
     DocumentMetadataField,
     DocumentSpace,
     DocumentTitleRule,
 )
-from doksio.documents.policies import filter_document_spaces_for_user
+from doksio.documents.policies import (
+    filter_document_inboxes_for_user,
+    filter_document_spaces_for_user,
+)
 from doksio.documents.title_rules import (
     DEFAULT_EINVOICE_TITLE_FORMAT,
     DEFAULT_INVOICE_OCR_TITLE_FORMAT,
@@ -288,7 +293,113 @@ class DocumentTitleRuleForm(forms.ModelForm):
         return rule
 
 
+class DocumentInboxForm(forms.ModelForm):
+    class Meta:
+        model = DocumentInbox
+        fields = [
+            "name",
+            "slug",
+            "description",
+            "access_roles",
+            "allowed_target_spaces",
+            "is_active",
+        ]
+        labels = {
+            "name": "Name",
+            "slug": "Slug",
+            "description": "Beschreibung",
+            "access_roles": "Zugriffsrollen",
+            "allowed_target_spaces": "Erlaubte Zielboxen",
+            "is_active": "Aktiv",
+        }
+        help_texts = {
+            "access_roles": (
+                "Rollen mit dem Recht „Posteingänge anzeigen/bearbeiten“ "
+                "erhalten Zugriff auf diesen Posteingang. Rollen mit Zugriff "
+                "auf alle Posteingänge benötigen keine Auswahl."
+            ),
+            "allowed_target_spaces": (
+                "Beim Zuordnen stehen ausschließlich diese Dokumentenboxen zur "
+                "Verfügung."
+            ),
+        }
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "form-control"}),
+            "slug": forms.TextInput(attrs={"class": "form-control"}),
+            "description": forms.Textarea(
+                attrs={"class": "form-control", "rows": 3}
+            ),
+            "access_roles": forms.CheckboxSelectMultiple(
+                attrs={"class": "form-check-input"}
+            ),
+            "allowed_target_spaces": forms.CheckboxSelectMultiple(
+                attrs={"class": "form-check-input"}
+            ),
+            "is_active": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        }
+
+    def __init__(self, *args, tenant: Tenant, **kwargs) -> None:
+        self.tenant = tenant
+        super().__init__(*args, **kwargs)
+        self.fields["access_roles"].queryset = TenantRole.objects.filter(
+            tenant=tenant,
+            is_active=True,
+        ).order_by("-is_system_role", "name")
+        self.fields["allowed_target_spaces"].queryset = (
+            DocumentSpace.objects.filter(
+                tenant=tenant,
+                is_active=True,
+                deleted_at__isnull=True,
+            ).order_by("path")
+        )
+
+    def clean_slug(self) -> str:
+        value = slugify(self.cleaned_data["slug"])
+        if not value:
+            raise forms.ValidationError("Bitte einen gültigen Bezeichner eingeben.")
+        queryset = DocumentInbox.objects.filter(tenant=self.tenant, slug=value)
+        if self.instance.pk:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        if queryset.exists():
+            raise forms.ValidationError("Dieser Bezeichner wird bereits verwendet.")
+        return value
+
+    def clean_allowed_target_spaces(self):
+        spaces = self.cleaned_data.get("allowed_target_spaces")
+        if spaces is None or not spaces.exists():
+            raise forms.ValidationError(
+                "Wähle mindestens eine erlaubte Zielbox aus."
+            )
+        return spaces
+
+
 class DocumentImportBatchUploadForm(forms.Form):
+    def __init__(
+        self,
+        *args,
+        tenant: Tenant,
+        user: AbstractBaseUser | AnonymousUser,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["inbox"].queryset = filter_document_inboxes_for_user(
+            DocumentInbox.objects.filter(tenant=tenant, is_active=True),
+            user,
+            tenant,
+            TenantPermissions.INBOXES_PROCESS,
+        ).order_by("name")
+
+    inbox = forms.ModelChoiceField(
+        label="Posteingang",
+        queryset=DocumentInbox.objects.none(),
+        required=False,
+        empty_label="Ohne Posteingang (bisheriger Stapelimport)",
+        widget=forms.Select(attrs={"class": "form-select"}),
+        help_text=(
+            "Der Stapel wird im gewählten Posteingang bereitgestellt und kann "
+            "von dessen zuständigen Rollen bearbeitet werden."
+        ),
+    )
     title = forms.CharField(
         label="Name des Stapels",
         max_length=255,
@@ -325,6 +436,12 @@ class DocumentImportBatchItemForm(forms.Form):
             tenant,
             TenantPermissions.DOCUMENTS_UPLOAD,
         ).order_by("path")
+        if item.batch.inbox_id:
+            allowed_space_ids = item.batch.inbox.allowed_target_spaces.values_list(
+                "id",
+                flat=True,
+            )
+            spaces = spaces.filter(id__in=allowed_space_ids)
         self.fields["target_space"].queryset = spaces
 
     target_space = forms.ModelChoiceField(

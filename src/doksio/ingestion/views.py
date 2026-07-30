@@ -176,7 +176,7 @@ def _validate_http_settings(
 def http_import(request: HttpRequest, tenant_slug: str, source_id: int) -> JsonResponse:
     tenant = get_object_or_404(Tenant, slug=tenant_slug, is_active=True)
     source = get_object_or_404(
-        ImportSource.objects.select_related("document_space"),
+        ImportSource.objects.select_related("document_space", "document_inbox"),
         id=source_id,
         tenant=tenant,
         source_type__in=[
@@ -228,6 +228,17 @@ def http_import(request: HttpRequest, tenant_slug: str, source_id: int) -> JsonR
     except Exception as exc:
         return JsonResponse({"error": str(exc)}, status=400)
 
+    if document is None:
+        return JsonResponse(
+            {
+                "document_id": None,
+                "inbox_item_id": import_job.inbox_item_id,
+                "import_job_id": import_job.id,
+                "status": import_job.status,
+                "staged": True,
+            },
+            status=202,
+        )
     return JsonResponse(
         {
             "document_id": document.id,

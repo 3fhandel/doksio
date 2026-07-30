@@ -55,6 +55,7 @@ from doksio.documents.forms import (
     DocumentDeleteForm,
     DocumentImportBatchItemForm,
     DocumentImportBatchUploadForm,
+    DocumentInboxForm,
     DocumentMetadataFieldForm,
     DocumentMetadataForm,
     DocumentRelationForm,
@@ -75,6 +76,7 @@ from doksio.documents.models import (
     DocumentBoxScanOptimizationJob,
     DocumentBoxTitleRefreshJob,
     DocumentFile,
+    DocumentInbox,
     DocumentImportBatch,
     DocumentImportBatchItem,
     DocumentMetadataField,
@@ -93,6 +95,7 @@ from doksio.documents.navigation import (
 )
 from doksio.documents.policies import (
     can_administer_tenant,
+    can_access_document_import_batch,
     can_batch_import_documents,
     can_delete_document,
     can_download_document_file,
@@ -104,8 +107,10 @@ from doksio.documents.policies import (
     can_view_audit,
     can_view_document,
     filter_document_spaces_for_user,
+    filter_document_inboxes_for_user,
     filter_documents_for_user,
     filter_navigable_document_spaces_for_user,
+    has_tenant_permission,
 )
 from doksio.documents.services import (
     AddDocumentComment,
@@ -113,10 +118,12 @@ from doksio.documents.services import (
     AddDocumentRelation,
     AddDocumentReviewMarker,
     CreateDocumentFromUpload,
+    CreateDocumentInbox,
     CreateDocumentImportBatch,
     CreateDocumentMetadataField,
     CreateDocumentSpace,
     DeleteDocument,
+    DeleteDocumentInbox,
     DeleteDocumentSpace,
     DiscardDocumentImportBatch,
     DocumentSplitPart,
@@ -128,6 +135,7 @@ from doksio.documents.services import (
     SetDocumentTags,
     SplitPdfDocument,
     UpdateDocumentCoreMetadata,
+    UpdateDocumentInbox,
     UpdateDocumentMetadata,
     UpdateDocumentMetadataField,
     UpdateDocumentSpace,
@@ -1547,9 +1555,10 @@ def document_upload(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     )
 
 
-def document_import_batch_list(
+def document_inbox_list(
     request: HttpRequest,
     tenant_slug: str,
+    inbox_id: int | None = None,
 ) -> HttpResponse:
     if not request.user.is_authenticated:
         return _tenant_login_redirect(request, tenant_slug)
@@ -1557,12 +1566,39 @@ def document_import_batch_list(
     tenant = get_tenant_for_user(request.user, tenant_slug)
     if tenant is None:
         raise PermissionDenied
-    if not can_batch_import_documents(request.user, tenant):
+    inboxes = filter_document_inboxes_for_user(
+        DocumentInbox.objects.filter(tenant=tenant, is_active=True),
+        request.user,
+        tenant,
+        TenantPermissions.INBOXES_VIEW,
+    ).annotate(
+        open_items_count=Count(
+            "batches__items",
+            filter=Q(
+                batches__status=DocumentImportBatch.Status.OPEN,
+                batches__items__status__in=[
+                    DocumentImportBatchItem.Status.STAGED,
+                    DocumentImportBatchItem.Status.ERROR,
+                ],
+            ),
+            distinct=True,
+        )
+    )
+    if not inboxes.exists() and not can_batch_import_documents(
+        request.user,
+        tenant,
+    ):
         raise PermissionDenied
+    selected_inbox = None
+    if inbox_id is not None:
+        selected_inbox = get_object_or_404(inboxes, id=inbox_id)
 
     batches = (
-        DocumentImportBatch.objects.filter(tenant=tenant)
-        .select_related("created_by")
+        DocumentImportBatch.objects.filter(
+            tenant=tenant,
+            inbox=selected_inbox,
+        )
+        .select_related("created_by", "inbox")
         .annotate(
             items_count=Count("items", distinct=True),
             staged_count=Count(
@@ -1591,13 +1627,26 @@ def document_import_batch_list(
     )
     return render(
         request,
-        "documents/document_import_batch_list.html",
+        "documents/document_inbox_list.html",
         {
             "tenant": tenant,
+            "inboxes": inboxes,
+            "selected_inbox": selected_inbox,
             "page_obj": page_obj,
+            "can_create_batch": can_batch_import_documents(
+                request.user,
+                tenant,
+            ),
             "can_manage_settings": can_administer_tenant(request.user, tenant),
         },
     )
+
+
+def document_import_batch_list(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> HttpResponse:
+    return document_inbox_list(request, tenant_slug)
 
 
 def document_import_batch_upload(
@@ -1614,13 +1663,19 @@ def document_import_batch_upload(
         raise PermissionDenied
 
     if request.method == "POST":
-        form = DocumentImportBatchUploadForm(request.POST, request.FILES)
+        form = DocumentImportBatchUploadForm(
+            request.POST,
+            request.FILES,
+            tenant=tenant,
+            user=request.user,
+        )
         if form.is_valid():
             batch = CreateDocumentImportBatch(
                 tenant=tenant,
                 title=form.cleaned_data["title"],
                 uploaded_files=form.cleaned_data["file"],
                 created_by=request.user,
+                inbox=form.cleaned_data["inbox"],
             ).execute()
             messages.success(
                 request,
@@ -1636,7 +1691,26 @@ def document_import_batch_upload(
                 batch_id=batch.id,
             )
     else:
-        form = DocumentImportBatchUploadForm()
+        initial = {}
+        requested_inbox_id = request.GET.get("inbox", "")
+        if requested_inbox_id.isdigit():
+            requested_inbox = filter_document_inboxes_for_user(
+                DocumentInbox.objects.filter(
+                    tenant=tenant,
+                    id=int(requested_inbox_id),
+                    is_active=True,
+                ),
+                request.user,
+                tenant,
+                TenantPermissions.INBOXES_PROCESS,
+            ).first()
+            if requested_inbox is not None:
+                initial["inbox"] = requested_inbox
+        form = DocumentImportBatchUploadForm(
+            tenant=tenant,
+            user=request.user,
+            initial=initial,
+        )
 
     return render(
         request,
@@ -1662,10 +1736,13 @@ def document_import_batch_discard(
     tenant = get_tenant_for_user(request.user, tenant_slug)
     if tenant is None:
         raise PermissionDenied
-    if not can_batch_import_documents(request.user, tenant):
+    batch = get_object_or_404(
+        DocumentImportBatch.objects.select_related("inbox"),
+        id=batch_id,
+        tenant=tenant,
+    )
+    if not can_access_document_import_batch(request.user, batch):
         raise PermissionDenied
-
-    batch = get_object_or_404(DocumentImportBatch, id=batch_id, tenant=tenant)
     try:
         DiscardDocumentImportBatch(batch=batch, actor=request.user).execute()
     except ValueError as exc:
@@ -1687,6 +1764,7 @@ def _batch_item_forms(
 ) -> list[tuple[DocumentImportBatchItem, DocumentImportBatchItemForm]]:
     forms = []
     for item in batch.items.select_related(
+        "batch__inbox",
         "suggested_space",
         "target_space",
         "imported_document",
@@ -1755,14 +1833,13 @@ def document_import_batch_detail(
     tenant = get_tenant_for_user(request.user, tenant_slug)
     if tenant is None:
         raise PermissionDenied
-    if not can_batch_import_documents(request.user, tenant):
-        raise PermissionDenied
-
     batch = get_object_or_404(
-        DocumentImportBatch.objects.select_related("created_by"),
+        DocumentImportBatch.objects.select_related("created_by", "inbox"),
         id=batch_id,
         tenant=tenant,
     )
+    if not can_access_document_import_batch(request.user, batch):
+        raise PermissionDenied
     item_forms = _batch_item_forms(request=request, tenant=tenant, batch=batch)
     preview_item = _selected_batch_preview_item(request, batch)
 
@@ -1869,15 +1946,14 @@ def document_import_batch_item_preview(
     tenant = get_tenant_for_user(request.user, tenant_slug)
     if tenant is None:
         raise PermissionDenied
-    if not can_batch_import_documents(request.user, tenant):
-        raise PermissionDenied
-
     item = get_object_or_404(
-        DocumentImportBatchItem.objects.select_related("batch"),
+        DocumentImportBatchItem.objects.select_related("batch__inbox"),
         id=item_id,
         batch_id=batch_id,
         tenant=tenant,
     )
+    if not can_access_document_import_batch(request.user, item.batch):
+        raise PermissionDenied
     if not default_storage.exists(item.source_storage_key):
         raise Http404("Staging-Datei existiert nicht mehr.")
 
@@ -1902,14 +1978,16 @@ def document_import_batch_item_assignment(
         return JsonResponse({"error": "authentication_required"}, status=403)
 
     tenant = get_tenant_for_user(request.user, tenant_slug)
-    if tenant is None or not can_batch_import_documents(request.user, tenant):
+    if tenant is None:
         raise PermissionDenied
 
     batch = get_object_or_404(
-        DocumentImportBatch,
+        DocumentImportBatch.objects.select_related("inbox"),
         id=batch_id,
         tenant=tenant,
     )
+    if not can_access_document_import_batch(request.user, batch):
+        raise PermissionDenied
     if batch.status != DocumentImportBatch.Status.OPEN:
         return JsonResponse(
             {"error": "batch_closed", "message": "Der Stapel ist nicht mehr offen."},
@@ -2994,6 +3072,176 @@ def tenant_settings_document_boxes(
     )
 
 
+def tenant_settings_inboxes(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not has_tenant_permission(
+        request.user,
+        tenant,
+        TenantPermissions.INBOXES_MANAGE,
+    ):
+        raise PermissionDenied
+    inboxes = (
+        DocumentInbox.objects.filter(tenant=tenant)
+        .prefetch_related("access_roles", "allowed_target_spaces")
+        .annotate(
+            open_items_count=Count(
+                "batches__items",
+                filter=Q(
+                    batches__status=DocumentImportBatch.Status.OPEN,
+                    batches__items__status__in=[
+                        DocumentImportBatchItem.Status.STAGED,
+                        DocumentImportBatchItem.Status.ERROR,
+                    ],
+                ),
+                distinct=True,
+            )
+        )
+    )
+    return render(
+        request,
+        "documents/settings_inboxes.html",
+        {
+            "tenant": tenant,
+            "inboxes": inboxes,
+            "active_settings_section": "inboxes",
+        },
+    )
+
+
+def tenant_settings_inbox_create(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not has_tenant_permission(
+        request.user,
+        tenant,
+        TenantPermissions.INBOXES_MANAGE,
+    ):
+        raise PermissionDenied
+    if request.method == "POST":
+        form = DocumentInboxForm(request.POST, tenant=tenant)
+        if form.is_valid():
+            CreateDocumentInbox(
+                tenant=tenant,
+                name=form.cleaned_data["name"],
+                slug=form.cleaned_data["slug"],
+                description=form.cleaned_data["description"],
+                access_roles=tuple(form.cleaned_data["access_roles"]),
+                allowed_target_spaces=tuple(
+                    form.cleaned_data["allowed_target_spaces"]
+                ),
+                is_active=form.cleaned_data["is_active"],
+                actor=request.user,
+            ).execute()
+            messages.success(request, "Posteingang wurde erstellt.")
+            return redirect(
+                "documents:settings_inboxes",
+                tenant_slug=tenant.slug,
+            )
+    else:
+        form = DocumentInboxForm(tenant=tenant)
+    return render(
+        request,
+        "documents/settings_inbox_form.html",
+        {
+            "tenant": tenant,
+            "form": form,
+            "form_title": "Posteingang erstellen",
+            "submit_label": "Posteingang erstellen",
+            "active_settings_section": "inboxes",
+        },
+    )
+
+
+def tenant_settings_inbox_edit(
+    request: HttpRequest,
+    tenant_slug: str,
+    inbox_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not has_tenant_permission(
+        request.user,
+        tenant,
+        TenantPermissions.INBOXES_MANAGE,
+    ):
+        raise PermissionDenied
+    inbox = get_object_or_404(DocumentInbox, tenant=tenant, id=inbox_id)
+    if request.method == "POST":
+        form = DocumentInboxForm(
+            request.POST,
+            tenant=tenant,
+            instance=inbox,
+        )
+        if form.is_valid():
+            UpdateDocumentInbox(
+                inbox=inbox,
+                name=form.cleaned_data["name"],
+                slug=form.cleaned_data["slug"],
+                description=form.cleaned_data["description"],
+                access_roles=tuple(form.cleaned_data["access_roles"]),
+                allowed_target_spaces=tuple(
+                    form.cleaned_data["allowed_target_spaces"]
+                ),
+                is_active=form.cleaned_data["is_active"],
+                actor=request.user,
+            ).execute()
+            messages.success(request, "Posteingang wurde aktualisiert.")
+            return redirect(
+                "documents:settings_inboxes",
+                tenant_slug=tenant.slug,
+            )
+    else:
+        form = DocumentInboxForm(tenant=tenant, instance=inbox)
+    return render(
+        request,
+        "documents/settings_inbox_form.html",
+        {
+            "tenant": tenant,
+            "inbox": inbox,
+            "form": form,
+            "form_title": "Posteingang bearbeiten",
+            "submit_label": "Posteingang speichern",
+            "active_settings_section": "inboxes",
+        },
+    )
+
+
+def tenant_settings_inbox_delete(
+    request: HttpRequest,
+    tenant_slug: str,
+    inbox_id: int,
+) -> HttpResponse:
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not has_tenant_permission(
+        request.user,
+        tenant,
+        TenantPermissions.INBOXES_MANAGE,
+    ):
+        raise PermissionDenied
+    inbox = get_object_or_404(DocumentInbox, tenant=tenant, id=inbox_id)
+    try:
+        DeleteDocumentInbox(inbox=inbox, actor=request.user).execute()
+    except ValueError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, "Posteingang wurde gelöscht.")
+    return redirect("documents:settings_inboxes", tenant_slug=tenant.slug)
+
+
 def tenant_settings_document_box_create(
     request: HttpRequest,
     tenant_slug: str,
@@ -3280,7 +3528,8 @@ def tenant_settings_import_sources(
         raise PermissionDenied
 
     import_sources = ImportSource.objects.filter(tenant=tenant).select_related(
-        "document_space"
+        "document_space",
+        "document_inbox",
     )
     return render(
         request,
@@ -4123,6 +4372,7 @@ def tenant_settings_import_source_create(
             ImportSource.objects.create(
                 tenant=tenant,
                 document_space=form.cleaned_data["document_space"],
+                document_inbox=form.cleaned_data["document_inbox"],
                 name=form.cleaned_data["name"],
                 source_type=form.cleaned_data["source_type"],
                 target_strategy=form.cleaned_data["target_strategy"],
@@ -4320,6 +4570,7 @@ def tenant_settings_import_source_edit(
             import_source.source_type = form.cleaned_data["source_type"]
             import_source.target_strategy = form.cleaned_data["target_strategy"]
             import_source.document_space = form.cleaned_data["document_space"]
+            import_source.document_inbox = form.cleaned_data["document_inbox"]
             import_source.settings = form.import_settings
             import_source.auto_start_ocr = form.cleaned_data["auto_start_ocr"]
             import_source.extract_einvoice = True
@@ -4332,6 +4583,7 @@ def tenant_settings_import_source_edit(
                     "source_type",
                     "target_strategy",
                     "document_space",
+                    "document_inbox",
                     "settings",
                     "auto_start_ocr",
                     "extract_einvoice",

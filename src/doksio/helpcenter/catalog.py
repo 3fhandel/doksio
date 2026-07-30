@@ -269,16 +269,26 @@ HELP_TOPICS = (
     ),
     HelpTopic(
         slug="stapelimport",
-        title="Stapelimport",
+        title="Posteingänge und Stapel",
         summary=(
-            "Viele Dateien sichten, Dokumentenboxen zuordnen und gemeinsam "
+            "Eingegangene Dateien geschützt sichten, zuordnen und gemeinsam "
             "importieren."
         ),
-        icon="package",
-        permission_code=TenantPermissions.DOCUMENTS_BATCH_IMPORT,
+        icon="inbox",
+        permission_code=TenantPermissions.INBOXES_VIEW,
         sections=(
             HelpSection(
-                title="Einen Stapel bearbeiten",
+                title="Was ist ein Posteingang?",
+                text=(
+                    "Ein Posteingang ist eine vorläufige Ablage. Dateien sind dort "
+                    "noch keine regulären Dokumente und werden erst durch die "
+                    "Zuordnung zu einer Dokumentenbox endgültig importiert. "
+                    "Zugriffsrollen trennen beispielsweise Personal- und "
+                    "Buchhaltungsbelege."
+                ),
+            ),
+            HelpSection(
+                title="Einen Eingangsstapel bearbeiten",
                 text=(
                     "Ein Stapel bleibt gespeichert, bis er abgeschlossen oder "
                     "verworfen "
@@ -286,6 +296,7 @@ HELP_TOPICS = (
                 ),
                 steps=(
                     "Lade alle zusammengehörigen Dateien in einen neuen Stapel.",
+                    "Öffne den zuständigen Posteingang.",
                     "Prüfe die Vorschau und den Zuordnungsvorschlag jeder Datei.",
                     "Wähle die Zielbox oder markiere die Datei zum Überspringen.",
                     (
@@ -373,6 +384,8 @@ CONTEXT_TOPIC_SLUGS = {
     ("documents", "core_metadata_edit"): "dokument-bearbeiten",
     ("documents", "upload"): "dokumente-hochladen",
     ("documents", "import_batch_list"): "stapelimport",
+    ("documents", "inbox_list"): "stapelimport",
+    ("documents", "inbox_detail"): "stapelimport",
     ("documents", "import_batch_upload"): "stapelimport",
     ("documents", "import_batch_detail"): "stapelimport",
     ("search", "documents"): "dokumente-finden",

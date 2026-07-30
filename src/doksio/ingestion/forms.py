@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django import forms
 
-from doksio.documents.models import DocumentSpace
+from doksio.documents.models import DocumentInbox, DocumentSpace
 from doksio.ingestion.models import ImportSource, TenantSmtpSettings
 from doksio.tenancy.models import Tenant
 
@@ -147,6 +147,17 @@ class ImportSourceForm(forms.Form):
         help_text=(
             "Bei fester Zielauswahl ist das die Zielbox. Bei Regeln oder "
             "intelligenter Auswahl dient sie als Fallback."
+        ),
+        widget=forms.Select(attrs={"class": "form-select"}),
+        required=False,
+    )
+    document_inbox = forms.ModelChoiceField(
+        label="Ziel-Posteingang",
+        queryset=DocumentInbox.objects.none(),
+        required=False,
+        help_text=(
+            "Dateien werden zunächst geschützt bereitgestellt und erst beim "
+            "Zuordnen als Dokumente angelegt."
         ),
         widget=forms.Select(attrs={"class": "form-select"}),
     )
@@ -386,6 +397,10 @@ class ImportSourceForm(forms.Form):
             tenant=tenant,
             is_active=True,
         ).order_by("path")
+        self.fields["document_inbox"].queryset = DocumentInbox.objects.filter(
+            tenant=tenant,
+            is_active=True,
+        ).order_by("name")
 
     @classmethod
     def initial_from_source(cls, source: ImportSource) -> dict:
@@ -398,6 +413,7 @@ class ImportSourceForm(forms.Form):
             "source_type": source.source_type,
             "target_strategy": source.target_strategy,
             "document_space": source.document_space_id,
+            "document_inbox": source.document_inbox_id,
             "routing_rules_text": cls.routing_rules_to_text(
                 settings.get("routing_rules", [])
             ),
@@ -529,6 +545,17 @@ class ImportSourceForm(forms.Form):
         cleaned_data = super().clean()
         source_type = cleaned_data.get("source_type")
         target_strategy = cleaned_data.get("target_strategy")
+        if target_strategy == ImportSource.TargetStrategy.INBOX:
+            if not cleaned_data.get("document_inbox"):
+                self.add_error(
+                    "document_inbox",
+                    "Wähle den Ziel-Posteingang aus.",
+                )
+        elif not cleaned_data.get("document_space"):
+            self.add_error(
+                "document_space",
+                "Wähle eine Ziel- oder Fallback-Dokumentenbox aus.",
+            )
         if (
             target_strategy == ImportSource.TargetStrategy.RULES
             and not cleaned_data.get("routing_rules_text")

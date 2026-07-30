@@ -185,10 +185,15 @@
                     <span>Status</span>
                   </a>
                 {% endif %}
-                {% if can_batch_import_documents %}
-                  <a class="app-sidebar-link {% if url_name == 'import_batch_list' or url_name == 'import_batch_upload' or url_name == 'import_batch_detail' %}active{% endif %}" href="{% url 'documents:import_batch_list' tenant.slug %}">
-                    {% include "includes/icons.html" with icon="package" %}
-                    <span>Stapelimport</span>
+                {% if can_view_inboxes or can_batch_import_documents %}
+                  <a class="app-sidebar-link {% if url_name == 'inbox_list' or url_name == 'inbox_detail' or url_name == 'import_batch_list' or url_name == 'import_batch_upload' or url_name == 'import_batch_detail' %}active{% endif %}" href="{% url 'documents:inbox_list' tenant.slug %}">
+                    {% include "includes/icons.html" with icon="inbox" %}
+                    <span>Posteingänge</span>
+                    {% if sidebar_open_inbox_items_count %}
+                      <span class="app-sidebar-count-badge" aria-label="{{ sidebar_open_inbox_items_count }} offene Eingänge">
+                        {{ sidebar_open_inbox_items_count }}
+                      </span>
+                    {% endif %}
                   </a>
                 {% endif %}
                 <a class="app-sidebar-link {% if app_name == 'helpcenter' %}active{% endif %}" href="{% url 'helpcenter:overview' tenant.slug %}">

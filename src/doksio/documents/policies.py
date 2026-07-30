@@ -5,7 +5,13 @@ from django.db.models import Q, QuerySet
 
 from doksio.accounts.access import AccessControl
 from doksio.accounts.permissions import TenantPermissions
-from doksio.documents.models import Document, DocumentFile, DocumentSpace
+from doksio.documents.models import (
+    Document,
+    DocumentFile,
+    DocumentInbox,
+    DocumentImportBatch,
+    DocumentSpace,
+)
 from doksio.tenancy.models import Tenant
 
 
@@ -183,6 +189,61 @@ def filter_navigable_document_spaces_for_user(
         for depth in range(1, len(path_parts)):
             ancestor_paths.add(f"/{'/'.join(path_parts[:depth])}")
     return spaces.filter(Q(id__in=accessible_ids) | Q(path__in=ancestor_paths))
+
+
+def filter_document_inboxes_for_user(
+    inboxes: QuerySet[DocumentInbox],
+    user: AbstractBaseUser | AnonymousUser,
+    tenant: Tenant,
+    permission_code: str = TenantPermissions.INBOXES_VIEW,
+) -> QuerySet[DocumentInbox]:
+    if not user.is_authenticated or not user.is_active or not tenant.is_active:
+        return inboxes.none()
+    if user.is_superuser:
+        return inboxes
+
+    membership = AccessControl(user=user, tenant=tenant).membership
+    if membership is None:
+        return inboxes.none()
+    roles = membership.roles.filter(
+        is_active=True,
+        permissions__code=permission_code,
+    ).distinct()
+    if not roles.exists() and membership.role.is_active:
+        roles = type(membership.role).objects.filter(
+            id=membership.role_id,
+            permissions__code=permission_code,
+        )
+    if not roles.exists():
+        return inboxes.none()
+    if roles.filter(
+        permissions__code=TenantPermissions.INBOXES_ACCESS_ALL
+    ).exists():
+        return inboxes
+    return inboxes.filter(access_roles__in=roles).distinct()
+
+
+def can_access_document_inbox(
+    user: AbstractBaseUser | AnonymousUser,
+    inbox: DocumentInbox,
+    permission_code: str = TenantPermissions.INBOXES_VIEW,
+) -> bool:
+    return filter_document_inboxes_for_user(
+        DocumentInbox.objects.filter(id=inbox.id, tenant=inbox.tenant),
+        user,
+        inbox.tenant,
+        permission_code,
+    ).exists()
+
+
+def can_access_document_import_batch(
+    user: AbstractBaseUser | AnonymousUser,
+    batch: DocumentImportBatch,
+    permission_code: str = TenantPermissions.INBOXES_PROCESS,
+) -> bool:
+    if batch.inbox_id is None:
+        return can_batch_import_documents(user, batch.tenant)
+    return can_access_document_inbox(user, batch.inbox, permission_code)
 
 
 def has_tenant_role(

@@ -28,6 +28,16 @@ urlpatterns = [
         name="import_batch_list",
     ),
     path(
+        "t/<slug:tenant_slug>/inboxes/",
+        views.document_inbox_list,
+        name="inbox_list",
+    ),
+    path(
+        "t/<slug:tenant_slug>/inboxes/<int:inbox_id>/",
+        views.document_inbox_list,
+        name="inbox_detail",
+    ),
+    path(
         "t/<slug:tenant_slug>/documents/import-batches/new/",
         views.document_import_batch_upload,
         name="import_batch_upload",
@@ -155,6 +165,26 @@ urlpatterns = [
         "t/<slug:tenant_slug>/settings/document-boxes/",
         views.tenant_settings_document_boxes,
         name="settings_document_boxes",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/inboxes/",
+        views.tenant_settings_inboxes,
+        name="settings_inboxes",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/inboxes/new/",
+        views.tenant_settings_inbox_create,
+        name="settings_inbox_create",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/inboxes/<int:inbox_id>/edit/",
+        views.tenant_settings_inbox_edit,
+        name="settings_inbox_edit",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/inboxes/<int:inbox_id>/delete/",
+        views.tenant_settings_inbox_delete,
+        name="settings_inbox_delete",
     ),
     path(
         "t/<slug:tenant_slug>/settings/document-boxes/new/",

@@ -59,11 +59,17 @@
         {{ form.target_strategy }}
         {{ form.target_strategy.errors }}
       </div>
-      <div class="col-md-7">
+      <div class="col-md-7" data-target-space-field>
         <label class="form-label" for="{{ form.document_space.id_for_label }}">Ziel-Dokumentenbox</label>
         {{ form.document_space }}
         <div class="form-text">{{ form.document_space.help_text }}</div>
         {{ form.document_space.errors }}
+      </div>
+      <div class="col-md-7" data-target-inbox-field>
+        <label class="form-label" for="{{ form.document_inbox.id_for_label }}">Ziel-Posteingang</label>
+        {{ form.document_inbox }}
+        <div class="form-text">{{ form.document_inbox.help_text }}</div>
+        {{ form.document_inbox.errors }}
       </div>
       <div class="col-12" data-target-strategy-section="rules">
         <label class="form-label" for="{{ form.routing_rules_text.id_for_label }}">Routing-Regeln</label>
@@ -436,6 +442,8 @@
       const targetStrategyField = document.getElementById("{{ form.target_strategy.id_for_label }}");
       const sections = document.querySelectorAll("[data-import-settings-section]");
       const targetSections = document.querySelectorAll("[data-target-strategy-section]");
+      const targetSpaceField = document.querySelector("[data-target-space-field]");
+      const targetInboxField = document.querySelector("[data-target-inbox-field]");
       function syncImportSettingsSections() {
         sections.forEach((section) => {
           const sectionNames = section.dataset.importSettingsSection.split(" ");
@@ -443,6 +451,9 @@
         });
       }
       function syncTargetStrategySections() {
+        const usesInbox = targetStrategyField.value === "inbox";
+        targetSpaceField.hidden = usesInbox;
+        targetInboxField.hidden = !usesInbox;
         targetSections.forEach((section) => {
           section.hidden = section.dataset.targetStrategySection !== targetStrategyField.value;
         });

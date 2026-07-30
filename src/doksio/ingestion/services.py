@@ -27,8 +27,9 @@ from doksio.accounts.models import Notification, TenantMembership
 from doksio.accounts.permissions import TenantPermissions
 from doksio.accounts.services import CreateNotification
 from doksio.audit.services import RecordAuditEvent
-from doksio.documents.models import Document, DocumentSpace
+from doksio.documents.models import Document, DocumentImportBatchItem, DocumentSpace
 from doksio.documents.services import (
+    CreateDocumentImportBatch,
     CreateDocumentFromUpload,
     DuplicateDocumentError,
     SetDocumentTags,
@@ -52,9 +53,11 @@ class ResolveImportDocumentSpace:
     source: ImportSource
     original_filename: str
 
-    def execute(self) -> DocumentSpace:
+    def execute(self) -> DocumentSpace | None:
         if self.source.tenant_id != self.tenant.id:
             raise ValueError("Import source belongs to a different tenant.")
+        if self.source.target_strategy == ImportSource.TargetStrategy.INBOX:
+            return None
 
         if self.source.target_strategy == ImportSource.TargetStrategy.RULES:
             resolved_space = self._space_from_rules()
@@ -116,7 +119,7 @@ class ResolveManualUploadDocumentSpace:
 @dataclass(frozen=True)
 class ImportDocument:
     tenant: Tenant
-    document_space: DocumentSpace
+    document_space: DocumentSpace | None
     file_obj: BinaryIO
     original_filename: str
     content_type: str
@@ -125,17 +128,31 @@ class ImportDocument:
     actor: get_user_model() | None = None
     metadata: dict | None = None
 
-    def execute(self) -> tuple[Document, ImportJob]:
-        if self.document_space.tenant_id != self.tenant.id:
+    def execute(self) -> tuple[Document | None, ImportJob]:
+        if (
+            self.document_space is not None
+            and self.document_space.tenant_id != self.tenant.id
+        ):
             raise ValueError("Import document space belongs to a different tenant.")
         if self.source and self.source.tenant_id != self.tenant.id:
             raise ValueError("Import source belongs to a different tenant.")
         if (
             self.source
             and self.source.target_strategy == ImportSource.TargetStrategy.FIXED
-            and self.source.document_space_id != self.document_space.id
+            and (
+                self.document_space is None
+                or self.source.document_space_id != self.document_space.id
+            )
         ):
             raise ValueError("Import source belongs to a different document space.")
+        routes_to_inbox = bool(
+            self.source
+            and self.source.target_strategy == ImportSource.TargetStrategy.INBOX
+        )
+        if routes_to_inbox and self.source.document_inbox_id is None:
+            raise ValueError("Für die Importquelle ist kein Posteingang konfiguriert.")
+        if not routes_to_inbox and self.document_space is None:
+            raise ValueError("Für den Import ist keine Dokumentenbox konfiguriert.")
 
         import_job = ImportJob.objects.create(
             tenant=self.tenant,
@@ -154,13 +171,72 @@ class ImportDocument:
             object_id=str(import_job.id),
             data={
                 "source_id": self.source.id if self.source else None,
-                "document_space_id": self.document_space.id,
+                "document_space_id": (
+                    self.document_space.id if self.document_space else None
+                ),
+                "document_inbox_id": (
+                    self.source.document_inbox_id if routes_to_inbox else None
+                ),
                 "original_filename": self.original_filename,
                 "content_type": self.content_type,
             },
         ).execute()
 
         try:
+            if routes_to_inbox:
+                with suppress(Exception):
+                    self.file_obj.name = self.original_filename
+                with suppress(Exception):
+                    self.file_obj.content_type = self.content_type
+                batch = CreateDocumentImportBatch(
+                    tenant=self.tenant,
+                    title=(
+                        f"{self.source.name}: "
+                        f"{timezone.localtime():%d.%m.%Y %H:%M}"
+                    ),
+                    uploaded_files=[self.file_obj],
+                    created_by=self.actor,
+                    inbox=self.source.document_inbox,
+                ).execute()
+                item = batch.items.get()
+                if item.original_filename != self.original_filename:
+                    item.original_filename = self.original_filename
+                    item.content_type = self.content_type
+                    item.save(
+                        update_fields=[
+                            "original_filename",
+                            "content_type",
+                            "updated_at",
+                        ]
+                    )
+                import_job.inbox_item = item
+                import_job.status = ImportJob.Status.STAGED
+                import_job.message = "Datei wurde in den Posteingang übernommen."
+                import_job.processed_at = timezone.now()
+                import_job.save(
+                    update_fields=[
+                        "inbox_item",
+                        "status",
+                        "message",
+                        "processed_at",
+                        "updated_at",
+                    ]
+                )
+                RecordAuditEvent(
+                    tenant=self.tenant,
+                    actor=self.actor,
+                    event_type="import_job.staged_in_inbox",
+                    object_type="ingestion.ImportJob",
+                    object_id=str(import_job.id),
+                    data={
+                        "inbox_id": self.source.document_inbox_id,
+                        "batch_id": batch.id,
+                        "item_id": item.id,
+                        "source_id": self.source.id,
+                    },
+                ).execute()
+                return None, import_job
+
             document, _document_file = CreateDocumentFromUpload(
                 tenant=self.tenant,
                 title=self.title,
@@ -774,23 +850,35 @@ class ProcessEmailImportSource:
                     ),
                 },
             ).execute()
+            audit_data = {
+                "document_id": document.id if document is not None else None,
+                "inbox_item_id": import_job.inbox_item_id,
+                "import_job_id": import_job.id,
+                "source_id": self.source.id,
+                "sender": _email_address_header(message, "From"),
+                "received_at": (
+                    received_at.isoformat() if received_at is not None else ""
+                ),
+                "subject": str(message.get("Subject", "")),
+                "message_id": str(message.get("Message-ID", "")),
+            }
             RecordAuditEvent(
                 tenant=self.source.tenant,
                 actor=None,
-                event_type="document.email_received",
-                object_type="documents.Document",
-                object_id=str(document.id),
-                data={
-                    "document_id": document.id,
-                    "import_job_id": import_job.id,
-                    "source_id": self.source.id,
-                    "sender": _email_address_header(message, "From"),
-                    "received_at": (
-                        received_at.isoformat() if received_at is not None else ""
-                    ),
-                    "subject": str(message.get("Subject", "")),
-                    "message_id": str(message.get("Message-ID", "")),
-                },
+                event_type=(
+                    "document.email_received"
+                    if document is not None
+                    else "document_inbox.email_received"
+                ),
+                object_type=(
+                    "documents.Document"
+                    if document is not None
+                    else "documents.DocumentImportBatchItem"
+                ),
+                object_id=str(
+                    document.id if document is not None else import_job.inbox_item_id
+                ),
+                data=audit_data,
             ).execute()
             result.imported_documents += 1
         except DuplicateDocumentError:

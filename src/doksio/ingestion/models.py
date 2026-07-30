@@ -22,6 +22,7 @@ class ImportSource(models.Model):
         FIXED = "fixed", "Feste Dokumentenbox"
         RULES = "rules", "Regeln"
         INTELLIGENT = "intelligent", "Intelligent"
+        INBOX = "inbox", "Posteingang"
 
     tenant = models.ForeignKey(
         "tenancy.Tenant",
@@ -30,7 +31,16 @@ class ImportSource(models.Model):
     )
     document_space = models.ForeignKey(
         "documents.DocumentSpace",
+        blank=True,
+        null=True,
         on_delete=models.CASCADE,
+        related_name="import_sources",
+    )
+    document_inbox = models.ForeignKey(
+        "documents.DocumentInbox",
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
         related_name="import_sources",
     )
     name = models.CharField(max_length=160)
@@ -55,7 +65,7 @@ class ImportSource(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["document_space__path", "name"]
+        ordering = ["name", "id"]
         indexes = [
             models.Index(fields=["tenant", "source_type", "is_active"]),
             models.Index(fields=["tenant", "document_space"]),
@@ -63,7 +73,8 @@ class ImportSource(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.document_space.path}: {self.name}"
+        target = self.document_inbox or self.document_space
+        return f"{target}: {self.name}" if target else self.name
 
 
 class ImportJob(models.Model):
@@ -72,6 +83,7 @@ class ImportJob(models.Model):
     class Status(models.TextChoices):
         RECEIVED = "received", "Empfangen"
         PROCESSING = "processing", "In Verarbeitung"
+        STAGED = "staged", "Im Posteingang"
         IMPORTED = "imported", "Importiert"
         FAILED = "failed", "Fehlgeschlagen"
 
@@ -89,7 +101,16 @@ class ImportJob(models.Model):
     )
     document_space = models.ForeignKey(
         "documents.DocumentSpace",
+        blank=True,
+        null=True,
         on_delete=models.PROTECT,
+        related_name="import_jobs",
+    )
+    inbox_item = models.ForeignKey(
+        "documents.DocumentImportBatchItem",
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
         related_name="import_jobs",
     )
     document = models.ForeignKey(

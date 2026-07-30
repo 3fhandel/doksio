@@ -14,7 +14,13 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
 
-from doksio.accounts.models import Notification, TenantMembership, UserProfile
+from doksio.accounts.models import (
+    Notification,
+    TenantMembership,
+    TenantPermission,
+    TenantRole,
+    UserProfile,
+)
 from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
 from doksio.documents.models import (
@@ -22,6 +28,7 @@ from doksio.documents.models import (
     DocumentBoxScanOptimizationJob,
     DocumentComment,
     DocumentFile,
+    DocumentInbox,
     DocumentImportBatch,
     DocumentImportBatchItem,
     DocumentMetadataField,
@@ -45,7 +52,7 @@ from doksio.documents.services import (
 )
 from doksio.einvoices.zugferd import extract_einvoice_from_pdf
 from doksio.exports.models import ExportRun, ExportRunItem
-from doksio.ingestion.models import ImportSource, TenantSmtpSettings
+from doksio.ingestion.models import ImportJob, ImportSource, TenantSmtpSettings
 from doksio.ocr.models import OcrJob
 from doksio.search.models import DocumentSearchIndex
 from doksio.search.services import RebuildDocumentSearchIndex
@@ -546,6 +553,213 @@ def test_document_batch_import_permission_defaults():
     assert roles["admin"].permissions.filter(code="documents.split").exists()
     assert roles["member"].permissions.filter(code="documents.split").exists()
     assert not roles["viewer"].permissions.filter(code="documents.split").exists()
+
+
+@pytest.mark.django_db
+def test_inbox_access_is_scoped_by_role(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    target = CreateDocumentSpace(tenant=tenant, name="Personal").execute()
+    EnsureDefaultTenantRoles(tenant=tenant).execute()
+    role = TenantRole.objects.create(
+        tenant=tenant,
+        name="Personal",
+        slug="personal",
+    )
+    role.permissions.add(
+        *TenantPermission.objects.filter(
+            code__in=["inboxes.view", "inboxes.process"]
+        )
+    )
+    allowed_inbox = DocumentInbox.objects.create(
+        tenant=tenant,
+        name="Personal",
+        slug="personal",
+    )
+    allowed_inbox.access_roles.add(role)
+    allowed_inbox.allowed_target_spaces.add(target)
+    blocked_inbox = DocumentInbox.objects.create(
+        tenant=tenant,
+        name="Buchhaltung",
+        slug="buchhaltung",
+    )
+    blocked_inbox.allowed_target_spaces.add(target)
+    allowed_batch = DocumentImportBatch.objects.create(
+        tenant=tenant,
+        inbox=allowed_inbox,
+        title="Personalstapel",
+    )
+    blocked_batch = DocumentImportBatch.objects.create(
+        tenant=tenant,
+        inbox=blocked_inbox,
+        title="Buchhaltungsstapel",
+    )
+    user = get_user_model().objects.create_user(
+        username="personal",
+        password="secret",
+    )
+    TenantMembership.objects.create(tenant=tenant, user=user, role=role)
+    client.force_login(user)
+
+    response = client.get(
+        reverse("documents:inbox_list", kwargs={"tenant_slug": tenant.slug})
+    )
+    blocked_response = client.get(
+        reverse(
+            "documents:import_batch_detail",
+            kwargs={"tenant_slug": tenant.slug, "batch_id": blocked_batch.id},
+        )
+    )
+    allowed_response = client.get(
+        reverse(
+            "documents:import_batch_detail",
+            kwargs={"tenant_slug": tenant.slug, "batch_id": allowed_batch.id},
+        )
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "Personal" in content
+    assert "Buchhaltungsstapel" not in content
+    assert allowed_response.status_code == 200
+    assert blocked_response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_inbox_settings_use_filterable_checkbox_pickers_and_save_choices(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    target = CreateDocumentSpace(tenant=tenant, name="Personal").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_superuser(
+        username="admin",
+        password="secret",
+    )
+    client.force_login(user)
+
+    form_response = client.get(
+        reverse(
+            "documents:settings_inbox_create",
+            kwargs={"tenant_slug": tenant.slug},
+        )
+    )
+    content = form_response.content.decode()
+    assert form_response.status_code == 200
+    assert content.count("data-choice-panel") >= 2
+    assert 'type="checkbox"' in content
+    assert 'name="access_roles"' in content
+    assert 'name="allowed_target_spaces"' in content
+    assert '<select name="access_roles"' not in content
+    assert '<select name="allowed_target_spaces"' not in content
+
+    response = client.post(
+        reverse(
+            "documents:settings_inbox_create",
+            kwargs={"tenant_slug": tenant.slug},
+        ),
+        {
+            "name": "Personal",
+            "slug": "personal",
+            "description": "Vertrauliche Eingänge",
+            "access_roles": [roles["admin"].id],
+            "allowed_target_spaces": [target.id],
+            "is_active": "on",
+        },
+    )
+
+    inbox = DocumentInbox.objects.get(tenant=tenant, slug="personal")
+    assert response.status_code == 302
+    assert list(inbox.access_roles.all()) == [roles["admin"]]
+    assert list(inbox.allowed_target_spaces.all()) == [target]
+
+
+@pytest.mark.django_db
+def test_inbox_batch_only_allows_configured_target_spaces(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    personnel = CreateDocumentSpace(tenant=tenant, name="Personal").execute()
+    invoices = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    inbox = DocumentInbox.objects.create(
+        tenant=tenant,
+        name="Personal",
+        slug="personal",
+    )
+    inbox.allowed_target_spaces.add(personnel)
+    batch = DocumentImportBatch.objects.create(
+        tenant=tenant,
+        inbox=inbox,
+        title="Personalstapel",
+    )
+    item = DocumentImportBatchItem.objects.create(
+        tenant=tenant,
+        batch=batch,
+        source_storage_key="tests/inbox/personnel.pdf",
+        original_filename="personnel.pdf",
+        content_type="application/pdf",
+        byte_size=10,
+    )
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:import_batch_item_assignment",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "batch_id": batch.id,
+                "item_id": item.id,
+            },
+        ),
+        {f"item-{item.id}-target_space": str(invoices.id)},
+    )
+
+    item.refresh_from_db()
+    assert response.status_code == 400
+    assert item.target_space is None
+
+
+@pytest.mark.django_db
+def test_http_import_can_stage_file_in_inbox(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    target = CreateDocumentSpace(tenant=tenant, name="Personal").execute()
+    inbox = DocumentInbox.objects.create(
+        tenant=tenant,
+        name="Personal",
+        slug="personal",
+    )
+    inbox.allowed_target_spaces.add(target)
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_inbox=inbox,
+        name="Personal-Scanner",
+        source_type=ImportSource.SourceType.HTTP_API,
+        target_strategy=ImportSource.TargetStrategy.INBOX,
+    )
+
+    response = client.put(
+        reverse(
+            "ingestion:http_import",
+            kwargs={"tenant_slug": tenant.slug, "source_id": source.id},
+        ),
+        data=b"%PDF-1.4\npersonnel",
+        content_type="application/pdf",
+        HTTP_X_DOKSIO_IMPORT_TOKEN=source.token,
+        HTTP_X_DOKSIO_FILENAME="personal.pdf",
+    )
+
+    job = ImportJob.objects.get(source=source)
+    assert response.status_code == 202
+    assert response.json()["staged"] is True
+    assert job.document is None
+    assert job.inbox_item.batch.inbox == inbox
+    assert job.inbox_item.original_filename == "personal.pdf"
+    assert not Document.objects.filter(tenant=tenant).exists()
 
 
 @pytest.mark.django_db

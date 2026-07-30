@@ -16,7 +16,11 @@
 
       <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
         <div>
-          <a class="text-decoration-none" href="{% url 'documents:import_batch_list' tenant.slug %}">&larr; Stapelimporte</a>
+          {% if batch.inbox %}
+            <a class="text-decoration-none" href="{% url 'documents:inbox_detail' tenant.slug batch.inbox.id %}">&larr; {{ batch.inbox.name }}</a>
+          {% else %}
+            <a class="text-decoration-none" href="{% url 'documents:inbox_list' tenant.slug %}">&larr; Posteingänge</a>
+          {% endif %}
           <h1 class="h3 mt-1 mb-1">{{ batch.title }}</h1>
           <div class="text-secondary">
             {{ batch.items.count }} Dateien · Status {{ batch.get_status_display }}

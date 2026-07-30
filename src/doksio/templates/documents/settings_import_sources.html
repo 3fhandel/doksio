@@ -47,7 +47,11 @@
               <td>
                 {{ import_source.get_target_strategy_display }}
                 <div class="small text-secondary hash-value">
-                  {% if import_source.target_strategy == "fixed" %}Ziel{% else %}Fallback{% endif %}: {{ import_source.document_space.path }}
+                  {% if import_source.target_strategy == "inbox" %}
+                    Posteingang: {{ import_source.document_inbox.name }}
+                  {% else %}
+                    {% if import_source.target_strategy == "fixed" %}Ziel{% else %}Fallback{% endif %}: {{ import_source.document_space.path }}
+                  {% endif %}
                 </div>
               </td>
               <td class="small">

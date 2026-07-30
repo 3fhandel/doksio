@@ -32,6 +32,7 @@ from doksio.documents.models import (
     DocumentBoxTitleRefreshJob,
     DocumentComment,
     DocumentFile,
+    DocumentInbox,
     DocumentImportBatch,
     DocumentImportBatchItem,
     DocumentMetadataField,
@@ -820,17 +821,21 @@ class CreateDocumentImportBatch:
     uploaded_files: list[BinaryIO]
     created_by: get_user_model() | None = None
     title: str = ""
+    inbox: DocumentInbox | None = None
 
     @transaction.atomic
     def execute(self) -> DocumentImportBatch:
         if not self.uploaded_files:
             raise ValueError("Mindestens eine Datei ist erforderlich.")
+        if self.inbox is not None and self.inbox.tenant_id != self.tenant.id:
+            raise ValueError("Posteingang gehört zu einem anderen Tenant.")
 
         batch = DocumentImportBatch.objects.create(
             tenant=self.tenant,
             title=self.title
             or f"Stapelimport {timezone.localtime(timezone.now()):%d.%m.%Y %H:%M}",
             created_by=self.created_by,
+            inbox=self.inbox,
         )
 
         for uploaded_file in self.uploaded_files:
@@ -840,6 +845,15 @@ class CreateDocumentImportBatch:
                 tenant=self.tenant,
                 original_filename=original_filename,
             )
+            if (
+                self.inbox is not None
+                and suggested_space is not None
+                and not self.inbox.allowed_target_spaces.filter(
+                    id=suggested_space.id
+                ).exists()
+            ):
+                suggested_space = None
+                reason = ""
             storage_key, byte_size = _save_staged_upload(
                 tenant=self.tenant,
                 batch=batch,
@@ -865,9 +879,114 @@ class CreateDocumentImportBatch:
             object_id=str(batch.id),
             data={
                 "items_count": len(self.uploaded_files),
+                "inbox_id": self.inbox.id if self.inbox else None,
             },
         ).execute()
         return batch
+
+
+@dataclass(frozen=True)
+class CreateDocumentInbox:
+    tenant: Tenant
+    name: str
+    slug: str
+    description: str = ""
+    access_roles: tuple = ()
+    allowed_target_spaces: tuple = ()
+    is_active: bool = True
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> DocumentInbox:
+        inbox = DocumentInbox.objects.create(
+            tenant=self.tenant,
+            name=self.name.strip(),
+            slug=slugify(self.slug),
+            description=self.description.strip(),
+            is_active=self.is_active,
+        )
+        inbox.access_roles.set(self.access_roles)
+        inbox.allowed_target_spaces.set(self.allowed_target_spaces)
+        RecordAuditEvent(
+            tenant=self.tenant,
+            actor=self.actor,
+            event_type="document_inbox.created",
+            object_type="documents.DocumentInbox",
+            object_id=str(inbox.id),
+            data={"name": inbox.name, "slug": inbox.slug},
+        ).execute()
+        return inbox
+
+
+@dataclass(frozen=True)
+class UpdateDocumentInbox:
+    inbox: DocumentInbox
+    name: str
+    slug: str
+    description: str = ""
+    access_roles: tuple = ()
+    allowed_target_spaces: tuple = ()
+    is_active: bool = True
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> DocumentInbox:
+        self.inbox.name = self.name.strip()
+        self.inbox.slug = slugify(self.slug)
+        self.inbox.description = self.description.strip()
+        self.inbox.is_active = self.is_active
+        self.inbox.save(
+            update_fields=[
+                "name",
+                "slug",
+                "description",
+                "is_active",
+                "updated_at",
+            ]
+        )
+        self.inbox.access_roles.set(self.access_roles)
+        self.inbox.allowed_target_spaces.set(self.allowed_target_spaces)
+        RecordAuditEvent(
+            tenant=self.inbox.tenant,
+            actor=self.actor,
+            event_type="document_inbox.updated",
+            object_type="documents.DocumentInbox",
+            object_id=str(self.inbox.id),
+            data={"name": self.inbox.name, "slug": self.inbox.slug},
+        ).execute()
+        return self.inbox
+
+
+@dataclass(frozen=True)
+class DeleteDocumentInbox:
+    inbox: DocumentInbox
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> None:
+        if self.inbox.batches.filter(
+            status=DocumentImportBatch.Status.OPEN
+        ).exists():
+            raise ValueError(
+                "Ein Posteingang mit offenen Stapeln kann nicht gelöscht werden."
+            )
+        if self.inbox.import_sources.exists():
+            raise ValueError(
+                "Der Posteingang wird noch von mindestens einer Importquelle "
+                "verwendet."
+            )
+        tenant = self.inbox.tenant
+        inbox_id = self.inbox.id
+        name = self.inbox.name
+        self.inbox.delete()
+        RecordAuditEvent(
+            tenant=tenant,
+            actor=self.actor,
+            event_type="document_inbox.deleted",
+            object_type="documents.DocumentInbox",
+            object_id=str(inbox_id),
+            data={"name": name},
+        ).execute()
 
 
 @dataclass(frozen=True)

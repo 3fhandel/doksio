@@ -1,0 +1,39 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+    <div>
+      <h2 class="h4 mb-1">Posteingänge</h2>
+      <p class="text-secondary mb-0">Getrennte Eingangswarteschlangen mit eigenen Rollen und Zielboxen.</p>
+    </div>
+    <a class="btn btn-primary" href="{% url 'documents:settings_inbox_create' tenant.slug %}">Posteingang erstellen</a>
+  </div>
+
+  <div class="settings-crud-list">
+    {% for inbox in inboxes %}
+      <article class="app-card settings-crud-row">
+        <div>
+          <div class="d-flex align-items-center gap-2">
+            <h3 class="h6 mb-0">{{ inbox.name }}</h3>
+            {% if inbox.is_active %}<span class="badge text-bg-success">Aktiv</span>{% else %}<span class="badge text-bg-secondary">Inaktiv</span>{% endif %}
+          </div>
+          <p class="small text-secondary mb-1">{{ inbox.description|default:"Keine Beschreibung" }}</p>
+          <div class="small">
+            {{ inbox.access_roles.count }} explizite Rollen ·
+            {{ inbox.allowed_target_spaces.count }} Zielboxen ·
+            {{ inbox.open_items_count }} offene Eingänge
+          </div>
+        </div>
+        <div class="d-flex gap-2">
+          <a class="btn btn-sm btn-outline-secondary" href="{% url 'documents:settings_inbox_edit' tenant.slug inbox.id %}">Bearbeiten</a>
+          <form method="post" action="{% url 'documents:settings_inbox_delete' tenant.slug inbox.id %}" onsubmit="return confirm('Posteingang wirklich löschen? Offene Stapel verhindern das Löschen.');">
+            {% csrf_token %}
+            <button class="btn btn-sm btn-outline-danger" type="submit">Löschen</button>
+          </form>
+        </div>
+      </article>
+    {% empty %}
+      <div class="app-card p-4 text-center text-secondary">Noch keine Posteingänge eingerichtet.</div>
+    {% endfor %}
+  </div>
+{% endblock %}

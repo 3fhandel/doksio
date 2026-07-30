@@ -6,8 +6,10 @@ from doksio.documents.policies import (
     can_administer_tenant,
     can_view_audit,
     can_view_reports,
+    filter_document_inboxes_for_user,
     has_tenant_permission,
 )
+from doksio.documents.models import DocumentImportBatchItem, DocumentInbox
 from doksio.tenancy.services import get_tenant_for_user
 from doksio.workflows.models import WorkflowTask
 from doksio.workflows.policies import filter_workflow_tasks_for_user
@@ -17,6 +19,8 @@ def user_profile(request):
     context = {
         "keyboard_shortcuts": {},
         "sidebar_open_workflow_tasks_count": 0,
+        "sidebar_open_inbox_items_count": 0,
+        "can_view_inboxes": False,
         "unread_notifications_count": 0,
         "recent_unread_notifications": [],
     }
@@ -51,6 +55,22 @@ def user_profile(request):
                 tenant,
                 TenantPermissions.DOCUMENTS_BATCH_IMPORT,
             )
+            accessible_inboxes = filter_document_inboxes_for_user(
+                DocumentInbox.objects.filter(tenant=tenant, is_active=True),
+                request.user,
+                tenant,
+                TenantPermissions.INBOXES_VIEW,
+            )
+            context["can_view_inboxes"] = accessible_inboxes.exists()
+            if context["can_view_inboxes"]:
+                context["sidebar_open_inbox_items_count"] = (
+                    DocumentImportBatchItem.objects.filter(
+                        tenant=tenant,
+                        batch__inbox__in=accessible_inboxes,
+                        batch__status="open",
+                        status__in=["staged", "error"],
+                    ).count()
+                )
             unread_notifications = Notification.objects.filter(
                 tenant=tenant,
                 recipient=request.user,
