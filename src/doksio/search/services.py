@@ -17,6 +17,7 @@ from django.utils import timezone
 from doksio.accounts.permissions import TenantPermissions
 from doksio.documents.models import (
     Document,
+    DocumentMetadataChoiceItem,
     DocumentMetadataField,
     DocumentReminder,
     DocumentSpace,
@@ -197,13 +198,16 @@ class SearchDocuments:
                 for term in _split_terms(query):
                     term_filter = Q(
                         search_index__combined_text__icontains=term,
-                    ) | Q(space__path__icontains=term)
+                    ) | Q(title__icontains=term) | Q(space__path__icontains=term)
                     if exact_document_id is not None and term == query.strip():
                         term_filter |= Q(id=exact_document_id)
                     documents = documents.filter(term_filter)
             else:
-                text_filter = Q(search_index__search_vector=search_query) | Q(
-                    space__path__icontains=query
+                text_filter = (
+                    Q(search_index__search_vector=search_query)
+                    | Q(search_index__combined_text__icontains=query)
+                    | Q(title__icontains=query)
+                    | Q(space__path__icontains=query)
                 )
                 if exact_document_id is not None:
                     text_filter |= Q(id=exact_document_id)
@@ -389,7 +393,12 @@ class RebuildDocumentSearchIndex:
         comments_text = _join_search_parts(
             *[comment.body for comment in document.comments.all()]
         )
-        metadata_text = _join_search_parts(*_flatten_metadata(document.metadata))
+        metadata_values = _flatten_metadata(document.metadata)
+        choice_labels = DocumentMetadataChoiceItem.objects.filter(
+            choice_list__tenant=document.tenant,
+            value__in=metadata_values,
+        ).values_list("label", flat=True)
+        metadata_text = _join_search_parts(*metadata_values, *choice_labels)
         combined_text = _join_search_parts(
             document.title,
             filenames_text,

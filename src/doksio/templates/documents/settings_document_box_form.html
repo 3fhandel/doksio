@@ -181,6 +181,9 @@
                 </td>
                 <td>
                   {{ metadata_field.get_field_type_display }}
+                  {% if metadata_field.choice_list %}
+                    <div class="small text-secondary">{{ metadata_field.choice_list.name }}</div>
+                  {% endif %}
                   {% if metadata_field.allow_custom_choices %}
                     <div class="small text-secondary">Erweiterbar</div>
                   {% endif %}

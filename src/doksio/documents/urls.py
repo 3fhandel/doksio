@@ -212,6 +212,21 @@ urlpatterns = [
         name="settings_metadata_field_create",
     ),
     path(
+        "t/<slug:tenant_slug>/settings/metadata-choice-lists/",
+        views.tenant_settings_metadata_choice_lists,
+        name="settings_metadata_choice_lists",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/metadata-choice-lists/new/",
+        views.tenant_settings_metadata_choice_list_form,
+        name="settings_metadata_choice_list_create",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/metadata-choice-lists/<int:list_id>/edit/",
+        views.tenant_settings_metadata_choice_list_form,
+        name="settings_metadata_choice_list_edit",
+    ),
+    path(
         "t/<slug:tenant_slug>/settings/import/",
         views.tenant_settings_import_sources,
         name="settings_import_sources",

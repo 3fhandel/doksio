@@ -5,6 +5,7 @@ import re
 
 from django import forms
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+from django.db.models import Q
 from django.utils.text import slugify
 
 from doksio.accounts.models import TenantRole
@@ -14,6 +15,7 @@ from doksio.documents.models import (
     Document,
     DocumentImportBatchItem,
     DocumentInbox,
+    DocumentMetadataChoiceList,
     DocumentMetadataField,
     DocumentSpace,
     DocumentTitleRule,
@@ -938,6 +940,17 @@ class DocumentMetadataFieldForm(forms.Form):
         widget=forms.Textarea(attrs={"class": "form-control", "rows": 3}),
         help_text="Nur für Auswahlfelder. Ein Wert pro Zeile.",
     )
+    choice_list = forms.ModelChoiceField(
+        label="Auswahlliste",
+        queryset=DocumentMetadataChoiceList.objects.none(),
+        required=False,
+        empty_label="Bitte wählen",
+        widget=forms.Select(attrs={"class": "form-select"}),
+        help_text=(
+            "Zentrale Auswahllisten können in mehreren Dokumentenboxen "
+            "verwendet werden."
+        ),
+    )
     allow_custom_choices = forms.BooleanField(
         label="User darf Einträge hinzufügen",
         required=False,
@@ -979,6 +992,14 @@ class DocumentMetadataFieldForm(forms.Form):
         self.document_space = document_space
         self.metadata_field = metadata_field
         super().__init__(*args, **kwargs)
+        lists = DocumentMetadataChoiceList.objects.filter(tenant=tenant)
+        if metadata_field and metadata_field.choice_list_id:
+            lists = lists.filter(
+                Q(is_active=True) | Q(id=metadata_field.choice_list_id)
+            )
+        else:
+            lists = lists.filter(is_active=True)
+        self.fields["choice_list"].queryset = lists.order_by("name", "id")
 
     def clean_slug(self) -> str:
         name = self.cleaned_data.get("name", "")
@@ -1012,13 +1033,86 @@ class DocumentMetadataFieldForm(forms.Form):
         choices = [
             choice.strip() for choice in choices_text.splitlines() if choice.strip()
         ]
-        if field_type == DocumentMetadataField.FieldType.CHOICE and not choices:
+        choice_list = cleaned_data.get("choice_list")
+        if (
+            field_type == DocumentMetadataField.FieldType.CHOICE
+            and not choices
+            and choice_list is None
+        ):
             self.add_error(
-                "choices_text",
-                "Auswahlfelder benötigen mindestens einen Auswahlwert.",
+                "choice_list",
+                "Bitte eine zentrale Auswahlliste wählen.",
             )
         cleaned_data["choices"] = choices
+        if field_type != DocumentMetadataField.FieldType.CHOICE:
+            cleaned_data["choice_list"] = None
         return cleaned_data
+
+
+class DocumentMetadataChoiceListForm(forms.Form):
+    name = forms.CharField(
+        label="Name",
+        max_length=120,
+        widget=forms.TextInput(attrs={"class": "form-control"}),
+    )
+    slug = forms.SlugField(
+        label="Slug",
+        max_length=80,
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control"}),
+    )
+    entries_text = forms.CharField(
+        label="Einträge",
+        required=False,
+        widget=forms.Textarea(attrs={"class": "form-control", "rows": 14}),
+        help_text="Ein Eintrag pro Zeile. Copy-and-paste wird unterstützt.",
+    )
+    is_active = forms.BooleanField(
+        label="Aktiv",
+        required=False,
+        initial=True,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+
+    def __init__(self, *args, tenant: Tenant, choice_list=None, **kwargs) -> None:
+        self.tenant = tenant
+        self.choice_list = choice_list
+        super().__init__(*args, **kwargs)
+
+    def clean_slug(self) -> str:
+        slug = self.cleaned_data.get("slug") or slugify(
+            self.cleaned_data.get("name", "")
+        )
+        queryset = DocumentMetadataChoiceList.objects.filter(
+            tenant=self.tenant,
+            slug=slug,
+        )
+        if self.choice_list is not None:
+            queryset = queryset.exclude(id=self.choice_list.id)
+        if not slug:
+            raise forms.ValidationError("Der Slug darf nicht leer sein.")
+        if queryset.exists():
+            raise forms.ValidationError("Diese Auswahlliste existiert bereits.")
+        return slug
+
+    def clean_entries_text(self) -> str:
+        lines = [
+            line.strip()
+            for line in self.cleaned_data.get("entries_text", "").splitlines()
+            if line.strip()
+        ]
+        seen = set()
+        duplicates = set()
+        for line in lines:
+            normalized = line.casefold()
+            if normalized in seen:
+                duplicates.add(line)
+            seen.add(normalized)
+        if duplicates:
+            raise forms.ValidationError(
+                "Doppelte Einträge: " + ", ".join(sorted(duplicates))
+            )
+        return "\n".join(lines)
 
 
 class DocumentMetadataForm(forms.Form):
@@ -1087,12 +1181,38 @@ class DocumentMetadataForm(forms.Form):
             )
         if field_definition.field_type == DocumentMetadataField.FieldType.CHOICE:
             choices = [("", "Bitte wählen")]
-            choices.extend((choice, choice) for choice in field_definition.choices)
-            attrs = {"class": "form-select"}
+            choices.extend(field_definition.choice_options())
+            option_labels = dict(choices)
+            option_values = set(option_labels)
+            if initial_value and initial_value not in option_values:
+                historical_label = initial_value
+                if field_definition.choice_list_id:
+                    historical_item = field_definition.choice_list.items.filter(
+                        value=initial_value,
+                    ).first()
+                    if historical_item is not None:
+                        historical_label = historical_item.label
+                choices.append(
+                    (
+                        initial_value,
+                        f"{historical_label} (bisheriger Wert)",
+                    )
+                )
+                option_labels[initial_value] = historical_label
+            attrs = {
+                "data-metadata-choice-select": "true",
+                "data-metadata-choice-combobox": "true",
+                "data-metadata-choice-list": (
+                    f"metadata_{field_definition.slug}_choices"
+                ),
+                "data-metadata-choice-selected-label": option_labels.get(
+                    initial_value,
+                    initial_value or "",
+                ),
+            }
             if field_definition.allow_custom_choices:
                 attrs.update(
                     {
-                        "data-metadata-choice-select": "true",
                         "data-metadata-choice-target": (
                             f"id_metadata_{field_definition.slug}_new_choice"
                         ),
@@ -1107,7 +1227,7 @@ class DocumentMetadataForm(forms.Form):
                     ),
                 },
                 choices=choices,
-                widget=forms.Select(attrs=attrs),
+                widget=forms.HiddenInput(attrs=attrs),
             )
         return forms.CharField(**kwargs, widget=forms.TextInput(attrs=attrs))
 
@@ -1190,7 +1310,9 @@ class DocumentMetadataForm(forms.Form):
             ).strip()
             if not value:
                 continue
-            existing_values = {choice.casefold() for choice in field_definition.choices}
+            existing_values = {
+                label.casefold() for _value, label in field_definition.choice_options()
+            }
             if value.casefold() not in existing_values:
                 choices[field_definition] = value
         return choices

@@ -565,6 +565,10 @@ body {
   flex-wrap: nowrap;
 }
 
+.metadata-choice-picker {
+  min-width: 0;
+}
+
 .metadata-choice-add-button {
   flex: 0 0 2.35rem;
   padding: 0;
@@ -580,6 +584,19 @@ body {
 .metadata-choice-new-field.is-visible {
   display: block;
   margin-top: -0.25rem;
+}
+
+.metadata-choice-item-form {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) auto auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+@media (max-width: 575.98px) {
+  .metadata-choice-item-form {
+    grid-template-columns: 1fr;
+  }
 }
 
 .hash-value {

@@ -406,12 +406,40 @@
                             {{ field }}
                           {% else %}
                             <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-                            {% if field|widget_attr:"data-metadata-choice-select" %}
-                              <div class="input-group metadata-choice-control">
+                            {% if field|widget_attr:"data-metadata-choice-combobox" %}
+                              <div class="metadata-choice-picker" data-metadata-choice-picker>
                                 {{ field }}
-                                <button class="btn btn-outline-secondary metadata-choice-add-button" type="button" data-metadata-choice-add="{{ field|widget_attr:'data-metadata-choice-target' }}" aria-label="Auswahlwert hinzufügen">
-                                  +
-                                </button>
+                                {% if field|widget_attr:"data-metadata-choice-target" %}
+                                  <div class="input-group metadata-choice-control">
+                                    <input
+                                      class="form-control"
+                                      type="text"
+                                      value="{{ field|widget_attr:'data-metadata-choice-selected-label' }}"
+                                      list="{{ field|widget_attr:'data-metadata-choice-list' }}"
+                                      placeholder="Auswahl suchen oder wählen"
+                                      autocomplete="off"
+                                      data-metadata-choice-display
+                                    >
+                                    <button class="btn btn-outline-secondary metadata-choice-add-button" type="button" data-metadata-choice-add="{{ field|widget_attr:'data-metadata-choice-target' }}" aria-label="Auswahlwert hinzufügen">
+                                      +
+                                    </button>
+                                  </div>
+                                {% else %}
+                                  <input
+                                    class="form-control"
+                                    type="text"
+                                    value="{{ field|widget_attr:'data-metadata-choice-selected-label' }}"
+                                    list="{{ field|widget_attr:'data-metadata-choice-list' }}"
+                                    placeholder="Auswahl suchen oder wählen"
+                                    autocomplete="off"
+                                    data-metadata-choice-display
+                                  >
+                                {% endif %}
+                                <datalist id="{{ field|widget_attr:'data-metadata-choice-list' }}">
+                                  {% for value, label in field.field.choices %}
+                                    {% if value %}<option value="{{ label }}" data-choice-value="{{ value }}"></option>{% endif %}
+                                  {% endfor %}
+                                </datalist>
                               </div>
                             {% else %}
                               {{ field }}
@@ -877,7 +905,7 @@
 {% block extra_body %}
   {{ mention_suggestions|json_script:"document-comment-mention-users" }}
   <script src="{% static 'js/document-mentions.js' %}?v=1"></script>
-  <script src="{% static 'js/document-metadata.js' %}?v=1"></script>
+  <script src="{% static 'js/document-metadata.js' %}?v=3"></script>
   {% if preview_kind == "pdf" %}
     <script src="{% static 'vendor/pdfjs/pdf.min.js' %}?v=3.11.174"></script>
     <script src="{% static 'js/document-preview.js' %}?v=14"></script>

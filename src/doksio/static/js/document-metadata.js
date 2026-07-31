@@ -14,3 +14,28 @@ document.querySelectorAll("[data-metadata-choice-add]").forEach((button) => {
     input.focus();
   });
 });
+
+document.querySelectorAll("[data-metadata-choice-picker]").forEach((picker) => {
+  const display = picker.querySelector("[data-metadata-choice-display]");
+  const hidden = picker.querySelector("[data-metadata-choice-select]");
+  const listId = display?.getAttribute("list");
+  const datalist = listId ? document.getElementById(listId) : null;
+  if (!display || !hidden || !datalist) {
+    return;
+  }
+
+  const syncValue = () => {
+    const entered = display.value.trim().toLocaleLowerCase("de");
+    const match = Array.from(datalist.options).find(
+      (option) => option.value.trim().toLocaleLowerCase("de") === entered,
+    );
+    hidden.value = match ? match.getAttribute("data-choice-value") || "" : "";
+    display.setCustomValidity(
+      entered && !match ? "Bitte einen Eintrag aus der Liste wählen." : "",
+    );
+  };
+
+  display.addEventListener("input", syncValue);
+  display.addEventListener("change", syncValue);
+  display.addEventListener("blur", syncValue);
+});

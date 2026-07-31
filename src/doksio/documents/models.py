@@ -287,6 +287,67 @@ class Document(models.Model):
         return self.title
 
 
+class DocumentMetadataChoiceList(models.Model):
+    """Tenant-wide reusable list for choice metadata fields."""
+
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="metadata_choice_lists",
+    )
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=80)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "slug"],
+                name="unique_tenant_metadata_choice_list_slug",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class DocumentMetadataChoiceItem(models.Model):
+    """Stable value and mutable label within a reusable choice list."""
+
+    choice_list = models.ForeignKey(
+        DocumentMetadataChoiceList,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    value = models.CharField(max_length=255)
+    label = models.CharField(max_length=255)
+    sort_order = models.PositiveIntegerField(default=100)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["choice_list", "value"],
+                name="unique_metadata_choice_item_value",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["choice_list", "is_active", "sort_order"],
+                name="documents_choice_item_idx",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return self.label
+
+
 class DocumentMetadataField(models.Model):
     """Configurable metadata field belonging to one document box."""
 
@@ -336,6 +397,13 @@ class DocumentMetadataField(models.Model):
     )
     help_text = models.CharField(max_length=255, blank=True)
     choices = models.JSONField(default=list, blank=True)
+    choice_list = models.ForeignKey(
+        DocumentMetadataChoiceList,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name="metadata_fields",
+    )
     allow_custom_choices = models.BooleanField(default=False)
     einvoice_source = models.CharField(
         max_length=80,
@@ -364,6 +432,26 @@ class DocumentMetadataField(models.Model):
 
     def __str__(self) -> str:
         return f"{self.space.path}: {self.name}"
+
+    def active_choice_items(self):
+        if self.choice_list_id:
+            prefetched = getattr(
+                self.choice_list,
+                "_prefetched_objects_cache",
+                {},
+            ).get("items")
+            if prefetched is not None:
+                return [item for item in prefetched if item.is_active]
+            return self.choice_list.items.filter(is_active=True).order_by(
+                "sort_order",
+                "id",
+            )
+        return ()
+
+    def choice_options(self) -> list[tuple[str, str]]:
+        if self.choice_list_id:
+            return [(item.value, item.label) for item in self.active_choice_items()]
+        return [(choice, choice) for choice in self.choices]
 
 
 class DocumentTag(models.Model):

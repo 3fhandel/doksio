@@ -151,6 +151,16 @@ HELP_TOPICS = (
                 ),
             ),
             HelpSection(
+                title="Metadaten und Auswahllisten",
+                text=(
+                    "Bei langen Auswahllisten kannst du direkt in das Auswahlfeld "
+                    "tippen und einen passenden Vorschlag wählen. Änderungen an der Optionsliste "
+                    "ändern bereits gespeicherte Dokumentwerte nicht automatisch. "
+                    "Ein entfernter Wert bleibt am Dokument als bisheriger Wert "
+                    "sichtbar, bis du ihn bewusst durch einen aktuellen Eintrag ersetzt."
+                ),
+            ),
+            HelpSection(
                 title="Prüfhilfen",
                 text=(
                     "Die normale Prüfhilfe unterstützt beim zeilenweisen Lesen. "
@@ -372,6 +382,16 @@ HELP_TOPICS = (
                     "Dokumente ein Benutzer sehen kann."
                 ),
             ),
+            HelpSection(
+                title="Zentrale Auswahllisten",
+                text=(
+                    "Unter Einstellungen > Auswahllisten pflegst du wiederverwendbare "
+                    "Listen für Metadatenfelder. Eine Liste kann mehreren Feldern und "
+                    "Dokumentenboxen zugeordnet werden. Einzelne Anzeigenamen lassen "
+                    "sich ändern oder deaktivieren, ohne bestehende Dokumentzuordnungen "
+                    "zu verlieren."
+                ),
+            ),
         ),
         quick_tips=(
             (
@@ -406,6 +426,9 @@ CONTEXT_TOPIC_SLUGS = {
     ("accounts", "profile_notifications"): "kommentare",
     ("accounts", "profile_reminders"): "dokument-bearbeiten",
     ("accounts", "profile_shortcuts"): "tastenkuerzel",
+    ("documents", "settings_metadata_choice_lists"): "administration",
+    ("documents", "settings_metadata_choice_list_create"): "administration",
+    ("documents", "settings_metadata_choice_list_edit"): "administration",
 }
 
 

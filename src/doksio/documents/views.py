@@ -56,6 +56,7 @@ from doksio.documents.forms import (
     DocumentImportBatchItemForm,
     DocumentImportBatchUploadForm,
     DocumentInboxForm,
+    DocumentMetadataChoiceListForm,
     DocumentMetadataFieldForm,
     DocumentMetadataForm,
     DocumentRelationForm,
@@ -79,6 +80,8 @@ from doksio.documents.models import (
     DocumentImportBatch,
     DocumentImportBatchItem,
     DocumentInbox,
+    DocumentMetadataChoiceItem,
+    DocumentMetadataChoiceList,
     DocumentMetadataField,
     DocumentRelation,
     DocumentReminder,
@@ -135,6 +138,7 @@ from doksio.documents.services import (
     FinalizeDocumentImportBatch,
     RemoveDocumentRelation,
     RemoveDocumentReviewMarker,
+    SaveDocumentMetadataChoiceList,
     SaveDocumentReminder,
     SetDocumentTags,
     SplitPdfDocument,
@@ -4715,6 +4719,136 @@ def tenant_settings_import_source_script(
     return response
 
 
+def tenant_settings_metadata_choice_lists(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+    choice_lists = (
+        DocumentMetadataChoiceList.objects.filter(tenant=tenant)
+        .annotate(
+            field_count=Count("metadata_fields", distinct=True),
+            active_item_count=Count(
+                "items",
+                filter=Q(items__is_active=True),
+                distinct=True,
+            ),
+        )
+        .order_by("name", "id")
+    )
+    return render(
+        request,
+        "documents/settings_metadata_choice_lists.html",
+        {
+            "tenant": tenant,
+            "choice_lists_page_obj": paginate_queryset(
+                request,
+                choice_lists,
+                per_page=25,
+            ),
+            "active_settings_section": "metadata_choice_lists",
+        },
+    )
+
+
+def tenant_settings_metadata_choice_list_form(
+    request: HttpRequest,
+    tenant_slug: str,
+    list_id: int | None = None,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+    choice_list = (
+        get_object_or_404(DocumentMetadataChoiceList, tenant=tenant, id=list_id)
+        if list_id is not None
+        else None
+    )
+    if (
+        request.method == "POST"
+        and request.POST.get("action") == "update_item"
+        and choice_list is not None
+    ):
+        item = get_object_or_404(
+            DocumentMetadataChoiceItem,
+            choice_list=choice_list,
+            id=request.POST.get("item_id"),
+        )
+        label = request.POST.get("label", "").strip()
+        if not label:
+            messages.error(request, "Der Anzeigename darf nicht leer sein.")
+        elif choice_list.items.exclude(id=item.id).filter(label__iexact=label).exists():
+            messages.error(request, "Dieser Anzeigename ist bereits vorhanden.")
+        else:
+            item.label = label
+            item.is_active = request.POST.get("is_active") == "on"
+            item.save(update_fields=["label", "is_active", "updated_at"])
+            messages.success(request, "Listeneintrag wurde aktualisiert.")
+        return redirect(
+            "documents:settings_metadata_choice_list_edit",
+            tenant_slug=tenant.slug,
+            list_id=choice_list.id,
+        )
+    if request.method == "POST":
+        form = DocumentMetadataChoiceListForm(
+            request.POST,
+            tenant=tenant,
+            choice_list=choice_list,
+        )
+        if form.is_valid():
+            SaveDocumentMetadataChoiceList(
+                tenant=tenant,
+                choice_list=choice_list,
+                name=form.cleaned_data["name"],
+                slug=form.cleaned_data["slug"],
+                entries=form.cleaned_data["entries_text"].splitlines(),
+                is_active=form.cleaned_data["is_active"],
+            ).execute()
+            messages.success(request, "Auswahlliste wurde gespeichert.")
+            return redirect(
+                "documents:settings_metadata_choice_lists",
+                tenant_slug=tenant.slug,
+            )
+    else:
+        form = DocumentMetadataChoiceListForm(
+            tenant=tenant,
+            choice_list=choice_list,
+            initial=(
+                {
+                    "name": choice_list.name,
+                    "slug": choice_list.slug,
+                    "entries_text": "\n".join(
+                        choice_list.items.filter(is_active=True)
+                        .order_by("sort_order", "id")
+                        .values_list("label", flat=True)
+                    ),
+                    "is_active": choice_list.is_active,
+                }
+                if choice_list
+                else None
+            ),
+        )
+    return render(
+        request,
+        "documents/settings_metadata_choice_list_form.html",
+        {
+            "tenant": tenant,
+            "choice_list": choice_list,
+            "choice_items": (
+                choice_list.items.order_by("sort_order", "id") if choice_list else ()
+            ),
+            "form": form,
+            "active_settings_section": "metadata_choice_lists",
+        },
+    )
+
+
 def tenant_settings_metadata_field_create(
     request: HttpRequest,
     tenant_slug: str,
@@ -4743,6 +4877,7 @@ def tenant_settings_metadata_field_create(
                 field_type=form.cleaned_data["field_type"],
                 help_text=form.cleaned_data["help_text"],
                 choices=form.cleaned_data["choices"],
+                choice_list=form.cleaned_data["choice_list"],
                 allow_custom_choices=form.cleaned_data["allow_custom_choices"],
                 einvoice_source=form.cleaned_data["einvoice_source"],
                 sort_order=form.cleaned_data["sort_order"],
@@ -4811,6 +4946,7 @@ def tenant_settings_metadata_field_edit(
                 field_type=form.cleaned_data["field_type"],
                 help_text=form.cleaned_data["help_text"],
                 choices=form.cleaned_data["choices"],
+                choice_list=form.cleaned_data["choice_list"],
                 allow_custom_choices=form.cleaned_data["allow_custom_choices"],
                 einvoice_source=form.cleaned_data["einvoice_source"],
                 sort_order=form.cleaned_data["sort_order"],
@@ -4834,7 +4970,7 @@ def tenant_settings_metadata_field_edit(
                 "slug": metadata_field.slug,
                 "field_type": metadata_field.field_type,
                 "help_text": metadata_field.help_text,
-                "choices_text": "\n".join(metadata_field.choices),
+                "choice_list": metadata_field.choice_list_id,
                 "allow_custom_choices": metadata_field.allow_custom_choices,
                 "einvoice_source": metadata_field.einvoice_source,
                 "sort_order": metadata_field.sort_order,

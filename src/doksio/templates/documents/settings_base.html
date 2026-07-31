@@ -25,6 +25,9 @@
             <a class="list-group-item list-group-item-action {% if active_settings_section == 'document_boxes' %}active{% endif %}" href="{% url 'documents:settings_document_boxes' tenant.slug %}">
               Dokumentenboxen
             </a>
+            <a class="list-group-item list-group-item-action {% if active_settings_section == 'metadata_choice_lists' %}active{% endif %}" href="{% url 'documents:settings_metadata_choice_lists' tenant.slug %}">
+              Auswahllisten
+            </a>
             <a class="list-group-item list-group-item-action {% if active_settings_section == 'inboxes' %}active{% endif %}" href="{% url 'documents:settings_inboxes' tenant.slug %}">
               Posteingänge
             </a>

@@ -35,6 +35,8 @@ from doksio.documents.models import (
     DocumentImportBatch,
     DocumentImportBatchItem,
     DocumentInbox,
+    DocumentMetadataChoiceItem,
+    DocumentMetadataChoiceList,
     DocumentMetadataField,
     DocumentRelation,
     DocumentReminder,
@@ -364,6 +366,16 @@ def _coerce_einvoice_metadata_value(
     if field.field_type == DocumentMetadataField.FieldType.NUMBER:
         return _decimal_string(value)
     if (
+        field.field_type == DocumentMetadataField.FieldType.CHOICE
+        and field.choice_list_id
+    ):
+        item = field.choice_list.items.filter(
+            label__iexact=value,
+            is_active=True,
+        ).first()
+        if item is not None:
+            return item.value
+    if (
         field.field_type == DocumentMetadataField.FieldType.DATE
         and len(value) == 8
         and value.isdigit()
@@ -582,6 +594,92 @@ class UpdateDocumentSpace:
         return self.document_space
 
 
+def _create_legacy_choice_list(
+    *,
+    tenant: Tenant,
+    name: str,
+    slug: str,
+    choices: list[str],
+) -> DocumentMetadataChoiceList:
+    base_slug = slugify(slug)[:70] or "auswahlliste"
+    candidate = base_slug
+    suffix = 2
+    while DocumentMetadataChoiceList.objects.filter(
+        tenant=tenant,
+        slug=candidate,
+    ).exists():
+        candidate = f"{base_slug[:74]}-{suffix}"
+        suffix += 1
+    choice_list = DocumentMetadataChoiceList.objects.create(
+        tenant=tenant,
+        name=name,
+        slug=candidate,
+    )
+    DocumentMetadataChoiceItem.objects.bulk_create(
+        [
+            DocumentMetadataChoiceItem(
+                choice_list=choice_list,
+                value=choice,
+                label=choice,
+                sort_order=index * 10,
+            )
+            for index, choice in enumerate(choices)
+        ]
+    )
+    return choice_list
+
+
+@dataclass(frozen=True)
+class SaveDocumentMetadataChoiceList:
+    tenant: Tenant
+    name: str
+    slug: str
+    entries: list[str]
+    is_active: bool = True
+    choice_list: DocumentMetadataChoiceList | None = None
+
+    @transaction.atomic
+    def execute(self) -> DocumentMetadataChoiceList:
+        choice_list = self.choice_list
+        if choice_list is None:
+            choice_list = DocumentMetadataChoiceList.objects.create(
+                tenant=self.tenant,
+                name=self.name,
+                slug=self.slug,
+                is_active=self.is_active,
+            )
+        else:
+            if choice_list.tenant_id != self.tenant.id:
+                raise ValueError("Choice list belongs to a different tenant.")
+            choice_list.name = self.name
+            choice_list.slug = self.slug
+            choice_list.is_active = self.is_active
+            choice_list.save(update_fields=["name", "slug", "is_active", "updated_at"])
+
+        existing_items = list(choice_list.items.order_by("sort_order", "id"))
+        by_label = {item.label.casefold(): item for item in existing_items}
+        retained_ids = set()
+        for index, label in enumerate(self.entries):
+            item = by_label.get(label.casefold())
+            if item is None:
+                item = DocumentMetadataChoiceItem.objects.create(
+                    choice_list=choice_list,
+                    value=str(uuid.uuid4()),
+                    label=label,
+                    sort_order=index * 10,
+                )
+            else:
+                item.label = label
+                item.sort_order = index * 10
+                item.is_active = True
+                item.save(
+                    update_fields=["label", "sort_order", "is_active", "updated_at"]
+                )
+            retained_ids.add(item.id)
+        choice_list.items.exclude(id__in=retained_ids).update(is_active=False)
+        return choice_list
+
+
 @dataclass(frozen=True)
 class CreateDocumentMetadataField:
     tenant: Tenant
@@ -591,6 +689,7 @@ class CreateDocumentMetadataField:
     field_type: str
     help_text: str = ""
     choices: list[str] | None = None
+    choice_list: DocumentMetadataChoiceList | None = None
     allow_custom_choices: bool = False
     einvoice_source: str = DocumentMetadataField.EInvoiceSource.NONE
     sort_order: int = 100
@@ -603,6 +702,21 @@ class CreateDocumentMetadataField:
         if self.space.tenant_id != self.tenant.id:
             raise ValueError("Metadata field space belongs to a different tenant.")
 
+        choice_list = self.choice_list
+        if (
+            self.field_type == DocumentMetadataField.FieldType.CHOICE
+            and choice_list is None
+            and self.choices
+        ):
+            choice_list = _create_legacy_choice_list(
+                tenant=self.tenant,
+                name=self.name,
+                slug=f"{self.space.slug}-{self.slug}",
+                choices=self.choices,
+            )
+        if choice_list and choice_list.tenant_id != self.tenant.id:
+            raise ValueError("Choice list belongs to a different tenant.")
+
         metadata_field = DocumentMetadataField.objects.create(
             tenant=self.tenant,
             space=self.space,
@@ -611,6 +725,7 @@ class CreateDocumentMetadataField:
             field_type=self.field_type,
             help_text=self.help_text,
             choices=self.choices or [],
+            choice_list=choice_list,
             allow_custom_choices=self.allow_custom_choices,
             einvoice_source=self.einvoice_source,
             sort_order=self.sort_order,
@@ -643,6 +758,7 @@ class UpdateDocumentMetadataField:
     field_type: str
     help_text: str = ""
     choices: list[str] | None = None
+    choice_list: DocumentMetadataChoiceList | None = None
     allow_custom_choices: bool = False
     einvoice_source: str = DocumentMetadataField.EInvoiceSource.NONE
     sort_order: int = 100
@@ -657,6 +773,27 @@ class UpdateDocumentMetadataField:
         self.metadata_field.field_type = self.field_type
         self.metadata_field.help_text = self.help_text
         self.metadata_field.choices = self.choices or []
+        if self.choice_list and (
+            self.choice_list.tenant_id != self.metadata_field.tenant_id
+        ):
+            raise ValueError("Choice list belongs to a different tenant.")
+        choice_list = self.choice_list
+        if (
+            self.field_type == DocumentMetadataField.FieldType.CHOICE
+            and choice_list is None
+            and self.choices
+        ):
+            choice_list = _create_legacy_choice_list(
+                tenant=self.metadata_field.tenant,
+                name=self.name,
+                slug=f"{self.metadata_field.space.slug}-{self.slug}",
+                choices=self.choices,
+            )
+        self.metadata_field.choice_list = (
+            choice_list
+            if self.field_type == DocumentMetadataField.FieldType.CHOICE
+            else None
+        )
         self.metadata_field.allow_custom_choices = self.allow_custom_choices
         self.metadata_field.einvoice_source = self.einvoice_source
         self.metadata_field.sort_order = self.sort_order
@@ -669,6 +806,7 @@ class UpdateDocumentMetadataField:
                 "field_type",
                 "help_text",
                 "choices",
+                "choice_list",
                 "allow_custom_choices",
                 "einvoice_source",
                 "sort_order",
@@ -711,6 +849,42 @@ class AddDocumentMetadataChoice:
 
         value = self.value.strip()
         if not value:
+            return self.metadata_field
+
+        if self.metadata_field.choice_list_id:
+            existing = self.metadata_field.choice_list.items.filter(
+                label__iexact=value,
+            ).first()
+            if existing is not None:
+                if not existing.is_active:
+                    existing.is_active = True
+                    existing.save(update_fields=["is_active", "updated_at"])
+                return self.metadata_field
+            DocumentMetadataChoiceItem.objects.create(
+                choice_list=self.metadata_field.choice_list,
+                value=value,
+                label=value,
+                sort_order=(
+                    self.metadata_field.choice_list.items.aggregate(
+                        maximum=Max("sort_order")
+                    )["maximum"]
+                    or 0
+                )
+                + 10,
+            )
+            RecordAuditEvent(
+                tenant=self.metadata_field.tenant,
+                actor=self.actor,
+                event_type="document_metadata_field.choice_added",
+                object_type="documents.DocumentMetadataField",
+                object_id=str(self.metadata_field.id),
+                data={
+                    "space_id": self.metadata_field.space_id,
+                    "name": self.metadata_field.name,
+                    "slug": self.metadata_field.slug,
+                    "choice": value,
+                },
+            ).execute()
             return self.metadata_field
 
         existing_values = {

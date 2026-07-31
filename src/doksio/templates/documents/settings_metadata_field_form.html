@@ -45,10 +45,13 @@
           {{ form.help_text.errors }}
         </div>
         <div class="col-12">
-          <label class="form-label" for="{{ form.choices_text.id_for_label }}">Auswahlwerte</label>
-          {{ form.choices_text }}
-          {{ form.choices_text.errors }}
-          <div class="form-text">{{ form.choices_text.help_text }}</div>
+          <label class="form-label" for="{{ form.choice_list.id_for_label }}">Auswahlliste</label>
+          {{ form.choice_list }}
+          {{ form.choice_list.errors }}
+          <div class="form-text">
+            {{ form.choice_list.help_text }}
+            <a href="{% url 'documents:settings_metadata_choice_lists' tenant.slug %}">Auswahllisten verwalten</a>
+          </div>
         </div>
         <div class="col-12">
           <div class="form-check">

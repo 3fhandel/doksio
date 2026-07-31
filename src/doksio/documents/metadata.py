@@ -48,7 +48,8 @@ def effective_metadata_fields(
     active_only: bool = True,
 ) -> list[DocumentMetadataField]:
     fields = (
-        DocumentMetadataField.objects.select_related("space")
+        DocumentMetadataField.objects.select_related("space", "choice_list")
+        .prefetch_related("choice_list__items")
         .filter(
             tenant=space.tenant,
             space__path__in=document_space_path_chain(space),

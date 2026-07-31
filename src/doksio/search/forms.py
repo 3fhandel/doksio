@@ -90,7 +90,7 @@ class DocumentSearchForm(forms.Form):
             )
         elif field_definition.field_type == DocumentMetadataField.FieldType.CHOICE:
             choices = [("", "Alle")]
-            choices.extend((choice, choice) for choice in field_definition.choices)
+            choices.extend(field_definition.choice_options())
             self.fields[base_name] = forms.ChoiceField(
                 label=field_definition.name,
                 required=False,

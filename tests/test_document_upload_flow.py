@@ -46,6 +46,7 @@ from doksio.documents.services import (
     CreateDocumentMetadataField,
     CreateDocumentSpace,
     OptimizeDocumentBoxScans,
+    SaveDocumentMetadataChoiceList,
     SetDocumentTags,
     UpdateDocumentMetadata,
     pdf_page_count,
@@ -3124,6 +3125,10 @@ def test_choice_metadata_can_be_extended_from_document_detail(client):
     assert response.status_code == 200
     assert "metadata-choice-control" in content
     assert "data-metadata-choice-add" in content
+    assert "data-metadata-choice-combobox" in content
+    assert "Auswahl suchen oder wählen" in content
+    assert "<datalist" in content
+    assert "data-metadata-choice-search" not in content
     assert "document-metadata.js" in content
 
     response = client.post(
@@ -3142,11 +3147,186 @@ def test_choice_metadata_can_be_extended_from_document_detail(client):
     metadata_field.refresh_from_db()
     assert response.status_code == 302
     assert document.metadata == {"kategorie": "Gutschrift"}
-    assert metadata_field.choices == ["Rechnung", "Gutschrift"]
+    assert list(
+        metadata_field.choice_list.items.filter(is_active=True).values_list(
+            "label",
+            flat=True,
+        )
+    ) == ["Rechnung", "Gutschrift"]
     assert AuditEvent.objects.filter(
         event_type="document_metadata_field.choice_added",
         object_id=str(metadata_field.id),
     ).exists()
+
+
+@pytest.mark.django_db
+def test_removed_metadata_choice_remains_available_as_existing_value(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    CreateDocumentMetadataField(
+        tenant=tenant,
+        space=space,
+        name="Kategorie",
+        slug="kategorie",
+        field_type=DocumentMetadataField.FieldType.CHOICE,
+        choices=["Aktueller Wert"],
+    ).execute()
+    document, _document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Altvertrag",
+        space=space,
+        file_obj=BytesIO(b"content"),
+        original_filename="altvertrag.pdf",
+        content_type="application/pdf",
+        created_by=user,
+    ).execute()
+    document.metadata = {"kategorie": "Entfernter Wert"}
+    document.save(update_fields=["metadata"])
+    client.force_login(user)
+    url = reverse(
+        "documents:detail",
+        kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+    )
+
+    response = client.get(url)
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "Entfernter Wert (bisheriger Wert)" in content
+    assert 'data-metadata-choice-combobox="true"' in content
+
+    response = client.post(
+        url,
+        {
+            "action": "update_metadata",
+            "metadata_kategorie": "Entfernter Wert",
+        },
+    )
+
+    document.refresh_from_db()
+    assert response.status_code == 302
+    assert document.metadata == {"kategorie": "Entfernter Wert"}
+
+
+@pytest.mark.django_db
+def test_reusable_metadata_choice_list_can_serve_multiple_boxes_and_be_renamed(
+    client,
+):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    first_space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    second_space = CreateDocumentSpace(tenant=tenant, name="Verträge").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["admin"],
+    )
+    choice_list = SaveDocumentMetadataChoiceList(
+        tenant=tenant,
+        name="Abteilungen",
+        slug="abteilungen",
+        entries=["Einkauf", "Vertrieb"],
+    ).execute()
+    client.force_login(user)
+
+    for space, slug in ((first_space, "abteilung"), (second_space, "bereich")):
+        response = client.post(
+            reverse(
+                "documents:settings_metadata_field_create",
+                kwargs={"tenant_slug": tenant.slug, "box_id": space.id},
+            ),
+            {
+                "name": "Abteilung",
+                "slug": slug,
+                "field_type": DocumentMetadataField.FieldType.CHOICE,
+                "choice_list": choice_list.id,
+                "sort_order": 100,
+                "is_active": "on",
+            },
+        )
+        assert response.status_code == 302
+
+    fields = DocumentMetadataField.objects.filter(choice_list=choice_list)
+    assert fields.count() == 2
+
+    selected_item = choice_list.items.get(label="Einkauf")
+    document, _file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Testdokument",
+        space=first_space,
+        file_obj=BytesIO(b"content"),
+        original_filename="test.pdf",
+        content_type="application/pdf",
+        created_by=user,
+    ).execute()
+    document.metadata = {"abteilung": selected_item.value}
+    document.save(update_fields=["metadata"])
+
+    response = client.post(
+        reverse(
+            "documents:settings_metadata_choice_list_edit",
+            kwargs={"tenant_slug": tenant.slug, "list_id": choice_list.id},
+        ),
+        {
+            "action": "update_item",
+            "item_id": selected_item.id,
+            "label": "Beschaffung",
+            "is_active": "on",
+        },
+    )
+
+    assert response.status_code == 302
+    selected_item.refresh_from_db()
+    document.refresh_from_db()
+    assert selected_item.label == "Beschaffung"
+    assert document.metadata == {"abteilung": selected_item.value}
+
+    response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        )
+    )
+    assert "Beschaffung" in response.content.decode()
+
+    response = client.post(
+        reverse(
+            "documents:settings_metadata_choice_list_edit",
+            kwargs={"tenant_slug": tenant.slug, "list_id": choice_list.id},
+        ),
+        {
+            "action": "update_item",
+            "item_id": selected_item.id,
+            "label": "Beschaffung",
+        },
+    )
+
+    assert response.status_code == 302
+    selected_item.refresh_from_db()
+    assert selected_item.is_active is False
+
+    response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        )
+    )
+    content = response.content.decode()
+    assert "Beschaffung (bisheriger Wert)" in content
 
 
 @pytest.mark.django_db
