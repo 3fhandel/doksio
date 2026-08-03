@@ -60,6 +60,30 @@ class OcrExtraction:
     text: str
     engine: str
     language: str
+    page_texts: tuple[str, ...] = ()
+
+
+def _split_pdf_page_texts(text: str) -> tuple[str, ...]:
+    pages = tuple(page.strip() for page in text.split("\f"))
+    while pages and not pages[-1]:
+        pages = pages[:-1]
+    return pages
+
+
+def _page_text_ranges(text: str, page_texts: tuple[str, ...]) -> list[list[int]]:
+    ranges = []
+    cursor = 0
+    for page_text in page_texts:
+        if not page_text:
+            ranges.append([cursor, cursor])
+            continue
+        start = text.find(page_text, cursor)
+        if start < 0:
+            return []
+        end = start + len(page_text)
+        ranges.append([start, end])
+        cursor = end
+    return ranges
 
 
 def supports_ocr_content_type(content_type: str) -> bool:
@@ -215,7 +239,12 @@ class LocalOcrProvider:
     def _extract_pdf(self, input_path: Path, language: str) -> OcrExtraction:
         text = self._extract_pdf_text(input_path=input_path)
         if text.strip():
-            return OcrExtraction(text=text, engine="pdftotext", language=language)
+            return OcrExtraction(
+                text=text,
+                engine="pdftotext",
+                language=language,
+                page_texts=_split_pdf_page_texts(text),
+            )
 
         ocrmypdf = shutil.which("ocrmypdf")
         if ocrmypdf is None:
@@ -243,7 +272,10 @@ class LocalOcrProvider:
                     timeout=getattr(settings, "OCR_COMMAND_TIMEOUT_SECONDS", 300),
                 )
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                return self._extract_pdf_images(input_path=input_path, language=language)
+                return self._extract_pdf_images(
+                    input_path=input_path,
+                    language=language,
+                )
 
             sidecar_text = sidecar.read_text(encoding="utf-8", errors="replace")
         if not sidecar_text.strip():
@@ -253,6 +285,7 @@ class LocalOcrProvider:
             text=sidecar_text,
             engine="ocrmypdf",
             language=language,
+            page_texts=_split_pdf_page_texts(sidecar_text),
         )
 
     def _extract_pdf_text(self, input_path: Path) -> str:
@@ -278,7 +311,7 @@ class LocalOcrProvider:
                 "Kein Text gefunden und weder ocrmypdf noch tesseract ist verfügbar."
             )
 
-        text = ""
+        page_texts = []
         with tempfile.TemporaryDirectory() as temporary_directory:
             rendered_paths = self._render_pdf_pages_for_ocr(
                 input_path=input_path,
@@ -290,11 +323,13 @@ class LocalOcrProvider:
                     input_path=page_path,
                     language=language,
                 )
-                text = self._merge_ocr_text(text, page_text)
+                page_texts.append(page_text.strip())
+        text = "\n\n".join(page for page in page_texts if page)
         return OcrExtraction(
             text=text,
             engine="pypdfium2+tesseract",
             language=language,
+            page_texts=tuple(page_texts),
         )
 
     def _render_pdf_pages_for_ocr(
@@ -339,7 +374,7 @@ class LocalOcrProvider:
         if tesseract is None:
             raise RuntimeError("tesseract ist nicht installiert.")
 
-        text = ""
+        page_texts = []
         ocr_input_paths = self._prepare_image_pages_for_ocr(input_path=input_path)
         enhanced_max_pages = getattr(settings, "OCR_IMAGE_ENHANCED_MAX_PAGES", 1)
         for page_index, ocr_input_path in enumerate(ocr_input_paths):
@@ -348,8 +383,9 @@ class LocalOcrProvider:
                 input_path=ocr_input_path,
                 language=language,
             )
-            text = self._merge_ocr_text(text, page_text)
+            combined_page_text = page_text
             if page_index >= enhanced_max_pages:
+                page_texts.append(combined_page_text.strip())
                 continue
 
             enhanced_input_path = self._prepare_enhanced_image_for_ocr(
@@ -362,7 +398,10 @@ class LocalOcrProvider:
                     language=language,
                     psm=getattr(settings, "OCR_IMAGE_FORM_PSM", "6"),
                 )
-                text = self._merge_ocr_text(text, form_text)
+                combined_page_text = self._merge_ocr_text(
+                    combined_page_text,
+                    form_text,
+                )
             detail_source_path = (
                 enhanced_input_path
                 if enhanced_input_path != ocr_input_path
@@ -377,11 +416,17 @@ class LocalOcrProvider:
                     language=language,
                     psm=getattr(settings, "OCR_IMAGE_DETAIL_PSM", "6"),
                 )
-                text = self._merge_ocr_text(text, detail_text)
+                combined_page_text = self._merge_ocr_text(
+                    combined_page_text,
+                    detail_text,
+                )
+            page_texts.append(combined_page_text.strip())
+        text = "\n\n".join(page for page in page_texts if page)
         return OcrExtraction(
             text=text,
             engine="tesseract",
             language=language,
+            page_texts=tuple(page_texts),
         )
 
     def _run_tesseract(
@@ -612,6 +657,13 @@ class RunOcrJob:
         self.job.engine = extraction.engine
         self.job.language = extraction.language
         self.job.extracted_text = extraction.text
+        self.job.metadata = {
+            **(self.job.metadata or {}),
+            "page_text_ranges": _page_text_ranges(
+                extraction.text,
+                extraction.page_texts,
+            ),
+        }
         self.job.error_message = ""
         self.job.completed_at = timezone.now()
         self.job.save(
@@ -620,6 +672,7 @@ class RunOcrJob:
                 "engine",
                 "language",
                 "extracted_text",
+                "metadata",
                 "error_message",
                 "completed_at",
                 "updated_at",

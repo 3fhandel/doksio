@@ -30,7 +30,7 @@
         <span class="document-row-title">{{ document.title }}</span>
         <span class="badge text-bg-danger">Gelöscht</span>
       {% else %}
-        <a class="document-row-title" href="{% url 'documents:detail' tenant.slug document.id %}?back={{ request.get_full_path|urlencode }}{% if document_nav %}&amp;nav={{ document_nav|urlencode }}{% endif %}{% if document_nav_position %}&amp;nav_position={{ document_nav_position }}{% endif %}">
+        <a class="document-row-title" href="{% url 'documents:detail' tenant.slug document.id %}?back={{ request.get_full_path|urlencode }}{% if document_nav %}&amp;nav={{ document_nav|urlencode }}{% endif %}{% if document_nav_position %}&amp;nav_position={{ document_nav_position }}{% endif %}{% if document.search_match.page_number %}&amp;preview_page={{ document.search_match.page_number }}{% endif %}">
           {{ document.title }}
         </a>
       {% endif %}
@@ -47,7 +47,7 @@
     </div>
     {% if document.search_match %}
       <div class="document-row-match search-result-match">
-        <span class="document-row-match-source search-result-match-source">Fundstelle: {{ document.search_match.source }}</span>
+        <span class="document-row-match-source search-result-match-source">Fundstelle: {{ document.search_match.source }}{% if document.search_match.page_number %}, Seite {{ document.search_match.page_number }}{% endif %}</span>
         <span class="document-row-match-text search-result-match-text">{{ document.search_match.excerpt }}</span>
       </div>
     {% endif %}
@@ -100,7 +100,7 @@
       {% endif %}
     </div>
     {% if document.status != "deleted" %}
-      <a class="btn btn-sm btn-primary document-row-open" href="{% url 'documents:detail' tenant.slug document.id %}?back={{ request.get_full_path|urlencode }}{% if document_nav %}&amp;nav={{ document_nav|urlencode }}{% endif %}{% if document_nav_position %}&amp;nav_position={{ document_nav_position }}{% endif %}">
+      <a class="btn btn-sm btn-primary document-row-open" href="{% url 'documents:detail' tenant.slug document.id %}?back={{ request.get_full_path|urlencode }}{% if document_nav %}&amp;nav={{ document_nav|urlencode }}{% endif %}{% if document_nav_position %}&amp;nav_position={{ document_nav_position }}{% endif %}{% if document.search_match.page_number %}&amp;preview_page={{ document.search_match.page_number }}{% endif %}">
         Öffnen
       </a>
     {% endif %}

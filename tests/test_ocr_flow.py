@@ -39,10 +39,12 @@ def _single_page_tiff_bytes() -> bytes:
 
 class StaticOcrProvider:
     def extract(self, document_file):
+        text = f"Text aus {document_file.original_filename}"
         return OcrExtraction(
-            text=f"Text aus {document_file.original_filename}",
+            text=text,
             engine="test-provider",
             language="deu",
+            page_texts=(text,),
         )
 
 
@@ -217,6 +219,7 @@ def test_local_ocr_provider_uses_rendered_pdf_pages_when_scan_pdf_has_no_text(
 
     assert extraction.engine == "pypdfium2+tesseract"
     assert extraction.text.strip() == "Seite 1\n\nSeite 2"
+    assert extraction.page_texts == ("Seite 1", "Seite 2")
     assert commands == [
         ["/usr/bin/pdftotext", str(input_path), "-"],
         ["/usr/bin/tesseract", str(page_1), "stdout", "-l", "deu+eng"],
@@ -288,6 +291,7 @@ def test_run_ocr_job_stores_extracted_text_and_audit_event():
     assert job.status == OcrJob.Status.SUCCEEDED
     assert job.engine == "test-provider"
     assert job.extracted_text == "Text aus invoice.pdf"
+    assert job.metadata["page_text_ranges"] == [[0, 20]]
     assert AuditEvent.objects.filter(event_type="ocr_job.succeeded").exists()
 
 

@@ -52,6 +52,7 @@ def test_help_overview_shows_user_topics_and_hides_restricted_topics(client):
     assert "Wiedervorlagen" in content
     assert "Profil &gt; Wiedervorlagen" in content
     assert "Ein entfernter Wert bleibt am Dokument" in content
+    assert "springt die Vorschau direkt zu dieser Seite" in content
     assert 'id="administration"' not in content
     assert 'id="stapelimport"' not in content
     assert (

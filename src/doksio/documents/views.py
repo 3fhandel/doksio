@@ -2056,6 +2056,11 @@ def document_detail(
     if not can_view_document(request.user, document):
         raise PermissionDenied
 
+    try:
+        preview_initial_page = max(1, int(request.GET.get("preview_page", "1")))
+    except (TypeError, ValueError):
+        preview_initial_page = 1
+
     back_url = _safe_return_url(
         request,
         reverse("documents:list", kwargs={"tenant_slug": tenant.slug}),
@@ -2407,6 +2412,7 @@ def document_detail(
             **navigation_context,
             "preview_file": preview_file,
             "preview_kind": preview_kind,
+            "preview_initial_page": preview_initial_page,
             "preview_ocr_job": preview_ocr_job,
             "preview_rotation": preview_rotation,
             "preview_page_rotations": preview_page_rotations,

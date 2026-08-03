@@ -87,6 +87,32 @@ def _join_search_parts(*parts: str) -> str:
     return "\n".join(part.strip() for part in parts if part and part.strip())
 
 
+def _ocr_page_match(ocr_job, term: str) -> tuple[int | None, str] | None:
+    metadata = ocr_job.metadata or {}
+    for page_number, page_range in enumerate(
+        metadata.get("page_text_ranges") or [],
+        start=1,
+    ):
+        if not isinstance(page_range, list) or len(page_range) != 2:
+            continue
+        start, end = page_range
+        if not isinstance(start, int) or not isinstance(end, int):
+            continue
+        page_text = ocr_job.extracted_text[start:end]
+        if _contains_term(page_text, term):
+            return page_number, _text_excerpt(page_text, term)
+
+    page_texts = metadata.get("page_texts") or []
+    if not page_texts and "\f" in ocr_job.extracted_text:
+        page_texts = ocr_job.extracted_text.split("\f")
+    for page_number, page_text in enumerate(page_texts, start=1):
+        if isinstance(page_text, str) and _contains_term(page_text, term):
+            return page_number, _text_excerpt(page_text, term)
+    if _contains_term(ocr_job.extracted_text, term):
+        return None, _text_excerpt(ocr_job.extracted_text, term)
+    return None
+
+
 def build_search_match(document: Document, query: str) -> dict:
     terms = _split_terms(query)
     if not terms:
@@ -103,7 +129,6 @@ def build_search_match(document: Document, query: str) -> dict:
                 ("Tag", search_index.tags_text),
                 ("Metadaten", search_index.metadata_text),
                 ("Kommentar", search_index.comments_text),
-                ("Volltext", search_index.ocr_text),
             ]
             for source, value in indexed_sources:
                 if _contains_term(value, term):
@@ -141,12 +166,17 @@ def build_search_match(document: Document, query: str) -> dict:
 
         for document_file in document.files.all():
             for ocr_job in document_file.ocr_jobs.all():
-                if _contains_term(ocr_job.extracted_text, term):
-                    return {
+                ocr_match = _ocr_page_match(ocr_job, term)
+                if ocr_match is not None:
+                    page_number, excerpt = ocr_match
+                    match = {
                         "source": "Volltext",
                         "term": term,
-                        "excerpt": _text_excerpt(ocr_job.extracted_text, term),
+                        "excerpt": excerpt,
                     }
+                    if page_number is not None:
+                        match["page_number"] = page_number
+                    return match
     return {}
 
 

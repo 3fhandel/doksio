@@ -92,7 +92,7 @@
       </div>
 
       <div class="document-workspace mb-3">
-        <section class="app-card document-preview"{% if preview_file %} data-viewer-rotation="{{ preview_rotation }}" data-viewer-settings-url="{% url 'documents:file_viewer_settings' document.tenant.slug preview_file.id %}"{% endif %}{% if advanced_review_assist_enabled %} data-advanced-review-assist data-review-marker-create-url="{% url 'documents:review_marker_create' document.tenant.slug document.id %}" data-review-marker-delete-url="{% url 'documents:review_marker_delete' document.tenant.slug document.id 0 %}"{% endif %}{% if preview_kind == "pdf" %} data-pdf-preview data-pdf-url="{% url 'documents:download' document.tenant.slug preview_file.id %}?inline=1" data-pdf-worker-url="{% static 'vendor/pdfjs/pdf.worker.min.js' %}"{% elif preview_kind == "image" %} data-image-preview{% endif %}>
+        <section class="app-card document-preview"{% if preview_file %} data-viewer-rotation="{{ preview_rotation }}" data-viewer-settings-url="{% url 'documents:file_viewer_settings' document.tenant.slug preview_file.id %}"{% endif %}{% if advanced_review_assist_enabled %} data-advanced-review-assist data-review-marker-create-url="{% url 'documents:review_marker_create' document.tenant.slug document.id %}" data-review-marker-delete-url="{% url 'documents:review_marker_delete' document.tenant.slug document.id 0 %}"{% endif %}{% if preview_kind == "pdf" %} data-pdf-preview data-pdf-url="{% url 'documents:download' document.tenant.slug preview_file.id %}?inline=1" data-pdf-worker-url="{% static 'vendor/pdfjs/pdf.worker.min.js' %}" data-pdf-initial-page="{{ preview_initial_page }}"{% elif preview_kind == "image" %} data-image-preview{% endif %}>
           <div class="d-flex align-items-center justify-content-between gap-3 p-2 px-3">
             <div>
               <h2 class="h5 mb-1">Vorschau</h2>
@@ -908,9 +908,9 @@
   <script src="{% static 'js/document-metadata.js' %}?v=3"></script>
   {% if preview_kind == "pdf" %}
     <script src="{% static 'vendor/pdfjs/pdf.min.js' %}?v=3.11.174"></script>
-    <script src="{% static 'js/document-preview.js' %}?v=14"></script>
+    <script src="{% static 'js/document-preview.js' %}?v=15"></script>
   {% elif preview_kind == "image" %}
-    <script src="{% static 'js/document-preview.js' %}?v=14"></script>
+    <script src="{% static 'js/document-preview.js' %}?v=15"></script>
   {% endif %}
   <script>
     (() => {

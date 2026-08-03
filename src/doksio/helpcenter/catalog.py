@@ -83,6 +83,14 @@ HELP_TOPICS = (
                     ),
                 ),
             ),
+            HelpSection(
+                title="Fundstellen im Volltext öffnen",
+                text=(
+                    "Wenn ein Suchbegriff auf einer bestimmten Dokumentseite "
+                    "gefunden wurde, zeigt Doksio die Seitenzahl am Treffer. "
+                    "Beim Öffnen springt die Vorschau direkt zu dieser Seite."
+                ),
+            ),
         ),
         quick_tips=(
             "Die Suche neben „Hochladen“ übernimmt die aktuell geöffnete Box.",

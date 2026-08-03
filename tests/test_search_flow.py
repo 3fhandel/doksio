@@ -95,14 +95,62 @@ def test_build_search_match_returns_ocr_context_window():
             "eins zwei drei vier fünf Spezialmaschine "
             "sechs sieben acht neun zehn elf"
         ),
+        metadata={"page_text_ranges": [[0, 0], [0, 1000]]},
     )
 
     match = build_search_match(document, "Spezialmaschine")
 
     assert match["source"] == "Volltext"
+    assert match["page_number"] == 2
     assert match["excerpt"] == (
         "eins zwei drei vier fünf Spezialmaschine sechs sieben acht neun zehn ..."
     )
+
+
+@pytest.mark.django_db
+def test_search_result_links_to_matching_pdf_page(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(username="alice")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    document, document_file = _create_document(
+        tenant,
+        space,
+        "Mehrseitiger Beleg",
+    )
+    OcrJob.objects.create(
+        tenant=tenant,
+        document_file=document_file,
+        status=OcrJob.Status.SUCCEEDED,
+        extracted_text="Erste Seite\n\nGesuchte Liefernummer 4711",
+        metadata={"page_text_ranges": [[0, 11], [13, 1000]]},
+    )
+    RebuildDocumentSearchIndex(document=document).execute()
+    client.force_login(user)
+
+    response = client.get(
+        reverse("search:documents", kwargs={"tenant_slug": tenant.slug}),
+        {"q": "Liefernummer"},
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "Fundstelle: Volltext, Seite 2" in content
+    assert "preview_page=2" in content
+
+    detail_response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        ),
+        {"preview_page": "2"},
+    )
+    assert 'data-pdf-initial-page="2"' in detail_response.content.decode()
 
 
 @pytest.mark.django_db

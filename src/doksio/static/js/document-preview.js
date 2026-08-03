@@ -21,7 +21,7 @@ function initPreview(root) {
     }
 
     let pdfDocument = null;
-    let pageNumber = 1;
+    let pageNumber = Math.max(1, Number(root.dataset.pdfInitialPage || "1"));
     let scale = 1.2;
     const defaultRotation = viewerRotation(root);
     const pageRotations = viewerPageRotations(root);
@@ -211,8 +211,9 @@ function initPreview(root) {
     window.pdfjsLib.getDocument({ url: pdfUrl, withCredentials: true }).promise
       .then(function (loadedDocument) {
         pdfDocument = loadedDocument;
+        pageNumber = Math.min(pageNumber, pdfDocument.numPages);
         updatePageIndicator();
-        rebuildPages(false);
+        rebuildPages(pageNumber > 1);
       })
       .catch(function () {
         setStatus("PDF-Vorschau konnte nicht geladen werden.");
