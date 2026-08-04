@@ -4,7 +4,7 @@
 {% block title %}{{ document.title }} | Doksio{% endblock %}
 
 {% block body %}
-  <main class="app-page">
+  <main class="app-page document-detail-page">
     <div class="container-fluid px-4">
       {% if messages %}
         {% for message in messages %}
@@ -14,82 +14,103 @@
         {% endfor %}
       {% endif %}
 
-      <div class="document-detail-header mb-3">
-        <div>
-          <a href="{{ back_url }}" class="text-decoration-none" data-shortcut-action="document_back">&larr; Zurück</a>
-          <div class="d-flex align-items-center flex-wrap gap-2 mt-1 mb-1">
-            <h1 class="h3 mb-0">{{ document.title }}</h1>
-            <span class="badge text-bg-light">{{ document.status }}</span>
-          </div>
-          <div class="text-secondary">{{ document.space.path }} · {{ document.tenant.name }}</div>
+      <header class="document-detail-header mb-3">
+        <div class="document-detail-context">
+          <a href="{{ back_url }}" class="document-detail-back" data-shortcut-action="document_back">
+            {% include "includes/icons.html" with icon="arrow-left" %}
+            <span>Zurück zur Liste</span>
+          </a>
+          <span class="document-detail-context-divider" aria-hidden="true"></span>
+          <span class="document-detail-box-path">{{ document.space.path }}</span>
         </div>
-        <div class="d-flex align-items-center flex-wrap justify-content-end gap-2">
-          {% if document.space.reminders_enabled %}
-            <button
-              class="btn btn-sm {% if document_reminder_is_due %}btn-warning{% else %}btn-outline-secondary{% endif %}"
-              type="button"
-              data-bs-toggle="modal"
-              data-bs-target="#documentReminderModal"
-            >
-              {% include "includes/icons.html" with icon="clock" %}
-              <span>Wiedervorlage</span>
-              {% if document_reminder %}
-                <span class="ms-1">{{ document_reminder.remind_on|date:"d.m.Y" }}</span>
-              {% endif %}
-            </button>
-          {% endif %}
-          <div class="dropdown">
-            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-              Teilen
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end">
-              <li>
-                <button class="dropdown-item" type="button" data-copy-document-link data-document-share-url="{{ document_share_url }}">
-                  Link kopieren
-                </button>
-              </li>
-              <li>
-                <a class="dropdown-item" href="{{ share_mailto_url }}">
-                  Mail mit Link
-                </a>
-              </li>
-              <li>
-                <button
-                  class="dropdown-item{% if not share_can_open_mail_client %} disabled{% endif %}"
-                  type="button"
-                  data-share-document-file
-                  data-share-file-url="{{ share_attachment_download_url }}"
-                  data-share-file-name="{{ share_attachment_file.original_filename|default:'' }}"
-                  data-share-file-type="{{ share_attachment_file.content_type|default:'application/octet-stream' }}"
-                  data-share-title="Doksio Dokument: {{ document.title }}"
-                  data-share-text="Link zum Dokument: {{ document_share_url }}"
-                  {% if not share_can_open_mail_client %}aria-disabled="true" disabled{% endif %}
-                >
-                  Über System teilen
-                </button>
-              </li>
-            </ul>
+
+        <div class="document-detail-title-row">
+          <h1>{{ document.title }}</h1>
+          <div class="document-detail-actions">
+            {% if document.space.reminders_enabled %}
+              <button
+                class="btn btn-sm {% if document_reminder_is_due %}btn-warning{% else %}btn-outline-secondary{% endif %}"
+                type="button"
+                data-bs-toggle="modal"
+                data-bs-target="#documentReminderModal"
+              >
+                {% include "includes/icons.html" with icon="clock" %}
+                <span>Wiedervorlage</span>
+                {% if document_reminder %}
+                  <span class="document-detail-action-detail">{{ document_reminder.remind_on|date:"d.m.Y" }}</span>
+                {% endif %}
+              </button>
+            {% endif %}
+            <div class="dropdown">
+              <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                {% include "includes/icons.html" with icon="share-2" %}
+                <span>Teilen</span>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li>
+                  <button class="dropdown-item" type="button" data-copy-document-link data-document-share-url="{{ document_share_url }}">
+                    Link kopieren
+                  </button>
+                </li>
+                <li><a class="dropdown-item" href="{{ share_mailto_url }}">Mail mit Link</a></li>
+                <li>
+                  <button
+                    class="dropdown-item{% if not share_can_open_mail_client %} disabled{% endif %}"
+                    type="button"
+                    data-share-document-file
+                    data-share-file-url="{{ share_attachment_download_url }}"
+                    data-share-file-name="{{ share_attachment_file.original_filename|default:'' }}"
+                    data-share-file-type="{{ share_attachment_file.content_type|default:'application/octet-stream' }}"
+                    data-share-title="Doksio Dokument: {{ document.title }}"
+                    data-share-text="Link zum Dokument: {{ document_share_url }}"
+                    {% if not share_can_open_mail_client %}aria-disabled="true" disabled{% endif %}
+                  >
+                    Über System teilen
+                  </button>
+                </li>
+              </ul>
+            </div>
           </div>
-          {% if document_nav_current and document_nav_total %}
-            <span class="text-secondary small">
+        </div>
+
+        <div class="document-detail-navigation">
+          <div class="document-detail-position">
+            {% if document_nav_current and document_nav_total %}
               Dokument {{ document_nav_current }} von {{ document_nav_total }}
-            </span>
-          {% endif %}
+            {% else %}
+              Einzelansicht
+            {% endif %}
+          </div>
           <div class="btn-group btn-group-sm" aria-label="Dokumentnavigation">
             {% if previous_document_url %}
-              <a class="btn btn-outline-secondary" href="{{ previous_document_url }}" data-shortcut-action="document_previous">Vorheriges Dokument</a>
+              <a class="btn btn-outline-secondary" href="{{ previous_document_url }}" aria-label="Vorheriges Dokument" data-shortcut-action="document_previous">
+                {% include "includes/icons.html" with icon="arrow-left" %}
+                <span>Vorheriges Dokument</span>
+              </a>
             {% else %}
-              <span class="btn btn-outline-secondary disabled" aria-disabled="true">Vorheriges Dokument</span>
+              <span class="btn btn-outline-secondary disabled" aria-disabled="true">
+                {% include "includes/icons.html" with icon="arrow-left" %}
+                <span>Vorheriges Dokument</span>
+              </span>
             {% endif %}
-            <a class="btn btn-outline-secondary" href="{{ back_url }}">Ganze Liste</a>
+            <a class="btn btn-outline-secondary" href="{{ back_url }}" aria-label="Ganze Liste">
+              {% include "includes/icons.html" with icon="list" %}
+              <span>Ganze Liste</span>
+            </a>
             {% if next_document_url %}
-              <a class="btn btn-outline-secondary" href="{{ next_document_url }}" data-shortcut-action="document_next">Nächstes Dokument</a>
+              <a class="btn btn-outline-secondary" href="{{ next_document_url }}" aria-label="Nächstes Dokument" data-shortcut-action="document_next">
+                <span>Nächstes Dokument</span>
+                {% include "includes/icons.html" with icon="arrow-right" %}
+              </a>
             {% else %}
-              <span class="btn btn-outline-secondary disabled" aria-disabled="true">Nächstes Dokument</span>
+              <span class="btn btn-outline-secondary disabled" aria-disabled="true">
+                <span>Nächstes Dokument</span>
+                {% include "includes/icons.html" with icon="arrow-right" %}
+              </span>
             {% endif %}
           </div>
         </div>
-      </div>
+      </header>
 
       <div class="document-workspace mb-3">
         <section class="app-card document-preview"{% if preview_file %} data-viewer-rotation="{{ preview_rotation }}" data-viewer-settings-url="{% url 'documents:file_viewer_settings' document.tenant.slug preview_file.id %}"{% endif %}{% if advanced_review_assist_enabled %} data-advanced-review-assist data-review-marker-create-url="{% url 'documents:review_marker_create' document.tenant.slug document.id %}" data-review-marker-delete-url="{% url 'documents:review_marker_delete' document.tenant.slug document.id 0 %}"{% endif %}{% if preview_kind == "pdf" %} data-pdf-preview data-pdf-url="{% url 'documents:download' document.tenant.slug preview_file.id %}?inline=1" data-pdf-worker-url="{% static 'vendor/pdfjs/pdf.worker.min.js' %}" data-pdf-initial-page="{{ preview_initial_page }}" data-pdf-search-url="{% url 'documents:pdf_search' document.tenant.slug document.id %}"{% elif preview_kind == "image" %} data-image-preview{% endif %}>
@@ -795,6 +816,13 @@
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
             </div>
             <div class="modal-body">
+              <div class="alert alert-info d-flex gap-2 align-items-start py-2 px-3" role="note">
+                {% include "includes/icons.html" with icon="clock" %}
+                <div class="small">
+                  Eine Wiedervorlage erinnert dich am gewählten Datum erneut an dieses Dokument.
+                  In der Bemerkung kannst du festhalten, was dann zu erledigen ist.
+                </div>
+              </div>
               <form id="documentReminderSaveForm" method="post">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="save_reminder">

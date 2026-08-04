@@ -3611,7 +3611,7 @@ def test_document_navigation_spans_the_complete_paginated_list(client):
     )
     assert "Vorheriges Dokument" in content
     assert "Nächstes Dokument" in content
-    assert f'href="{list_url}">Ganze Liste</a>' in content
+    assert f'href="{list_url}" aria-label="Ganze Liste"' in content
 
 
 @pytest.mark.django_db

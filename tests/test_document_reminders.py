@@ -113,6 +113,7 @@ def test_document_detail_opens_reminder_in_modal(client):
     assert response.status_code == 200
     assert 'data-bs-target="#documentReminderModal"' in content
     assert 'id="documentReminderModal"' in content
+    assert "Eine Wiedervorlage erinnert dich am gewählten Datum" in content
     assert 'form="documentReminderSaveForm"' in content
 
 

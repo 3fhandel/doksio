@@ -153,7 +153,9 @@ HELP_TOPICS = (
                     "direkt auf der Seite hervorgehoben. Öffnest du ein Dokument "
                     "aus der Volltextsuche, wird der gefundene Begriff automatisch "
                     "in die Dokumentensuche übernommen. Mit Strg+F beziehungsweise "
-                    "Cmd+F auf dem Mac springst du direkt in das Suchfeld."
+                    "Cmd+F auf dem Mac springst du direkt in das Suchfeld. Im "
+                    "Dokumentkopf findest du Wiedervorlage und Teilen; die Leiste "
+                    "darunter wechselt zwischen Dokumenten der geöffneten Liste."
                 ),
             ),
             HelpSection(
