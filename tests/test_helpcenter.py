@@ -53,6 +53,9 @@ def test_help_overview_shows_user_topics_and_hides_restricted_topics(client):
     assert "Profil &gt; Wiedervorlagen" in content
     assert "Ein entfernter Wert bleibt am Dokument" in content
     assert "springt die Vorschau direkt zu dieser Seite" in content
+    assert "zwischen Fundstellen wechseln" in content
+    assert "automatisch in die Dokumentensuche übernommen" in content
+    assert "Cmd+F auf dem Mac" in content
     assert 'id="administration"' not in content
     assert 'id="stapelimport"' not in content
     assert (

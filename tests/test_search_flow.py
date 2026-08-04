@@ -25,6 +25,7 @@ from doksio.search.services import (
     RebuildDocumentSearchIndex,
     SearchDocuments,
     build_search_match,
+    find_ocr_page_matches,
 )
 from doksio.tenancy.models import Tenant
 from doksio.workflows.models import WorkflowInstance, WorkflowTemplate
@@ -142,15 +143,70 @@ def test_search_result_links_to_matching_pdf_page(client):
     assert response.status_code == 200
     assert "Fundstelle: Volltext, Seite 2" in content
     assert "preview_page=2" in content
+    assert "preview_query=Liefernummer" in content
 
     detail_response = client.get(
         reverse(
             "documents:detail",
             kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
         ),
-        {"preview_page": "2"},
+        {"preview_page": "2", "preview_query": "Liefernummer"},
     )
-    assert 'data-pdf-initial-page="2"' in detail_response.content.decode()
+    detail_content = detail_response.content.decode()
+    assert 'data-pdf-initial-page="2"' in detail_content
+    assert 'value="Liefernummer"' in detail_content
+
+
+@pytest.mark.django_db
+def test_pdf_toolbar_search_uses_ocr_page_ranges(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(username="alice")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    document, document_file = _create_document(
+        tenant,
+        space,
+        "Scan",
+    )
+    text = "Erste Seite\n\nNummer 4711 und Nummer 4711"
+    OcrJob.objects.create(
+        tenant=tenant,
+        document_file=document_file,
+        status=OcrJob.Status.SUCCEEDED,
+        extracted_text=text,
+        metadata={"page_text_ranges": [[0, 11], [13, len(text)]]},
+    )
+
+    assert find_ocr_page_matches(document, "Nummer") == [2, 2]
+
+    client.force_login(user)
+    response = client.get(
+        reverse(
+            "documents:pdf_search",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        ),
+        {"q": "Nummer"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"pages": [2, 2]}
+
+    detail_response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+        )
+    )
+    detail_content = detail_response.content.decode()
+    assert 'data-pdf-search-input' in detail_content
+    assert reverse(
+        "documents:pdf_search",
+        kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
+    ) in detail_content
 
 
 @pytest.mark.django_db

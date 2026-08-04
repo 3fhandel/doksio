@@ -147,7 +147,13 @@ HELP_TOPICS = (
                 text=(
                     "Links stehen Arbeitsinformationen und Aktionen, rechts die "
                     "Vorschau. Volltext und eRechnungs-Daten lassen sich unter "
-                    "der Vorschau öffnen."
+                    "der Vorschau öffnen. In der PDF-Toolbar kannst du das "
+                    "aktuelle Dokument durchsuchen und zwischen Fundstellen "
+                    "wechseln. Bei PDFs mit eingebettetem Text werden Treffer "
+                    "direkt auf der Seite hervorgehoben. Öffnest du ein Dokument "
+                    "aus der Volltextsuche, wird der gefundene Begriff automatisch "
+                    "in die Dokumentensuche übernommen. Mit Strg+F beziehungsweise "
+                    "Cmd+F auf dem Mac springst du direkt in das Suchfeld."
                 ),
             ),
             HelpSection(

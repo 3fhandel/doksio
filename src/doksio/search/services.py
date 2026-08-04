@@ -113,6 +113,37 @@ def _ocr_page_match(ocr_job, term: str) -> tuple[int | None, str] | None:
     return None
 
 
+def find_ocr_page_matches(document: Document, query: str) -> list[int]:
+    normalized_query = query.strip().casefold()
+    if not normalized_query:
+        return []
+
+    for document_file in document.files.all():
+        for ocr_job in document_file.ocr_jobs.all():
+            if not ocr_job.extracted_text:
+                continue
+            metadata = ocr_job.metadata or {}
+            page_ranges = metadata.get("page_text_ranges") or []
+            matches = []
+            for page_number, page_range in enumerate(page_ranges, start=1):
+                if not isinstance(page_range, list) or len(page_range) != 2:
+                    continue
+                start, end = page_range
+                if not isinstance(start, int) or not isinstance(end, int):
+                    continue
+                page_text = ocr_job.extracted_text[start:end].casefold()
+                matches.extend(
+                    page_number
+                    for _match in re.finditer(
+                        re.escape(normalized_query),
+                        page_text,
+                    )
+                )
+            if matches:
+                return matches
+    return []
+
+
 def build_search_match(document: Document, query: str) -> dict:
     terms = _split_terms(query)
     if not terms:
@@ -528,4 +559,5 @@ __all__ = [
     "RefreshDocumentSearchTitles",
     "SearchDocuments",
     "build_search_match",
+    "find_ocr_page_matches",
 ]

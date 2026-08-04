@@ -2024,6 +2024,38 @@ def document_import_batch_item_assignment(
     )
 
 
+def document_pdf_search(
+    request: HttpRequest,
+    tenant_slug: str,
+    document_id: int,
+) -> JsonResponse:
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "authentication_required"}, status=403)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None:
+        raise PermissionDenied
+    document = get_object_or_404(
+        Document.objects.prefetch_related("files__ocr_jobs"),
+        id=document_id,
+        tenant=tenant,
+        status=Document.Status.ACTIVE,
+    )
+    if not can_view_document(request.user, document):
+        raise PermissionDenied
+
+    from doksio.search.services import find_ocr_page_matches
+
+    return JsonResponse(
+        {
+            "pages": find_ocr_page_matches(
+                document,
+                request.GET.get("q", ""),
+            )
+        }
+    )
+
+
 def document_detail(
     request: HttpRequest,
     tenant_slug: str,
@@ -2060,6 +2092,7 @@ def document_detail(
         preview_initial_page = max(1, int(request.GET.get("preview_page", "1")))
     except (TypeError, ValueError):
         preview_initial_page = 1
+    preview_search_query = request.GET.get("preview_query", "").strip()[:200]
 
     back_url = _safe_return_url(
         request,
@@ -2413,6 +2446,7 @@ def document_detail(
             "preview_file": preview_file,
             "preview_kind": preview_kind,
             "preview_initial_page": preview_initial_page,
+            "preview_search_query": preview_search_query,
             "preview_ocr_job": preview_ocr_job,
             "preview_rotation": preview_rotation,
             "preview_page_rotations": preview_page_rotations,

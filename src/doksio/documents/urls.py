@@ -74,6 +74,11 @@ urlpatterns = [
         name="detail",
     ),
     path(
+        "t/<slug:tenant_slug>/documents/<int:document_id>/pdf-search/",
+        views.document_pdf_search,
+        name="pdf_search",
+    ),
+    path(
         "t/<slug:tenant_slug>/documents/<int:document_id>/core/edit/",
         views.document_core_metadata_edit,
         name="core_metadata_edit",
