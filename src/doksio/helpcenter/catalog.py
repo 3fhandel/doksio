@@ -433,6 +433,15 @@ HELP_TOPICS = (
                 ),
             ),
             HelpSection(
+                title="Metadatenfelder in Kindboxen",
+                text=(
+                    "Beim Anlegen oder Bearbeiten eines Metadatenfelds legst du fest, "
+                    "ob es an Kindboxen vererbt wird. Mit aktivierter Vererbung steht "
+                    "das Feld in allen untergeordneten Dokumentenboxen zur Verfügung. "
+                    "Ohne Vererbung gilt es ausschließlich in seiner eigenen Box."
+                ),
+            ),
+            HelpSection(
                 title="OCR-Suchmarkierungen nachrüsten",
                 text=(
                     "Unter Einstellungen > Wartung > OCR kannst du bestehende "

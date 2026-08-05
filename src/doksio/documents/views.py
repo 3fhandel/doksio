@@ -5028,6 +5028,9 @@ def tenant_settings_metadata_field_create(
                 einvoice_source=form.cleaned_data["einvoice_source"],
                 sort_order=form.cleaned_data["sort_order"],
                 is_required=form.cleaned_data["is_required"],
+                propagate_to_child_spaces=form.cleaned_data[
+                    "propagate_to_child_spaces"
+                ],
                 is_active=form.cleaned_data["is_active"],
                 actor=request.user,
             ).execute()
@@ -5097,6 +5100,9 @@ def tenant_settings_metadata_field_edit(
                 einvoice_source=form.cleaned_data["einvoice_source"],
                 sort_order=form.cleaned_data["sort_order"],
                 is_required=form.cleaned_data["is_required"],
+                propagate_to_child_spaces=form.cleaned_data[
+                    "propagate_to_child_spaces"
+                ],
                 is_active=form.cleaned_data["is_active"],
                 actor=request.user,
             ).execute()
@@ -5121,6 +5127,9 @@ def tenant_settings_metadata_field_edit(
                 "einvoice_source": metadata_field.einvoice_source,
                 "sort_order": metadata_field.sort_order,
                 "is_required": metadata_field.is_required,
+                "propagate_to_child_spaces": (
+                    metadata_field.propagate_to_child_spaces
+                ),
                 "is_active": metadata_field.is_active,
             },
         )

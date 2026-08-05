@@ -412,6 +412,7 @@ class DocumentMetadataField(models.Model):
         default=EInvoiceSource.NONE,
     )
     is_required = models.BooleanField(default=False)
+    propagate_to_child_spaces = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
     sort_order = models.PositiveIntegerField(default=100)
     created_at = models.DateTimeField(auto_now_add=True)

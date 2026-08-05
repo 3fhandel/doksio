@@ -147,6 +147,7 @@ class DocumentMetadataFieldAdmin(admin.ModelAdmin):
         "allow_custom_choices",
         "einvoice_source",
         "is_required",
+        "propagate_to_child_spaces",
         "is_active",
     ]
     list_filter = [
@@ -156,6 +157,7 @@ class DocumentMetadataFieldAdmin(admin.ModelAdmin):
         "allow_custom_choices",
         "einvoice_source",
         "is_required",
+        "propagate_to_child_spaces",
         "is_active",
     ]
     search_fields = ["name", "slug", "space__path"]

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from django.db.models import Q
+
 from doksio.documents.models import DocumentMetadataField, DocumentSpace
 
 
@@ -15,28 +17,27 @@ def document_space_path_chain(space: DocumentSpace) -> list[str]:
     return paths
 
 
-def metadata_field_scope_paths(space: DocumentSpace) -> list[str]:
-    ancestor_paths = document_space_path_chain(space)
-    descendant_paths = list(
-        DocumentSpace.objects.filter(
-            tenant=space.tenant,
-            path__startswith=f"{space.path.rstrip('/')}/",
-        ).values_list("path", flat=True)
-    )
-    return [*ancestor_paths, *descendant_paths]
-
-
 def metadata_field_slug_is_available(
     *,
     space: DocumentSpace,
     slug: str,
+    propagate_to_child_spaces: bool = True,
     exclude_field: DocumentMetadataField | None = None,
 ) -> bool:
-    fields = DocumentMetadataField.objects.filter(
-        tenant=space.tenant,
-        space__path__in=metadata_field_scope_paths(space),
-        slug=slug,
+    ancestor_paths = document_space_path_chain(space)[:-1]
+    fields = DocumentMetadataField.objects.filter(tenant=space.tenant, slug=slug).filter(
+        Q(space=space)
+        | Q(
+            space__path__in=ancestor_paths,
+            propagate_to_child_spaces=True,
+        )
     )
+    if propagate_to_child_spaces:
+        fields = fields | DocumentMetadataField.objects.filter(
+            tenant=space.tenant,
+            slug=slug,
+            space__path__startswith=f"{space.path.rstrip('/')}/",
+        )
     if exclude_field is not None:
         fields = fields.exclude(id=exclude_field.id)
     return not fields.exists()
@@ -58,6 +59,10 @@ def effective_metadata_fields(
     )
     if active_only:
         fields = fields.filter(is_active=True)
+
+    fields = fields.filter(
+        Q(space=space) | Q(propagate_to_child_spaces=True)
+    )
 
     effective_fields = []
     seen_slugs = set()

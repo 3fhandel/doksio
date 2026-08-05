@@ -977,6 +977,16 @@ class DocumentMetadataFieldForm(forms.Form):
         required=False,
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
+    propagate_to_child_spaces = forms.BooleanField(
+        label="An Kindboxen vererben",
+        required=False,
+        initial=True,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        help_text=(
+            "Das Feld steht zusätzlich in allen untergeordneten "
+            "Dokumentenboxen zur Verfügung."
+        ),
+    )
     is_active = forms.BooleanField(
         label="Aktiv",
         required=False,
@@ -1019,19 +1029,24 @@ class DocumentMetadataFieldForm(forms.Form):
             duplicates = duplicates.exclude(id=self.metadata_field.id)
         if duplicates.exists():
             raise forms.ValidationError("Dieser Metadaten-Slug existiert bereits.")
-        if not metadata_field_slug_is_available(
-            space=self.document_space,
-            slug=slug,
-            exclude_field=self.metadata_field,
-        ):
-            raise forms.ValidationError(
-                "Dieser Metadaten-Slug ist bereits in einer Eltern- oder Kindbox "
-                "vergeben."
-            )
         return slug
 
     def clean(self) -> dict:
         cleaned_data = super().clean()
+        slug = cleaned_data.get("slug")
+        if slug and not metadata_field_slug_is_available(
+            space=self.document_space,
+            slug=slug,
+            propagate_to_child_spaces=bool(
+                cleaned_data.get("propagate_to_child_spaces")
+            ),
+            exclude_field=self.metadata_field,
+        ):
+            self.add_error(
+                "slug",
+                "Dieser Metadaten-Slug kollidiert mit einem Feld im wirksamen "
+                "Boxenbereich.",
+            )
         field_type = cleaned_data.get("field_type")
         choices_text = cleaned_data.get("choices_text", "")
         choices = [

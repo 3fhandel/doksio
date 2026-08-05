@@ -694,6 +694,7 @@ class CreateDocumentMetadataField:
     einvoice_source: str = DocumentMetadataField.EInvoiceSource.NONE
     sort_order: int = 100
     is_required: bool = False
+    propagate_to_child_spaces: bool = True
     is_active: bool = True
     actor: get_user_model() | None = None
 
@@ -730,6 +731,7 @@ class CreateDocumentMetadataField:
             einvoice_source=self.einvoice_source,
             sort_order=self.sort_order,
             is_required=self.is_required,
+            propagate_to_child_spaces=self.propagate_to_child_spaces,
             is_active=self.is_active,
         )
         RecordAuditEvent(
@@ -745,6 +747,9 @@ class CreateDocumentMetadataField:
                 "field_type": metadata_field.field_type,
                 "allow_custom_choices": metadata_field.allow_custom_choices,
                 "einvoice_source": metadata_field.einvoice_source,
+                "propagate_to_child_spaces": (
+                    metadata_field.propagate_to_child_spaces
+                ),
             },
         ).execute()
         return metadata_field
@@ -763,6 +768,7 @@ class UpdateDocumentMetadataField:
     einvoice_source: str = DocumentMetadataField.EInvoiceSource.NONE
     sort_order: int = 100
     is_required: bool = False
+    propagate_to_child_spaces: bool = True
     is_active: bool = True
     actor: get_user_model() | None = None
 
@@ -798,6 +804,7 @@ class UpdateDocumentMetadataField:
         self.metadata_field.einvoice_source = self.einvoice_source
         self.metadata_field.sort_order = self.sort_order
         self.metadata_field.is_required = self.is_required
+        self.metadata_field.propagate_to_child_spaces = self.propagate_to_child_spaces
         self.metadata_field.is_active = self.is_active
         self.metadata_field.save(
             update_fields=[
@@ -811,6 +818,7 @@ class UpdateDocumentMetadataField:
                 "einvoice_source",
                 "sort_order",
                 "is_required",
+                "propagate_to_child_spaces",
                 "is_active",
                 "updated_at",
             ]
@@ -828,6 +836,9 @@ class UpdateDocumentMetadataField:
                 "field_type": self.metadata_field.field_type,
                 "allow_custom_choices": self.metadata_field.allow_custom_choices,
                 "einvoice_source": self.metadata_field.einvoice_source,
+                "propagate_to_child_spaces": (
+                    self.metadata_field.propagate_to_child_spaces
+                ),
                 "is_active": self.metadata_field.is_active,
             },
         ).execute()

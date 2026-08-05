@@ -2914,6 +2914,7 @@ def test_create_document_metadata_field_from_box_settings(client):
             "einvoice_source": DocumentMetadataField.EInvoiceSource.INVOICE_DATE,
             "sort_order": "10",
             "is_required": "on",
+            "propagate_to_child_spaces": "on",
             "is_active": "on",
         },
     )
@@ -2928,6 +2929,7 @@ def test_create_document_metadata_field_from_box_settings(client):
     )
     assert metadata_field.allow_custom_choices is False
     assert metadata_field.is_required is True
+    assert metadata_field.propagate_to_child_spaces is True
 
 
 @pytest.mark.django_db
@@ -3462,8 +3464,59 @@ def test_child_document_box_rejects_parent_metadata_slug(client):
 
     content = response.content.decode()
     assert response.status_code == 200
-    assert "Eltern- oder Kindbox" in content
+    assert "kollidiert mit einem Feld im wirksamen Boxenbereich" in content
     assert DocumentMetadataField.objects.filter(space=child_space).count() == 0
+
+
+@pytest.mark.django_db
+def test_parent_metadata_field_can_be_limited_to_its_own_box(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    parent_space = CreateDocumentSpace(
+        tenant=tenant,
+        name="Rechnungen",
+        slug="rechnungen",
+    ).execute()
+    child_space = CreateDocumentSpace(
+        tenant=tenant,
+        parent=parent_space,
+        name="Eingang",
+        slug="eingang",
+    ).execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(username="alice", password="secret")
+    TenantMembership.objects.create(tenant=tenant, user=user, role=roles["admin"])
+    CreateDocumentMetadataField(
+        tenant=tenant,
+        space=parent_space,
+        name="Kostenstelle",
+        slug="kostenstelle",
+        field_type=DocumentMetadataField.FieldType.TEXT,
+        propagate_to_child_spaces=False,
+    ).execute()
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:settings_metadata_field_create",
+            kwargs={"tenant_slug": tenant.slug, "box_id": child_space.id},
+        ),
+        {
+            "name": "Kostenstelle lokal",
+            "slug": "kostenstelle",
+            "field_type": DocumentMetadataField.FieldType.TEXT,
+            "help_text": "",
+            "choices_text": "",
+            "einvoice_source": "",
+            "sort_order": "10",
+            "is_active": "on",
+        },
+    )
+
+    assert response.status_code == 302
+    assert DocumentMetadataField.objects.filter(
+        space=child_space,
+        slug="kostenstelle",
+    ).exists()
 
 
 @pytest.mark.django_db

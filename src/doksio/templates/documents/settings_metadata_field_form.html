@@ -67,13 +67,21 @@
           {{ form.einvoice_source.errors }}
           <div class="form-text">Optional. Beim Import wird dieses Metadatenfeld automatisch aus einer erkannten eRechnung befüllt.</div>
         </div>
-        <div class="col-md-6">
+        <div class="col-md-4">
           <div class="form-check">
             {{ form.is_required }}
             <label class="form-check-label" for="{{ form.is_required.id_for_label }}">Pflichtfeld</label>
           </div>
         </div>
-        <div class="col-md-6">
+        <div class="col-md-4">
+          <div class="form-check">
+            {{ form.propagate_to_child_spaces }}
+            <label class="form-check-label" for="{{ form.propagate_to_child_spaces.id_for_label }}">{{ form.propagate_to_child_spaces.label }}</label>
+          </div>
+          <div class="form-text">{{ form.propagate_to_child_spaces.help_text }}</div>
+          {{ form.propagate_to_child_spaces.errors }}
+        </div>
+        <div class="col-md-4">
           <div class="form-check">
             {{ form.is_active }}
             <label class="form-check-label" for="{{ form.is_active.id_for_label }}">Aktiv</label>
