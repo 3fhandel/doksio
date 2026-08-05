@@ -846,6 +846,35 @@ class UpdateDocumentMetadataField:
 
 
 @dataclass(frozen=True)
+class DeleteDocumentMetadataField:
+    metadata_field: DocumentMetadataField
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> None:
+        metadata_field = self.metadata_field
+        tenant = metadata_field.tenant
+        field_id = metadata_field.id
+        field_data = {
+            "space_id": metadata_field.space_id,
+            "name": metadata_field.name,
+            "slug": metadata_field.slug,
+            "field_type": metadata_field.field_type,
+            "choice_list_id": metadata_field.choice_list_id,
+            "workflow_step_count": metadata_field.required_by_workflow_steps.count(),
+        }
+        metadata_field.delete()
+        RecordAuditEvent(
+            tenant=tenant,
+            actor=self.actor,
+            event_type="document_metadata_field.deleted",
+            object_type="documents.DocumentMetadataField",
+            object_id=str(field_id),
+            data=field_data,
+        ).execute()
+
+
+@dataclass(frozen=True)
 class AddDocumentMetadataChoice:
     metadata_field: DocumentMetadataField
     value: str

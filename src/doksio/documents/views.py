@@ -141,6 +141,7 @@ from doksio.documents.services import (
     CreateDocumentSpace,
     DeleteDocument,
     DeleteDocumentInbox,
+    DeleteDocumentMetadataField,
     DeleteDocumentReminder,
     DeleteDocumentSpace,
     DiscardDocumentImportBatch,
@@ -5145,6 +5146,73 @@ def tenant_settings_metadata_field_edit(
             "form": form,
             "form_title": "Metadatenfeld bearbeiten",
             "submit_label": "Feld speichern",
+            "active_settings_section": "document_boxes",
+        },
+    )
+
+
+def tenant_settings_metadata_field_delete(
+    request: HttpRequest,
+    tenant_slug: str,
+    box_id: int,
+    field_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    document_space = get_object_or_404(DocumentSpace, id=box_id, tenant=tenant)
+    metadata_field = get_object_or_404(
+        DocumentMetadataField,
+        id=field_id,
+        tenant=tenant,
+        space=document_space,
+    )
+    affected_documents = Document.objects.filter(
+        tenant=tenant,
+        metadata__has_key=metadata_field.slug,
+    )
+    if metadata_field.propagate_to_child_spaces:
+        affected_documents = affected_documents.filter(
+            Q(space=document_space)
+            | Q(space__path__startswith=f"{document_space.path.rstrip('/')}/")
+        )
+    else:
+        affected_documents = affected_documents.filter(space=document_space)
+    document_value_count = affected_documents.count()
+    workflow_step_count = metadata_field.required_by_workflow_steps.count()
+
+    if request.method == "POST":
+        confirmation = request.POST.get("confirmation", "").strip()
+        if confirmation != metadata_field.name:
+            messages.error(
+                request,
+                "Bitte den Namen des Metadatenfelds exakt als Bestätigung eingeben.",
+            )
+        else:
+            DeleteDocumentMetadataField(
+                metadata_field=metadata_field,
+                actor=request.user,
+            ).execute()
+            messages.success(request, "Metadatenfeld wurde gelöscht.")
+            return redirect(
+                "documents:settings_document_box_edit",
+                tenant_slug=tenant.slug,
+                box_id=document_space.id,
+            )
+
+    return render(
+        request,
+        "documents/settings_metadata_field_delete.html",
+        {
+            "tenant": tenant,
+            "document_space": document_space,
+            "metadata_field": metadata_field,
+            "document_value_count": document_value_count,
+            "workflow_step_count": workflow_step_count,
             "active_settings_section": "document_boxes",
         },
     )

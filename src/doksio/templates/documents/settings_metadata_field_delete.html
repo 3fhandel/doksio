@@ -1,0 +1,36 @@
+{% extends "documents/settings_base.html" %}
+
+{% block settings_content %}
+  <div class="mb-3">
+    <a class="text-decoration-none" href="{% url 'documents:settings_document_box_edit' tenant.slug document_space.id %}">&larr; Dokumentenbox</a>
+    <h2 class="h4 mt-2 mb-1">Metadatenfeld löschen</h2>
+    <p class="text-secondary mb-0">{{ document_space.path }}</p>
+  </div>
+
+  <section class="app-card p-4">
+    <div class="alert alert-warning" role="alert">
+      <h3 class="h6 alert-heading">Felddefinition dauerhaft entfernen</h3>
+      <p class="mb-2">
+        Das Metadatenfeld <strong>{{ metadata_field.name }}</strong> wird aus dieser Dokumentenbox{% if metadata_field.propagate_to_child_spaces %} und ihren Kindboxen{% endif %} entfernt.
+      </p>
+      <p class="mb-0">
+        Bereits gespeicherte Werte in {{ document_value_count }} Dokument{% if document_value_count != 1 %}en{% endif %} bleiben erhalten, werden aber nicht mehr angezeigt oder bearbeitet.
+        {% if workflow_step_count %}
+          Das Feld entfällt außerdem als Pflichtangabe in {{ workflow_step_count }} Workflow-Schritt{% if workflow_step_count != 1 %}en{% endif %}.
+        {% endif %}
+      </p>
+    </div>
+
+    <form method="post">
+      {% csrf_token %}
+      <label class="form-label" for="metadata-field-confirmation">
+        Gib <strong>{{ metadata_field.name }}</strong> zur Bestätigung ein.
+      </label>
+      <input class="form-control" id="metadata-field-confirmation" name="confirmation" autocomplete="off" required>
+      <div class="d-flex justify-content-end gap-2 mt-4">
+        <a class="btn btn-outline-secondary" href="{% url 'documents:settings_metadata_field_edit' tenant.slug document_space.id metadata_field.id %}">Abbrechen</a>
+        <button class="btn btn-danger" type="submit">Metadatenfeld löschen</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

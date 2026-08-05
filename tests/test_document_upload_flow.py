@@ -3022,6 +3022,75 @@ def test_create_choice_metadata_field_allows_user_added_choices(client):
 
 
 @pytest.mark.django_db
+def test_delete_metadata_field_keeps_document_values_and_removes_workflow_use(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    box = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    user = get_user_model().objects.create_user(
+        username="admin",
+        password="secret",
+    )
+    TenantMembership.objects.create(tenant=tenant, user=user, role=roles["admin"])
+    metadata_field = CreateDocumentMetadataField(
+        tenant=tenant,
+        space=box,
+        name="Kostenstelle",
+        slug="kostenstelle",
+        field_type=DocumentMetadataField.FieldType.TEXT,
+    ).execute()
+    document, _document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Rechnung",
+        space=box,
+        file_obj=BytesIO(b"invoice"),
+        original_filename="invoice.pdf",
+        content_type="application/pdf",
+        auto_start_ocr=False,
+    ).execute()
+    document.metadata = {"kostenstelle": "4711"}
+    document.save(update_fields=["metadata", "updated_at"])
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Prüfung",
+        slug="pruefung",
+    ).execute()
+    step = CreateWorkflowStep(
+        template=template,
+        name="Daten ergänzen",
+        step_type=WorkflowStep.StepType.COMPLETE_METADATA,
+        required_metadata_fields=[metadata_field],
+    ).execute()
+    client.force_login(user)
+    delete_url = reverse(
+        "documents:settings_metadata_field_delete",
+        kwargs={
+            "tenant_slug": tenant.slug,
+            "box_id": box.id,
+            "field_id": metadata_field.id,
+        },
+    )
+
+    confirmation_response = client.get(delete_url)
+    confirmation_content = confirmation_response.content.decode()
+    assert confirmation_response.status_code == 200
+    assert "1 Dokument" in confirmation_content
+    assert "1 Workflow-Schritt" in confirmation_content
+
+    response = client.post(delete_url, {"confirmation": "Kostenstelle"})
+
+    document.refresh_from_db()
+    assert response.status_code == 302
+    assert not DocumentMetadataField.objects.filter(id=metadata_field.id).exists()
+    assert document.metadata["kostenstelle"] == "4711"
+    assert step.required_metadata_fields.count() == 0
+    assert AuditEvent.objects.filter(
+        tenant=tenant,
+        event_type="document_metadata_field.deleted",
+        object_id=str(metadata_field.id),
+    ).exists()
+
+
+@pytest.mark.django_db
 def test_create_document_from_upload_prefills_metadata_from_einvoice():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()

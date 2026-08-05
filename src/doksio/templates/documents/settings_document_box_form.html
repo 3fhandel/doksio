@@ -206,9 +206,10 @@
                   {% endif %}
                 </td>
                 <td class="text-end">
-                  <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:settings_metadata_field_edit' tenant.slug document_space.id metadata_field.id %}">
-                    Bearbeiten
-                  </a>
+                  <div class="btn-group btn-group-sm" role="group" aria-label="Aktionen für {{ metadata_field.name }}">
+                    <a class="btn btn-outline-primary" href="{% url 'documents:settings_metadata_field_edit' tenant.slug document_space.id metadata_field.id %}">Bearbeiten</a>
+                    <a class="btn btn-outline-danger" href="{% url 'documents:settings_metadata_field_delete' tenant.slug document_space.id metadata_field.id %}">Löschen</a>
+                  </div>
                 </td>
               </tr>
             {% empty %}

@@ -353,4 +353,12 @@ urlpatterns = [
         views.tenant_settings_metadata_field_edit,
         name="settings_metadata_field_edit",
     ),
+    path(
+        (
+            "t/<slug:tenant_slug>/settings/document-boxes/<int:box_id>/"
+            "metadata-fields/<int:field_id>/delete/"
+        ),
+        views.tenant_settings_metadata_field_delete,
+        name="settings_metadata_field_delete",
+    ),
 ]

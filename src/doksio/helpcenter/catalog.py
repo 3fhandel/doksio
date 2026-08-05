@@ -465,6 +465,17 @@ HELP_TOPICS = (
                 ),
             ),
             HelpSection(
+                title="Metadatenfelder löschen",
+                text=(
+                    "Nicht mehr benötigte Felddefinitionen kannst du in der "
+                    "Dokumentenbox löschen. Zur Sicherheit musst du den Feldnamen "
+                    "bestätigen. Bereits an Dokumenten gespeicherte Werte bleiben "
+                    "erhalten, werden danach aber nicht mehr angezeigt oder "
+                    "bearbeitet. Verwendet ein Workflow das Feld als Pflichtangabe, "
+                    "entfällt diese Anforderung."
+                ),
+            ),
+            HelpSection(
                 title="OCR-Suchmarkierungen nachrüsten",
                 text=(
                     "Unter Einstellungen > Wartung > OCR kannst du bestehende "

@@ -6,9 +6,14 @@
       <h2 class="h4 mb-1">{{ form_title }}</h2>
       <p class="text-secondary mb-0">{{ document_space.path }}</p>
     </div>
-    <a class="btn btn-outline-secondary" href="{% url 'documents:settings_document_box_edit' tenant.slug document_space.id %}">
-      Zurück
-    </a>
+    <div class="d-flex gap-2">
+      {% if metadata_field %}
+        <a class="btn btn-outline-danger" href="{% url 'documents:settings_metadata_field_delete' tenant.slug document_space.id metadata_field.id %}">Löschen</a>
+      {% endif %}
+      <a class="btn btn-outline-secondary" href="{% url 'documents:settings_document_box_edit' tenant.slug document_space.id %}">
+        Zurück
+      </a>
+    </div>
   </div>
 
   <div class="app-card p-4">
