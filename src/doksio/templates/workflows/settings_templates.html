@@ -39,11 +39,10 @@
               </td>
               <td>{{ template.get_trigger_type_display }}</td>
               <td>
-                {% if template.trigger_document_space %}
-                  {{ template.trigger_document_space.path }}
-                  {% if template.trigger_include_child_spaces %}
-                    <div class="small text-secondary">inkl. Unterboxen</div>
-                  {% endif %}
+                {% if template.document_spaces.all %}
+                  {% for space in template.document_spaces.all %}
+                    <span class="badge text-bg-light">{{ space.path }}</span>
+                  {% endfor %}
                 {% else %}
                   <span class="text-secondary">Alle</span>
                 {% endif %}

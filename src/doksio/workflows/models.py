@@ -24,14 +24,11 @@ class WorkflowTemplate(models.Model):
         choices=TriggerType.choices,
         default=TriggerType.MANUAL,
     )
-    trigger_document_space = models.ForeignKey(
+    document_spaces = models.ManyToManyField(
         "documents.DocumentSpace",
         blank=True,
-        null=True,
-        on_delete=models.PROTECT,
         related_name="workflow_templates",
     )
-    trigger_include_child_spaces = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -47,7 +44,6 @@ class WorkflowTemplate(models.Model):
         indexes = [
             models.Index(fields=["tenant", "is_active"]),
             models.Index(fields=["tenant", "trigger_type"]),
-            models.Index(fields=["tenant", "trigger_document_space"]),
         ]
 
     def __str__(self) -> str:

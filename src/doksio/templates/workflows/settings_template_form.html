@@ -37,24 +37,13 @@
           {{ form.trigger_type }}
           {{ form.trigger_type.errors }}
         </div>
-        <div class="col-md-6">
-          <label class="form-label" for="{{ form.trigger_document_space.id_for_label }}">{{ form.trigger_document_space.label }}</label>
-          {% include "includes/document_space_picker_compact.html" with field=form.trigger_document_space %}
-          {% if form.trigger_document_space.help_text %}
-            <div class="form-text">{{ form.trigger_document_space.help_text }}</div>
-          {% endif %}
-          {{ form.trigger_document_space.errors }}
+        <div class="col-12">
+          {% include "includes/document_space_picker_panel.html" with field=form.document_spaces %}
         </div>
         <div class="col-md-6 d-flex align-items-end">
           <div class="form-check mb-2">
             {{ form.is_active }}
             <label class="form-check-label" for="{{ form.is_active.id_for_label }}">{{ form.is_active.label }}</label>
-          </div>
-        </div>
-        <div class="col-md-6 d-flex align-items-end">
-          <div class="form-check mb-2">
-            {{ form.trigger_include_child_spaces }}
-            <label class="form-check-label" for="{{ form.trigger_include_child_spaces.id_for_label }}">{{ form.trigger_include_child_spaces.label }}</label>
           </div>
         </div>
         <div class="col-12">
@@ -84,11 +73,10 @@
             <div class="workflow-node-kicker">Start</div>
             <div class="workflow-node-title">{{ template.get_trigger_type_display }}</div>
             <div class="workflow-node-meta">
-              {% if template.trigger_document_space %}
-                {{ template.trigger_document_space.path }}
-                {% if template.trigger_include_child_spaces %} · inkl. Kindboxen{% endif %}
+              {% if template.document_spaces.all %}
+                {{ template.document_spaces.count }} Box{% if template.document_spaces.count != 1 %}en{% endif %}
               {% else %}
-                Manuell oder alle Boxen
+                Alle Boxen
               {% endif %}
             </div>
           </div>

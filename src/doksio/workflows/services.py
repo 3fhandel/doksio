@@ -311,7 +311,7 @@ def _create_notifications_for_workflow_started(instance: WorkflowInstance) -> No
         ).execute()
 
 
-def workflow_template_matches_document(
+def workflow_template_applies_to_document(
     template: WorkflowTemplate,
     document: Document,
 ) -> bool:
@@ -319,16 +319,19 @@ def workflow_template_matches_document(
         return False
     if not template.is_active:
         return False
-    if template.trigger_type != WorkflowTemplate.TriggerType.DOCUMENT_CREATED:
-        return False
-    if template.trigger_document_space_id is None:
+    spaces = list(template.document_spaces.all())
+    if not spaces:
         return True
-    if template.trigger_document_space_id == document.space_id:
-        return True
-    if not template.trigger_include_child_spaces:
-        return False
-    return document.space.path.startswith(
-        f"{template.trigger_document_space.path.rstrip('/')}/"
+    return any(space.id == document.space_id for space in spaces)
+
+
+def workflow_template_matches_document(
+    template: WorkflowTemplate,
+    document: Document,
+) -> bool:
+    return (
+        template.trigger_type == WorkflowTemplate.TriggerType.DOCUMENT_CREATED
+        and workflow_template_applies_to_document(template, document)
     )
 
 
@@ -339,18 +342,15 @@ class CreateWorkflowTemplate:
     slug: str
     description: str = ""
     trigger_type: str = WorkflowTemplate.TriggerType.MANUAL
-    trigger_document_space: DocumentSpace | None = None
-    trigger_include_child_spaces: bool = True
+    document_spaces: list[DocumentSpace] | None = None
     is_active: bool = True
     actor: get_user_model() | None = None
 
     @transaction.atomic
     def execute(self) -> WorkflowTemplate:
-        if (
-            self.trigger_document_space
-            and self.trigger_document_space.tenant_id != self.tenant.id
-        ):
-            raise ValueError("Trigger document space belongs to a different tenant.")
+        document_spaces = list(self.document_spaces or [])
+        if any(space.tenant_id != self.tenant.id for space in document_spaces):
+            raise ValueError("Document space belongs to a different tenant.")
 
         template = WorkflowTemplate.objects.create(
             tenant=self.tenant,
@@ -358,10 +358,9 @@ class CreateWorkflowTemplate:
             slug=self.slug,
             description=self.description,
             trigger_type=self.trigger_type,
-            trigger_document_space=self.trigger_document_space,
-            trigger_include_child_spaces=self.trigger_include_child_spaces,
             is_active=self.is_active,
         )
+        template.document_spaces.set(document_spaces)
         RecordAuditEvent(
             tenant=self.tenant,
             actor=self.actor,
@@ -372,7 +371,7 @@ class CreateWorkflowTemplate:
                 "name": template.name,
                 "slug": template.slug,
                 "trigger_type": template.trigger_type,
-                "trigger_document_space_id": template.trigger_document_space_id,
+                "document_space_ids": [space.id for space in document_spaces],
             },
         ).execute()
         return template
@@ -385,35 +384,31 @@ class UpdateWorkflowTemplate:
     description: str
     trigger_type: str
     is_active: bool
-    trigger_document_space: DocumentSpace | None = None
-    trigger_include_child_spaces: bool = True
+    document_spaces: list[DocumentSpace] | None = None
     actor: get_user_model() | None = None
 
     @transaction.atomic
     def execute(self) -> WorkflowTemplate:
-        if (
-            self.trigger_document_space
-            and self.trigger_document_space.tenant_id != self.template.tenant_id
+        document_spaces = list(self.document_spaces or [])
+        if any(
+            space.tenant_id != self.template.tenant_id for space in document_spaces
         ):
-            raise ValueError("Trigger document space belongs to a different tenant.")
+            raise ValueError("Document space belongs to a different tenant.")
 
         self.template.name = self.name
         self.template.description = self.description
         self.template.trigger_type = self.trigger_type
-        self.template.trigger_document_space = self.trigger_document_space
-        self.template.trigger_include_child_spaces = self.trigger_include_child_spaces
         self.template.is_active = self.is_active
         self.template.save(
             update_fields=[
                 "name",
                 "description",
                 "trigger_type",
-                "trigger_document_space",
-                "trigger_include_child_spaces",
                 "is_active",
                 "updated_at",
             ]
         )
+        self.template.document_spaces.set(document_spaces)
         RecordAuditEvent(
             tenant=self.template.tenant,
             actor=self.actor,
@@ -424,7 +419,7 @@ class UpdateWorkflowTemplate:
                 "name": self.template.name,
                 "slug": self.template.slug,
                 "trigger_type": self.template.trigger_type,
-                "trigger_document_space_id": self.template.trigger_document_space_id,
+                "document_space_ids": [space.id for space in document_spaces],
                 "is_active": self.template.is_active,
             },
         ).execute()
@@ -803,6 +798,8 @@ class StartWorkflowForDocument:
             raise ValueError("Workflow template belongs to a different tenant.")
         if not self.template.is_active:
             raise ValueError("Workflow template is inactive.")
+        if not workflow_template_applies_to_document(self.template, self.document):
+            raise ValueError("Workflow template does not apply to this document box.")
 
         first_step = _first_step(self.template)
         instance = WorkflowInstance.objects.create(
@@ -844,7 +841,7 @@ class StartMatchingWorkflowsForDocument:
     @transaction.atomic
     def execute(self) -> list[WorkflowInstance]:
         templates = (
-            WorkflowTemplate.objects.select_related("trigger_document_space")
+            WorkflowTemplate.objects.prefetch_related("document_spaces")
             .filter(
                 tenant=self.document.tenant,
                 is_active=True,

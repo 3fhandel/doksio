@@ -2139,7 +2139,7 @@ def document_detail(
             )
         },
     )
-    start_workflow_form = StartWorkflowForm(tenant=tenant)
+    start_workflow_form = StartWorkflowForm(tenant=tenant, document=document)
     complete_workflow_task_form = CompleteWorkflowTaskForm()
     document_reminder = DocumentReminder.objects.filter(
         document=document,
@@ -2299,7 +2299,11 @@ def document_detail(
         elif action == "start_workflow":
             if not can_use_workflows(request.user, tenant):
                 raise PermissionDenied
-            start_workflow_form = StartWorkflowForm(request.POST, tenant=tenant)
+            start_workflow_form = StartWorkflowForm(
+                request.POST,
+                tenant=tenant,
+                document=document,
+            )
             if start_workflow_form.is_valid():
                 StartWorkflowForDocument(
                     template=start_workflow_form.cleaned_data["template"],
@@ -2410,11 +2414,9 @@ def document_detail(
         task.relation_picker_filters_editable = (
             task.step.relation_picker_filters_editable
         )
-    workflow_templates_available = WorkflowTemplate.objects.filter(
-        tenant=tenant,
-        is_active=True,
-        trigger_type=WorkflowTemplate.TriggerType.MANUAL,
-    ).exists()
+    workflow_templates_available = start_workflow_form.fields[
+        "template"
+    ].queryset.exists()
     comments = list(document.comments.all())
     relation_picker_spaces = filter_document_spaces_for_user(
         DocumentSpace.objects.filter(

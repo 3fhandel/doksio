@@ -16,6 +16,7 @@ from doksio.documents.services import (
     CreateDocumentSpace,
 )
 from doksio.tenancy.models import Tenant
+from doksio.workflows.forms import StartWorkflowForm
 from doksio.workflows.models import (
     WorkflowInstance,
     WorkflowStep,
@@ -372,7 +373,7 @@ def test_start_matching_workflows_for_document_uses_trigger_document_box():
         name="Rechnungsprüfung",
         slug="rechnung",
         trigger_type=WorkflowTemplate.TriggerType.DOCUMENT_CREATED,
-        trigger_document_space=matching_box,
+        document_spaces=[matching_box],
     ).execute()
     CreateWorkflowStep(template=template, name="Prüfen", step_type="task").execute()
 
@@ -389,7 +390,7 @@ def test_start_matching_workflows_for_document_uses_trigger_document_box():
 
 
 @pytest.mark.django_db
-def test_start_matching_workflows_for_document_can_include_child_boxes():
+def test_start_matching_workflows_for_document_uses_explicit_child_box():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     parent_box = CreateDocumentSpace(
         tenant=tenant,
@@ -408,8 +409,7 @@ def test_start_matching_workflows_for_document_can_include_child_boxes():
         name="Rechnungsprüfung",
         slug="rechnung",
         trigger_type=WorkflowTemplate.TriggerType.DOCUMENT_CREATED,
-        trigger_document_space=parent_box,
-        trigger_include_child_spaces=True,
+        document_spaces=[parent_box, child_box],
     ).execute()
     CreateWorkflowStep(template=template, name="Prüfen", step_type="task").execute()
 
@@ -425,6 +425,32 @@ def test_start_matching_workflows_for_document_can_include_child_boxes():
 
 
 @pytest.mark.django_db
+def test_manual_workflow_is_only_available_in_configured_document_boxes():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    allowed_box = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    other_box = CreateDocumentSpace(tenant=tenant, name="Verträge").execute()
+    allowed_document = _create_document(tenant, allowed_box)
+    other_document = _create_document(tenant, other_box)
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Rechnungsprüfung",
+        slug="rechnung",
+        document_spaces=[allowed_box],
+    ).execute()
+
+    allowed_form = StartWorkflowForm(tenant=tenant, document=allowed_document)
+    other_form = StartWorkflowForm(tenant=tenant, document=other_document)
+
+    assert list(allowed_form.fields["template"].queryset) == [template]
+    assert not other_form.fields["template"].queryset.exists()
+    with pytest.raises(ValueError, match="does not apply"):
+        StartWorkflowForDocument(
+            template=template,
+            document=other_document,
+        ).execute()
+
+
+@pytest.mark.django_db
 def test_document_creation_starts_matching_workflows_after_commit(
     django_capture_on_commit_callbacks,
 ):
@@ -435,7 +461,7 @@ def test_document_creation_starts_matching_workflows_after_commit(
         name="Rechnungsprüfung",
         slug="rechnung",
         trigger_type=WorkflowTemplate.TriggerType.DOCUMENT_CREATED,
-        trigger_document_space=box,
+        document_spaces=[box],
     ).execute()
     CreateWorkflowStep(template=template, name="Prüfen", step_type="task").execute()
 
@@ -474,8 +500,7 @@ def test_workflow_settings_create_template_and_step(client):
             "slug": "rechnungspruefung",
             "description": "",
             "trigger_type": WorkflowTemplate.TriggerType.MANUAL,
-            "trigger_document_space": "",
-            "trigger_include_child_spaces": "on",
+            "document_spaces": [],
             "is_active": "on",
         },
     )
@@ -636,7 +661,7 @@ def test_workflow_settings_saves_relation_picker_defaults(client):
         tenant=tenant,
         name="Rechnungsprüfung",
         slug="rechnung",
-        trigger_document_space=invoice_space,
+        document_spaces=[invoice_space],
     ).execute()
 
     response = client.post(

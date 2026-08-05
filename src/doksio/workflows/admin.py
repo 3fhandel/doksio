@@ -21,11 +21,11 @@ class WorkflowTemplateAdmin(admin.ModelAdmin):
         "name",
         "tenant",
         "trigger_type",
-        "trigger_document_space",
         "is_active",
     ]
     list_filter = ["trigger_type", "is_active", "tenant"]
     search_fields = ["name", "slug", "tenant__name"]
+    filter_horizontal = ["document_spaces"]
     inlines = [WorkflowStepInline]
 
 

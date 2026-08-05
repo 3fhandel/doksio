@@ -31,21 +31,17 @@ class WorkflowTemplateForm(forms.Form):
         choices=WorkflowTemplate.TriggerType.choices,
         widget=forms.Select(attrs={"class": "form-select"}),
     )
-    trigger_document_space = forms.ModelChoiceField(
-        label="Trigger-Dokumentenbox",
+    document_spaces = forms.ModelMultipleChoiceField(
+        label="Dokumentenboxen",
         required=False,
         queryset=DocumentSpace.objects.none(),
-        empty_label="Alle Dokumentenboxen",
-        widget=forms.Select(attrs={"class": "form-select"}),
-        help_text=(
-            "Nur relevant für automatische Starts bei neu importierten Dokumenten."
+        widget=forms.CheckboxSelectMultiple(
+            attrs={"class": "form-check-input"},
         ),
-    )
-    trigger_include_child_spaces = forms.BooleanField(
-        label="Unterboxen einschließen",
-        required=False,
-        initial=True,
-        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        help_text=(
+            "Der Workflow kann nur für Dokumente in diesen Boxen gestartet werden. "
+            "Ohne Auswahl gilt er für alle Dokumentenboxen."
+        ),
     )
     is_active = forms.BooleanField(
         label="Aktiv",
@@ -64,9 +60,10 @@ class WorkflowTemplateForm(forms.Form):
         self.tenant = tenant
         self.template = template
         super().__init__(*args, **kwargs)
-        self.fields["trigger_document_space"].queryset = DocumentSpace.objects.filter(
+        self.fields["document_spaces"].queryset = DocumentSpace.objects.filter(
             tenant=tenant,
             is_active=True,
+            deleted_at__isnull=True,
         ).order_by("path")
 
     def clean_slug(self) -> str:
@@ -252,13 +249,23 @@ class WorkflowStepForm(forms.Form):
 
 
 class StartWorkflowForm(forms.Form):
-    def __init__(self, *args, tenant: Tenant, **kwargs) -> None:
+    def __init__(self, *args, tenant: Tenant, document=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.fields["template"].queryset = WorkflowTemplate.objects.filter(
+        templates = WorkflowTemplate.objects.filter(
             tenant=tenant,
             is_active=True,
             trigger_type=WorkflowTemplate.TriggerType.MANUAL,
-        ).order_by("name")
+        ).prefetch_related("document_spaces")
+        if document is not None:
+            from doksio.workflows.services import workflow_template_applies_to_document
+
+            template_ids = [
+                template.id
+                for template in templates
+                if workflow_template_applies_to_document(template, document)
+            ]
+            templates = templates.filter(id__in=template_ids)
+        self.fields["template"].queryset = templates.order_by("name")
 
     template = forms.ModelChoiceField(
         label="Workflow",

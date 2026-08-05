@@ -252,6 +252,14 @@ HELP_TOPICS = (
                 ),
             ),
             HelpSection(
+                title="Passende Dokumentenboxen",
+                text=(
+                    "Ein Workflow kann auf bestimmte Dokumentenboxen begrenzt sein. "
+                    "Ein manueller Workflow wird dir deshalb nur angeboten, wenn das "
+                    "geöffnete Dokument in eine seiner ausgewählten Boxen gehört."
+                ),
+            ),
+            HelpSection(
                 title="Meine Aufgaben",
                 text=(
                     "Hier erscheinen alle offenen Schritte, die dir über deine Rollen "

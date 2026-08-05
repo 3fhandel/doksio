@@ -50,7 +50,7 @@ def workflow_templates(request: HttpRequest, tenant_slug: str) -> HttpResponse:
 
     templates = (
         WorkflowTemplate.objects.filter(tenant=tenant)
-        .prefetch_related("steps")
+        .prefetch_related("steps", "document_spaces")
         .order_by("name")
     )
     return render(
@@ -81,10 +81,7 @@ def workflow_template_create(
                 slug=form.cleaned_data["slug"],
                 description=form.cleaned_data["description"],
                 trigger_type=form.cleaned_data["trigger_type"],
-                trigger_document_space=form.cleaned_data["trigger_document_space"],
-                trigger_include_child_spaces=form.cleaned_data[
-                    "trigger_include_child_spaces"
-                ],
+                document_spaces=list(form.cleaned_data["document_spaces"]),
                 is_active=form.cleaned_data["is_active"],
                 actor=request.user,
             ).execute()
@@ -120,7 +117,9 @@ def workflow_template_edit(
         return response
 
     template = get_object_or_404(
-        WorkflowTemplate.objects.prefetch_related("steps__assigned_role"),
+        WorkflowTemplate.objects.prefetch_related(
+            "steps__assigned_role", "document_spaces"
+        ),
         id=template_id,
         tenant=tenant,
     )
@@ -132,10 +131,7 @@ def workflow_template_edit(
                 name=form.cleaned_data["name"],
                 description=form.cleaned_data["description"],
                 trigger_type=form.cleaned_data["trigger_type"],
-                trigger_document_space=form.cleaned_data["trigger_document_space"],
-                trigger_include_child_spaces=form.cleaned_data[
-                    "trigger_include_child_spaces"
-                ],
+                document_spaces=list(form.cleaned_data["document_spaces"]),
                 is_active=form.cleaned_data["is_active"],
                 actor=request.user,
             ).execute()
@@ -154,10 +150,7 @@ def workflow_template_edit(
                 "slug": template.slug,
                 "description": template.description,
                 "trigger_type": template.trigger_type,
-                "trigger_document_space": template.trigger_document_space,
-                "trigger_include_child_spaces": (
-                    template.trigger_include_child_spaces
-                ),
+                "document_spaces": template.document_spaces.all(),
                 "is_active": template.is_active,
             },
         )

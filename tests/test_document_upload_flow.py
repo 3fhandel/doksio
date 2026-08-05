@@ -3815,7 +3815,7 @@ def test_document_core_metadata_edit_moves_document_and_cleans_workflows(
         name="Alte Prüfung",
         slug="alte-pruefung",
         trigger_type=WorkflowTemplate.TriggerType.DOCUMENT_CREATED,
-        trigger_document_space=old_space,
+        document_spaces=[old_space],
     ).execute()
     CreateWorkflowStep(
         template=old_template,
@@ -3827,7 +3827,7 @@ def test_document_core_metadata_edit_moves_document_and_cleans_workflows(
         name="Neue Prüfung",
         slug="neue-pruefung",
         trigger_type=WorkflowTemplate.TriggerType.DOCUMENT_CREATED,
-        trigger_document_space=new_space,
+        document_spaces=[new_space],
     ).execute()
     CreateWorkflowStep(
         template=new_template,
