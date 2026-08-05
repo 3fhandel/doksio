@@ -1263,3 +1263,81 @@ class DocumentBoxTitleRefreshJob(models.Model):
         )
         last_activity = self.heartbeat_at or self.updated_at
         return last_activity <= now - stale_after
+
+
+class DocumentBoxOcrLayoutJob(models.Model):
+    """Resumable backfill of OCR word coordinates for one document box."""
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Wartet"
+        RUNNING = "running", "Läuft"
+        COMPLETED = "completed", "Abgeschlossen"
+        FAILED = "failed", "Fehlgeschlagen"
+
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="document_box_ocr_layout_jobs",
+    )
+    document_space = models.ForeignKey(
+        DocumentSpace,
+        on_delete=models.CASCADE,
+        related_name="ocr_layout_jobs",
+    )
+    include_children = models.BooleanField(default=True)
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.QUEUED,
+    )
+    total_documents = models.PositiveIntegerField(default=0)
+    processed_documents = models.PositiveIntegerField(default=0)
+    last_document_id = models.PositiveIntegerField(default=0)
+    max_document_id = models.PositiveIntegerField(default=0)
+    generated = models.PositiveIntegerField(default=0)
+    skipped = models.PositiveIntegerField(default=0)
+    errors = models.PositiveIntegerField(default=0)
+    batch_size = models.PositiveIntegerField(default=5)
+    error_message = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="created_ocr_layout_jobs",
+    )
+    started_at = models.DateTimeField(blank=True, null=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    heartbeat_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(
+                fields=["tenant", "status", "-created_at"],
+                name="doc_ocr_layout_status_idx",
+            ),
+            models.Index(
+                fields=["tenant", "document_space", "status"],
+                name="doc_ocr_layout_space_idx",
+            ),
+        ]
+
+    @property
+    def progress_percent(self) -> int:
+        if not self.total_documents:
+            return 0
+        return min(100, round(self.processed_documents / self.total_documents * 100))
+
+    @property
+    def is_resumable(self) -> bool:
+        if self.status == self.Status.QUEUED:
+            return True
+        if self.status != self.Status.RUNNING:
+            return False
+        stale_after = timedelta(
+            seconds=getattr(settings, "OCR_LAYOUT_STALE_AFTER_SECONDS", 180)
+        )
+        return (self.heartbeat_at or self.updated_at) <= timezone.now() - stale_after

@@ -31,6 +31,8 @@ class OcrJob(models.Model):
     engine = models.CharField(max_length=120, blank=True)
     language = models.CharField(max_length=40, blank=True)
     extracted_text = models.TextField(blank=True)
+    layout_storage_key = models.CharField(max_length=500, blank=True)
+    layout_byte_size = models.PositiveBigIntegerField(default=0)
     error_message = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     created_by = models.ForeignKey(

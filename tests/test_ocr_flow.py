@@ -13,7 +13,7 @@ from django.urls import reverse
 from doksio.accounts.models import TenantMembership
 from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
-from doksio.documents.models import Document
+from doksio.documents.models import Document, DocumentBoxOcrLayoutJob
 from doksio.documents.services import CreateDocumentFromUpload, CreateDocumentSpace
 from doksio.ocr.models import OcrJob
 from doksio.ocr.services import (
@@ -23,6 +23,7 @@ from doksio.ocr.services import (
     RunOcrJob,
     StartOcrForDocumentFile,
     extract_document_title,
+    find_ocr_layout_matches,
     title_from_ocr_policy,
 )
 from doksio.tenancy.models import Tenant
@@ -92,8 +93,9 @@ def test_local_ocr_provider_auto_orients_images_before_tesseract(
     assert commands[1][:3] == [
         "/usr/bin/tesseract",
         str(tmp_path / "scan.ocr.png"),
-        "stdout",
+        str(tmp_path / "scan.ocr.doksio-ocr"),
     ]
+    assert commands[1][-2:] == ["txt", "tsv"]
     assert commands[2] == [
         "/usr/bin/magick",
         str(tmp_path / "scan.ocr.png"),
@@ -220,11 +222,11 @@ def test_local_ocr_provider_uses_rendered_pdf_pages_when_scan_pdf_has_no_text(
     assert extraction.engine == "pypdfium2+tesseract"
     assert extraction.text.strip() == "Seite 1\n\nSeite 2"
     assert extraction.page_texts == ("Seite 1", "Seite 2")
-    assert commands == [
-        ["/usr/bin/pdftotext", str(input_path), "-"],
-        ["/usr/bin/tesseract", str(page_1), "stdout", "-l", "deu+eng"],
-        ["/usr/bin/tesseract", str(page_2), "stdout", "-l", "deu+eng"],
-    ]
+    assert commands[0] == ["/usr/bin/pdftotext", str(input_path), "-"]
+    assert commands[1][0:2] == ["/usr/bin/tesseract", str(page_1)]
+    assert commands[2][0:2] == ["/usr/bin/tesseract", str(page_2)]
+    assert commands[1][-2:] == ["txt", "tsv"]
+    assert commands[2][-2:] == ["txt", "tsv"]
 
 
 def test_extract_document_title_joins_hyphenated_line_breaks():
@@ -293,6 +295,94 @@ def test_run_ocr_job_stores_extracted_text_and_audit_event():
     assert job.extracted_text == "Text aus invoice.pdf"
     assert job.metadata["page_text_ranges"] == [[0, 20]]
     assert AuditEvent.objects.filter(event_type="ocr_job.succeeded").exists()
+
+
+@pytest.mark.django_db
+def test_run_ocr_job_stores_compressed_layout_and_finds_exact_match():
+    class LayoutOcrProvider:
+        def extract(self, document_file):
+            return OcrExtraction(
+                text="Rechnung 4711",
+                engine="test-provider",
+                language="deu",
+                page_texts=("Rechnung 4711",),
+                layout_pages=(
+                    {
+                        "page": 1,
+                        "words": [
+                            {
+                                "text": "Rechnung",
+                                "x": 0.1,
+                                "y": 0.2,
+                                "width": 0.2,
+                                "height": 0.03,
+                            },
+                            {
+                                "text": "4711",
+                                "x": 0.31,
+                                "y": 0.2,
+                                "width": 0.08,
+                                "height": 0.03,
+                            },
+                        ],
+                    },
+                ),
+            )
+
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    _document, document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Invoice 4711",
+        space=space,
+        file_obj=BytesIO(b"invoice content"),
+        original_filename="invoice.pdf",
+        content_type="application/pdf",
+        auto_start_ocr=False,
+    ).execute()
+    job = CreateOcrJob(document_file=document_file).execute()
+
+    RunOcrJob(job=job, provider=LayoutOcrProvider()).execute()
+
+    job.refresh_from_db()
+    assert job.layout_storage_key.endswith(".json.gz")
+    assert job.layout_byte_size > 0
+    assert find_ocr_layout_matches(job, "Rechnung 4711") == [
+        {
+            "page": 1,
+            "rectangles": [
+                {"x": 0.1, "y": 0.2, "width": 0.2, "height": 0.03},
+                {"x": 0.31, "y": 0.2, "width": 0.08, "height": 0.03},
+            ],
+        }
+    ]
+
+
+@pytest.mark.django_db
+def test_tenant_admin_can_start_resumable_ocr_layout_maintenance(client, monkeypatch):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(username="admin")
+    TenantMembership.objects.create(tenant=tenant, user=user, role=roles["admin"])
+    Document.objects.create(tenant=tenant, space=space, title="Scan", created_by=user)
+    queued = []
+    monkeypatch.setattr(
+        "doksio.documents.tasks.process_document_box_ocr_layout_job.delay",
+        lambda job_id: queued.append(job_id),
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse("documents:settings_ocr_layout", kwargs={"tenant_slug": tenant.slug}),
+        {"space": space.id, "include_children": "on"},
+    )
+
+    assert response.status_code == 302
+    job = DocumentBoxOcrLayoutJob.objects.get()
+    assert job.total_documents == 1
+    assert job.max_document_id > 0
+    assert queued == [job.id]
 
 
 @pytest.mark.django_db

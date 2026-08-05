@@ -2252,6 +2252,10 @@ body {
   box-shadow: 0 0 0 2px rgb(194 65 12 / 55%);
 }
 
+.document-pdf-search-highlight-ocr {
+  outline: 1px solid rgb(161 98 7 / 38%);
+}
+
 .document-review-palette {
   display: inline-flex;
   align-items: center;

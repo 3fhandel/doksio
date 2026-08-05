@@ -11,7 +11,17 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.files.storage import default_storage
 from django.core.mail import get_connection
-from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Q, Value, When
+from django.db.models import (
+    Case,
+    Count,
+    Exists,
+    IntegerField,
+    Max,
+    OuterRef,
+    Q,
+    Value,
+    When,
+)
 from django.http import (
     FileResponse,
     Http404,
@@ -48,6 +58,7 @@ from doksio.audit.forms import AuditEventFilterForm
 from doksio.audit.models import AuditEvent
 from doksio.audit.services import RecordAuditEvent
 from doksio.documents.forms import (
+    DocumentBoxOcrLayoutForm,
     DocumentBoxScanOptimizationForm,
     DocumentBoxTitleRefreshForm,
     DocumentCommentForm,
@@ -74,6 +85,7 @@ from doksio.documents.mentions import mention_suggestions_for_tenant
 from doksio.documents.metadata import effective_metadata_fields
 from doksio.documents.models import (
     Document,
+    DocumentBoxOcrLayoutJob,
     DocumentBoxScanOptimizationJob,
     DocumentBoxTitleRefreshJob,
     DocumentFile,
@@ -2044,16 +2056,18 @@ def document_pdf_search(
     if not can_view_document(request.user, document):
         raise PermissionDenied
 
+    from doksio.ocr.services import find_document_ocr_layout_matches
     from doksio.search.services import find_ocr_page_matches
 
-    return JsonResponse(
-        {
-            "pages": find_ocr_page_matches(
-                document,
-                request.GET.get("q", ""),
-            )
-        }
-    )
+    query = request.GET.get("q", "")
+    matches = find_document_ocr_layout_matches(document, query)
+
+    payload = {
+        "pages": [] if matches else find_ocr_page_matches(document, query),
+    }
+    if matches:
+        payload["matches"] = matches
+    return JsonResponse(payload)
 
 
 def document_detail(
@@ -3741,6 +3755,86 @@ def tenant_settings_maintenance(
     )
 
 
+def tenant_settings_ocr_layout(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    if request.method == "POST":
+        form = DocumentBoxOcrLayoutForm(request.POST, tenant=tenant)
+        if form.is_valid():
+            space = form.cleaned_data["space"]
+            include_children = form.cleaned_data["include_children"]
+            box_filter = Q(space=space)
+            if include_children:
+                box_filter |= Q(space__path__startswith=f"{space.path}/")
+            documents = Document.objects.filter(
+                box_filter,
+                tenant=tenant,
+                status=Document.Status.ACTIVE,
+            )
+            summary = documents.aggregate(total=Count("id"), maximum=Max("id"))
+            job = DocumentBoxOcrLayoutJob.objects.create(
+                tenant=tenant,
+                document_space=space,
+                include_children=include_children,
+                total_documents=summary["total"] or 0,
+                max_document_id=summary["maximum"] or 0,
+                created_by=request.user,
+            )
+            from doksio.documents.tasks import process_document_box_ocr_layout_job
+
+            process_document_box_ocr_layout_job.delay(job.id)
+            messages.success(request, "OCR-Suchmarkierungen werden nachgerüstet.")
+            return redirect("documents:settings_ocr_layout", tenant_slug=tenant.slug)
+    else:
+        form = DocumentBoxOcrLayoutForm(tenant=tenant)
+
+    return render(
+        request,
+        "documents/settings_maintenance_ocr.html",
+        {
+            "tenant": tenant,
+            "form": form,
+            "ocr_layout_jobs": tenant.document_box_ocr_layout_jobs.select_related(
+                "document_space", "created_by"
+            )[:8],
+            "maintenance_section": "ocr",
+            "active_settings_section": "maintenance",
+        },
+    )
+
+
+def tenant_settings_ocr_layout_resume(
+    request: HttpRequest,
+    tenant_slug: str,
+    job_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+    job = get_object_or_404(DocumentBoxOcrLayoutJob, id=job_id, tenant=tenant)
+    if job.is_resumable:
+        job.status = DocumentBoxOcrLayoutJob.Status.QUEUED
+        job.save(update_fields=["status", "updated_at"])
+        from doksio.documents.tasks import process_document_box_ocr_layout_job
+
+        process_document_box_ocr_layout_job.delay(job.id)
+        messages.success(request, "Die OCR-Wartung wird fortgesetzt.")
+    else:
+        messages.info(request, "Dieser Wartungsjob läuft oder ist bereits beendet.")
+    return redirect("documents:settings_ocr_layout", tenant_slug=tenant.slug)
+
+
 def tenant_settings_background_jobs(
     request: HttpRequest,
     tenant_slug: str,
@@ -3784,6 +3878,16 @@ def tenant_settings_background_jobs(
         recent_jobs.append(
             {
                 "title": f"Titel neu berechnen: {job.document_space.path}",
+                "status": job.get_status_display(),
+                "status_value": job.status,
+                "created_at": job.created_at,
+                "completed_at": job.completed_at,
+            }
+        )
+    for job in tenant.document_box_ocr_layout_jobs.select_related("document_space")[:10]:
+        recent_jobs.append(
+            {
+                "title": f"OCR-Suchmarkierungen: {job.document_space.path}",
                 "status": job.get_status_display(),
                 "status_value": job.status,
                 "created_at": job.created_at,

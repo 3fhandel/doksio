@@ -159,9 +159,57 @@ function initPreview(root) {
         return;
       }
       const payload = await response.json();
+      (payload.matches || []).forEach(function (match) {
+        const matchedPage = Number(match.page);
+        const pageElement = pages.querySelector(`[data-page-number="${matchedPage}"]`);
+        if (!pageElement) {
+          return;
+        }
+        let layer = pageElement.querySelector(".document-pdf-search-layer");
+        if (!layer) {
+          layer = document.createElement("div");
+          layer.className = "document-pdf-search-layer";
+          pageElement.appendChild(layer);
+        }
+        let firstMark = null;
+        (match.rectangles || []).forEach(function (rectangle) {
+          const transformed = rotateNormalizedRectangle(
+            rectangle,
+            rotationForPage(matchedPage),
+          );
+          const mark = document.createElement("span");
+          mark.className = "document-pdf-search-highlight document-pdf-search-highlight-ocr";
+          mark.style.left = `${transformed.x * 100}%`;
+          mark.style.top = `${transformed.y * 100}%`;
+          mark.style.width = `${transformed.width * 100}%`;
+          mark.style.height = `${transformed.height * 100}%`;
+          layer.appendChild(mark);
+          firstMark = firstMark || mark;
+        });
+        if (firstMark) {
+          searchResults.push({ pageNumber: matchedPage, mark: firstMark });
+        }
+      });
       (payload.pages || []).forEach(function (matchedPage) {
         searchResults.push({ pageNumber: Number(matchedPage), mark: null });
       });
+    }
+
+    function rotateNormalizedRectangle(rectangle, rotation) {
+      const x = Number(rectangle.x || 0);
+      const y = Number(rectangle.y || 0);
+      const width = Number(rectangle.width || 0);
+      const height = Number(rectangle.height || 0);
+      if (rotation === 90) {
+        return { x: 1 - y - height, y: x, width: height, height: width };
+      }
+      if (rotation === 180) {
+        return { x: 1 - x - width, y: 1 - y - height, width, height };
+      }
+      if (rotation === 270) {
+        return { x: y, y: 1 - x - width, width: height, height: width };
+      }
+      return { x, y, width, height };
     }
 
     async function runPdfSearch() {

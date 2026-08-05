@@ -149,8 +149,9 @@ HELP_TOPICS = (
                     "Vorschau. Volltext und eRechnungs-Daten lassen sich unter "
                     "der Vorschau öffnen. In der PDF-Toolbar kannst du das "
                     "aktuelle Dokument durchsuchen und zwischen Fundstellen "
-                    "wechseln. Bei PDFs mit eingebettetem Text werden Treffer "
-                    "direkt auf der Seite hervorgehoben. Öffnest du ein Dokument "
+                    "wechseln. Bei PDFs mit eingebettetem Text und bei Scans mit "
+                    "vorhandenen OCR-Suchmarkierungen werden Treffer direkt auf "
+                    "der Seite hervorgehoben. Öffnest du ein Dokument "
                     "aus der Volltextsuche, wird der gefundene Begriff automatisch "
                     "in die Dokumentensuche übernommen. Mit Strg+F beziehungsweise "
                     "Cmd+F auf dem Mac springst du direkt in das Suchfeld. Im "
@@ -406,6 +407,15 @@ HELP_TOPICS = (
                     "Dokumentenboxen zugeordnet werden. Einzelne Anzeigenamen lassen "
                     "sich ändern oder deaktivieren, ohne bestehende Dokumentzuordnungen "
                     "zu verlieren."
+                ),
+            ),
+            HelpSection(
+                title="OCR-Suchmarkierungen nachrüsten",
+                text=(
+                    "Unter Einstellungen > Wartung > OCR kannst du bestehende "
+                    "Scan-PDFs für die Hervorhebung von Suchtreffern vorbereiten. "
+                    "Die Verarbeitung läuft in kleinen Batches und kann nach einer "
+                    "Unterbrechung fortgesetzt werden."
                 ),
             ),
         ),

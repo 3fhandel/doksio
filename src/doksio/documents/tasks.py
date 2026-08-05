@@ -13,6 +13,8 @@ from django.utils import timezone
 from doksio.accounts.models import Notification
 from doksio.accounts.services import CreateNotification
 from doksio.documents.models import (
+    Document,
+    DocumentBoxOcrLayoutJob,
     DocumentBoxScanOptimizationJob,
     DocumentBoxTitleRefreshJob,
     DocumentOfficeConversionJob,
@@ -28,6 +30,116 @@ from doksio.documents.services import (
     RunDocumentBoxScanOptimizationBatch,
     RunDocumentBoxTitleRefreshBatch,
 )
+
+
+@shared_task
+def process_document_box_ocr_layout_job(job_id: int) -> dict:
+    from doksio.ocr.services import CreateOcrJob, RunOcrJob
+
+    with transaction.atomic():
+        job = DocumentBoxOcrLayoutJob.objects.select_for_update().get(id=job_id)
+        if job.status != DocumentBoxOcrLayoutJob.Status.QUEUED:
+            return {"job_id": job.id, "status": job.status, "claimed": False}
+        now = timezone.now()
+        job.status = DocumentBoxOcrLayoutJob.Status.RUNNING
+        job.started_at = job.started_at or now
+        job.heartbeat_at = now
+        job.save(update_fields=["status", "started_at", "heartbeat_at", "updated_at"])
+
+    box_filter = Q(space=job.document_space)
+    if job.include_children:
+        box_filter |= Q(space__path__startswith=f"{job.document_space.path}/")
+    documents = list(
+        Document.objects.filter(
+            box_filter,
+            tenant=job.tenant,
+            status=Document.Status.ACTIVE,
+            id__gt=job.last_document_id,
+            id__lte=job.max_document_id,
+        )
+        .prefetch_related("files__ocr_jobs")
+        .order_by("id")[: job.batch_size]
+    )
+    if not documents:
+        job.last_document_id = job.max_document_id
+        job.save(update_fields=["last_document_id", "updated_at"])
+    for document in documents:
+        generated = 0
+        skipped = 0
+        errors = 0
+        original_file = next(
+            (
+                file
+                for file in document.files.all()
+                if file.file_kind == file.Kind.ORIGINAL
+                and file.content_type == "application/pdf"
+            ),
+            None,
+        )
+        existing_layout = bool(
+            original_file
+            and any(
+                ocr_job.status == ocr_job.Status.SUCCEEDED
+                and ocr_job.layout_storage_key
+                for ocr_job in original_file.ocr_jobs.all()
+            )
+        )
+        if original_file is None or existing_layout:
+            skipped = 1
+        else:
+            try:
+                ocr_job = CreateOcrJob(
+                    document_file=original_file,
+                    actor=job.created_by,
+                    metadata={"layout_backfill": True, "maintenance_job_id": job.id},
+                ).execute()
+                RunOcrJob(job=ocr_job).execute()
+                ocr_job.refresh_from_db(fields=["layout_storage_key"])
+                if ocr_job.layout_storage_key:
+                    generated = 1
+                else:
+                    skipped = 1
+            except Exception as error:
+                errors = 1
+                job.error_message = str(error)[:1000]
+
+        job.processed_documents += 1
+        job.last_document_id = document.id
+        job.generated += generated
+        job.skipped += skipped
+        job.errors += errors
+        job.heartbeat_at = timezone.now()
+        job.save(
+            update_fields=[
+                "processed_documents",
+                "last_document_id",
+                "generated",
+                "skipped",
+                "errors",
+                "error_message",
+                "heartbeat_at",
+                "updated_at",
+            ]
+        )
+
+    has_more = job.last_document_id < job.max_document_id
+    if has_more:
+        job.status = DocumentBoxOcrLayoutJob.Status.QUEUED
+        job.save(update_fields=["status", "updated_at"])
+        process_document_box_ocr_layout_job.delay(job.id)
+    else:
+        job.status = DocumentBoxOcrLayoutJob.Status.COMPLETED
+        job.completed_at = timezone.now()
+        job.save(update_fields=["status", "completed_at", "updated_at"])
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "processed_documents": job.processed_documents,
+        "total_documents": job.total_documents,
+        "generated": job.generated,
+        "skipped": job.skipped,
+        "errors": job.errors,
+    }
 
 
 @shared_task

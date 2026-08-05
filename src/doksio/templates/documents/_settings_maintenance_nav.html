@@ -23,10 +23,14 @@
     <div class="fw-semibold">Suchindex</div>
     <div class="small text-secondary">Für später vorbereitet</div>
   </button>
-  <button class="list-group-item list-group-item-action" type="button" disabled>
+  <a
+    class="list-group-item list-group-item-action {% if maintenance_section == 'ocr' %}active{% endif %}"
+    href="{% url 'documents:settings_ocr_layout' tenant.slug %}"
+    {% if maintenance_section == "ocr" %}aria-current="page"{% endif %}
+  >
     <div class="fw-semibold">OCR</div>
-    <div class="small text-secondary">Für später vorbereitet</div>
-  </button>
+    <div class="small {% if maintenance_section != 'ocr' %}text-secondary{% else %}opacity-75{% endif %}">Suchmarkierungen nachrüsten</div>
+  </a>
   <button class="list-group-item list-group-item-action" type="button" disabled>
     <div class="fw-semibold">Vorschaubilder</div>
     <div class="small text-secondary">Für später vorbereitet</div>

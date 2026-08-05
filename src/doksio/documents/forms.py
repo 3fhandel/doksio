@@ -472,6 +472,10 @@ class DocumentBoxScanOptimizationForm(forms.Form):
     )
 
 
+class DocumentBoxOcrLayoutForm(DocumentBoxScanOptimizationForm):
+    """Select the box scope for an OCR layout backfill."""
+
+
 class DocumentBoxTitleRefreshForm(forms.Form):
     def __init__(self, *args, tenant: Tenant, **kwargs) -> None:
         super().__init__(*args, **kwargs)

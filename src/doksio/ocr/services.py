@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import csv
+import gzip
+import io
+import json
 import re
 import shutil
 import subprocess
 import tempfile
+import uuid
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import transaction
 from django.utils import timezone
@@ -61,6 +67,118 @@ class OcrExtraction:
     engine: str
     language: str
     page_texts: tuple[str, ...] = ()
+    layout_pages: tuple[dict, ...] = ()
+
+
+def _normalized_word(
+    text: str,
+    left: float,
+    top: float,
+    width: float,
+    height: float,
+    confidence: float | None = None,
+) -> dict | None:
+    value = " ".join(text.split())
+    if not value or width <= 0 or height <= 0:
+        return None
+    word = {
+        "text": value,
+        "x": round(max(0.0, min(1.0, left)), 6),
+        "y": round(max(0.0, min(1.0, top)), 6),
+        "width": round(max(0.0, min(1.0 - left, width)), 6),
+        "height": round(max(0.0, min(1.0 - top, height)), 6),
+    }
+    if confidence is not None:
+        word["confidence"] = round(confidence, 1)
+    return word
+
+
+def _layout_from_tesseract_tsv(tsv: str, page_number: int) -> dict:
+    words = []
+    rows = list(csv.DictReader(io.StringIO(tsv), delimiter="\t"))
+    page_row = next((row for row in rows if row.get("level") == "1"), None)
+    if page_row is None:
+        return {"page": page_number, "words": []}
+    try:
+        image_width = float(page_row["width"])
+        image_height = float(page_row["height"])
+    except (KeyError, TypeError, ValueError):
+        return {"page": page_number, "words": []}
+    if image_width <= 0 or image_height <= 0:
+        return {"page": page_number, "words": []}
+    for row in rows:
+        if row.get("level") != "5":
+            continue
+        try:
+            word = _normalized_word(
+                row.get("text", ""),
+                float(row["left"]) / image_width,
+                float(row["top"]) / image_height,
+                float(row["width"]) / image_width,
+                float(row["height"]) / image_height,
+                float(row["conf"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+        if word:
+            words.append(word)
+    return {"page": page_number, "words": words}
+
+
+def _layout_from_searchable_pdf(pdf_path: Path) -> tuple[dict, ...]:
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        return ()
+    pdf = pdfium.PdfDocument(pdf_path.read_bytes())
+    pages = []
+    try:
+        for page_index in range(len(pdf)):
+            page = pdf[page_index]
+            text_page = page.get_textpage()
+            try:
+                page_width = float(page.get_width())
+                page_height = float(page.get_height())
+                chars = []
+                for char_index in range(text_page.count_chars()):
+                    value = text_page.get_text_range(char_index, 1)
+                    left, bottom, right, top = text_page.get_charbox(char_index)
+                    chars.append(
+                        (value, left, page_height - top, right, page_height - bottom)
+                    )
+                words = []
+                current = []
+                for value, left, top, right, bottom in [*chars, (" ", 0, 0, 0, 0)]:
+                    if value and not value.isspace():
+                        current.append((value, left, top, right, bottom))
+                        continue
+                    if not current:
+                        continue
+                    word = _normalized_word(
+                        "".join(item[0] for item in current),
+                        min(item[1] for item in current) / page_width,
+                        min(item[2] for item in current) / page_height,
+                        (
+                            max(item[3] for item in current)
+                            - min(item[1] for item in current)
+                        )
+                        / page_width,
+                        (
+                            max(item[4] for item in current)
+                            - min(item[2] for item in current)
+                        )
+                        / page_height,
+                    )
+                    if word:
+                        words.append(word)
+                    current = []
+                pages.append({"page": page_index + 1, "words": words})
+            finally:
+                text_page.close()
+                page.close()
+    finally:
+        pdf.close()
+    return tuple(pages)
 
 
 def _split_pdf_page_texts(text: str) -> tuple[str, ...]:
@@ -84,6 +202,75 @@ def _page_text_ranges(text: str, page_texts: tuple[str, ...]) -> list[list[int]]
         ranges.append([start, end])
         cursor = end
     return ranges
+
+
+def _encode_layout_sidecar(layout_pages: tuple[dict, ...]) -> bytes:
+    payload = {"version": 1, "pages": layout_pages}
+    return gzip.compress(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+        compresslevel=6,
+    )
+
+
+def load_ocr_layout(job: OcrJob) -> dict:
+    if not job.layout_storage_key:
+        return {"version": 1, "pages": []}
+    try:
+        with default_storage.open(job.layout_storage_key, "rb") as stored_file:
+            return json.loads(gzip.decompress(stored_file.read()).decode("utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {"version": 1, "pages": []}
+
+
+def find_ocr_layout_matches(job: OcrJob, query: str) -> list[dict]:
+    query_words = [word.casefold() for word in query.split() if word]
+    if not query_words:
+        return []
+    matches = []
+    for page in load_ocr_layout(job).get("pages", []):
+        words = page.get("words", []) if isinstance(page, dict) else []
+        normalized_words = [str(word.get("text", "")).casefold() for word in words]
+        width = len(query_words)
+        for index in range(0, len(words) - width + 1):
+            candidate = normalized_words[index : index + width]
+            if width == 1:
+                matched = query_words[0] in candidate[0]
+            else:
+                matched = candidate == query_words
+            if not matched:
+                continue
+            rectangles = [
+                {
+                    key: word[key]
+                    for key in ("x", "y", "width", "height")
+                    if key in word
+                }
+                for word in words[index : index + width]
+            ]
+            if rectangles:
+                matches.append(
+                    {
+                        "page": int(page.get("page", 1)),
+                        "rectangles": rectangles,
+                    }
+                )
+    return matches
+
+
+def find_document_ocr_layout_matches(document: Document, query: str) -> list[dict]:
+    for document_file in document.files.all():
+        jobs = sorted(
+            document_file.ocr_jobs.all(),
+            key=lambda job: job.id,
+            reverse=True,
+        )
+        for job in jobs:
+            if job.status != OcrJob.Status.SUCCEEDED or not job.layout_storage_key:
+                continue
+            matches = find_ocr_layout_matches(job, query)
+            if matches:
+                return matches
+    return []
 
 
 def supports_ocr_content_type(content_type: str) -> bool:
@@ -278,6 +465,7 @@ class LocalOcrProvider:
                 )
 
             sidecar_text = sidecar.read_text(encoding="utf-8", errors="replace")
+            layout_pages = _layout_from_searchable_pdf(output_pdf)
         if not sidecar_text.strip():
             return self._extract_pdf_images(input_path=input_path, language=language)
 
@@ -286,6 +474,7 @@ class LocalOcrProvider:
             engine="ocrmypdf",
             language=language,
             page_texts=_split_pdf_page_texts(sidecar_text),
+            layout_pages=layout_pages,
         )
 
     def _extract_pdf_text(self, input_path: Path) -> str:
@@ -312,24 +501,28 @@ class LocalOcrProvider:
             )
 
         page_texts = []
+        layout_pages = []
         with tempfile.TemporaryDirectory() as temporary_directory:
             rendered_paths = self._render_pdf_pages_for_ocr(
                 input_path=input_path,
                 output_directory=Path(temporary_directory),
             )
             for page_path in rendered_paths:
-                page_text = self._run_tesseract(
+                page_text, page_layout = self._run_tesseract_with_layout(
                     tesseract=tesseract,
                     input_path=page_path,
                     language=language,
+                    page_number=len(page_texts) + 1,
                 )
                 page_texts.append(page_text.strip())
+                layout_pages.append(page_layout)
         text = "\n\n".join(page for page in page_texts if page)
         return OcrExtraction(
             text=text,
             engine="pypdfium2+tesseract",
             language=language,
             page_texts=tuple(page_texts),
+            layout_pages=tuple(layout_pages),
         )
 
     def _render_pdf_pages_for_ocr(
@@ -375,14 +568,17 @@ class LocalOcrProvider:
             raise RuntimeError("tesseract ist nicht installiert.")
 
         page_texts = []
+        layout_pages = []
         ocr_input_paths = self._prepare_image_pages_for_ocr(input_path=input_path)
         enhanced_max_pages = getattr(settings, "OCR_IMAGE_ENHANCED_MAX_PAGES", 1)
         for page_index, ocr_input_path in enumerate(ocr_input_paths):
-            page_text = self._run_tesseract(
+            page_text, page_layout = self._run_tesseract_with_layout(
                 tesseract=tesseract,
                 input_path=ocr_input_path,
                 language=language,
+                page_number=page_index + 1,
             )
+            layout_pages.append(page_layout)
             combined_page_text = page_text
             if page_index >= enhanced_max_pages:
                 page_texts.append(combined_page_text.strip())
@@ -427,7 +623,40 @@ class LocalOcrProvider:
             engine="tesseract",
             language=language,
             page_texts=tuple(page_texts),
+            layout_pages=tuple(layout_pages),
         )
+
+    def _run_tesseract_with_layout(
+        self,
+        *,
+        tesseract: str,
+        input_path: Path,
+        language: str,
+        page_number: int,
+    ) -> tuple[str, dict]:
+        output_base = input_path.with_name(f"{input_path.stem}.doksio-ocr")
+        result = subprocess.run(
+            [
+                tesseract,
+                str(input_path),
+                str(output_base),
+                "-l",
+                language,
+                "txt",
+                "tsv",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=getattr(settings, "OCR_TESSERACT_TIMEOUT_SECONDS", 120),
+        )
+        text_path = output_base.with_suffix(".txt")
+        tsv_path = output_base.with_suffix(".tsv")
+        if not text_path.exists() or not tsv_path.exists():
+            return result.stdout, {"page": page_number, "words": []}
+        text = text_path.read_text(encoding="utf-8", errors="replace")
+        tsv = tsv_path.read_text(encoding="utf-8", errors="replace")
+        return text, _layout_from_tesseract_tsv(tsv, page_number)
 
     def _run_tesseract(
         self,
@@ -657,6 +886,17 @@ class RunOcrJob:
         self.job.engine = extraction.engine
         self.job.language = extraction.language
         self.job.extracted_text = extraction.text
+        if extraction.layout_pages:
+            sidecar = _encode_layout_sidecar(extraction.layout_pages)
+            storage_key = (
+                f"tenants/{self.job.tenant_id}/ocr/{self.job.id}/"
+                f"layout-{uuid.uuid4().hex}.json.gz"
+            )
+            self.job.layout_storage_key = default_storage.save(
+                storage_key,
+                ContentFile(sidecar),
+            )
+            self.job.layout_byte_size = len(sidecar)
         self.job.metadata = {
             **(self.job.metadata or {}),
             "page_text_ranges": _page_text_ranges(
@@ -672,6 +912,8 @@ class RunOcrJob:
                 "engine",
                 "language",
                 "extracted_text",
+                "layout_storage_key",
+                "layout_byte_size",
                 "metadata",
                 "error_message",
                 "completed_at",
@@ -690,8 +932,9 @@ class RunOcrJob:
                 "engine": extraction.engine,
             },
         ).execute()
-        self._prefill_document_title(extraction)
-        self._prefill_document_date(extraction)
+        if not self.job.metadata.get("layout_backfill"):
+            self._prefill_document_title(extraction)
+            self._prefill_document_date(extraction)
         transaction.on_commit(
             lambda: self._rebuild_document_search_index(),
         )

@@ -305,6 +305,16 @@ urlpatterns = [
         name="settings_title_refresh",
     ),
     path(
+        "t/<slug:tenant_slug>/settings/maintenance/ocr/",
+        views.tenant_settings_ocr_layout,
+        name="settings_ocr_layout",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/maintenance/ocr/<int:job_id>/resume/",
+        views.tenant_settings_ocr_layout_resume,
+        name="settings_ocr_layout_resume",
+    ),
+    path(
         (
             "t/<slug:tenant_slug>/settings/maintenance/"
             "titles/<int:job_id>/resume/"

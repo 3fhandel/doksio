@@ -6,6 +6,7 @@ from typing import Any
 from django.utils import timezone
 
 from doksio.documents.models import (
+    DocumentBoxOcrLayoutJob,
     DocumentBoxScanOptimizationJob,
     DocumentBoxTitleRefreshJob,
     DocumentOfficeConversionJob,
@@ -36,6 +37,7 @@ TASK_TYPES = {
     "doksio.ocr.tasks.run_ocr_job": "ocr",
     "doksio.documents.tasks.process_document_box_scan_optimization_job": "scan",
     "doksio.documents.tasks.process_document_box_title_refresh_job": "titles",
+    "doksio.documents.tasks.process_document_box_ocr_layout_job": "ocr_layout",
     "doksio.documents.tasks.convert_office_document": "office",
     "doksio.exports.tasks.build_document_image_export": "export",
 }
@@ -82,6 +84,18 @@ def _job_details(job_type: str, object_id: int, tenant_id: int):
             return (
                 job,
                 f"Titel neu berechnen: {job.document_space.path}",
+                f"{job.processed_documents}/{job.total_documents}",
+            )
+    elif job_type == "ocr_layout":
+        job = (
+            DocumentBoxOcrLayoutJob.objects.select_related("document_space")
+            .filter(id=object_id, tenant_id=tenant_id)
+            .first()
+        )
+        if job:
+            return (
+                job,
+                f"OCR-Suchmarkierungen: {job.document_space.path}",
                 f"{job.processed_documents}/{job.total_documents}",
             )
     elif job_type == "export":
@@ -194,6 +208,23 @@ def tenant_background_jobs(tenant) -> tuple[list[BackgroundJob], str]:
         ),
         *(
             (
+                "ocr_layout",
+                job,
+                f"OCR-Suchmarkierungen: {job.document_space.path}",
+                f"{job.processed_documents}/{job.total_documents}",
+            )
+            for job in DocumentBoxOcrLayoutJob.objects.select_related(
+                "document_space"
+            ).filter(
+                tenant=tenant,
+                status__in=[
+                    DocumentBoxOcrLayoutJob.Status.QUEUED,
+                    DocumentBoxOcrLayoutJob.Status.RUNNING,
+                ],
+            )
+        ),
+        *(
+            (
                 "export",
                 job,
                 f"Export: {job.get_export_type_display()}",
@@ -226,7 +257,7 @@ def tenant_background_jobs(tenant) -> tuple[list[BackgroundJob], str]:
         if (job_type, job.id) in known_jobs:
             continue
         is_interrupted = (
-            job_type in {"scan", "titles"}
+            job_type in {"scan", "titles", "ocr_layout"}
             and getattr(job, "status", "") == "running"
             and job.is_resumable
         )
@@ -294,6 +325,27 @@ def cancel_background_job(*, tenant, job_type: str, object_id: int, task_id: str
             heartbeat_at=now,
             lease_token=None,
             lease_expires_at=None,
+            updated_at=now,
+        )
+    elif job_type == "ocr_layout":
+        DocumentBoxOcrLayoutJob.objects.filter(
+            id=object_id,
+            tenant=tenant,
+        ).update(
+            status=DocumentBoxOcrLayoutJob.Status.FAILED,
+            error_message="Durch einen Administrator abgebrochen.",
+            completed_at=now,
+            heartbeat_at=now,
+            updated_at=now,
+        )
+        OcrJob.objects.filter(
+            tenant=tenant,
+            status=OcrJob.Status.RUNNING,
+            metadata__maintenance_job_id=object_id,
+        ).update(
+            status=OcrJob.Status.FAILED,
+            error_message="Mit der OCR-Wartung abgebrochen.",
+            completed_at=now,
             updated_at=now,
         )
     elif job_type == "export":
