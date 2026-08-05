@@ -78,11 +78,14 @@
       const button = document.createElement("button");
       button.type = "button";
       button.className = "document-mention-suggestion";
+      button.classList.toggle("document-mention-suggestion-group", user.kind === "role");
       button.dataset.username = user.username;
       const label = document.createElement("span");
       label.textContent = user.display_name || user.username;
       const username = document.createElement("small");
-      username.textContent = `@${user.username}`;
+      username.textContent = user.kind === "role"
+        ? `Gruppe · @${user.username}`
+        : `@${user.username}`;
       button.append(label, username);
       button.addEventListener("mousedown", (event) => {
         event.preventDefault();

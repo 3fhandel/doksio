@@ -666,6 +666,11 @@ class DocumentComment(models.Model):
         blank=True,
         related_name="mentioned_document_comments",
     )
+    mentioned_roles = models.ManyToManyField(
+        "accounts.TenantRole",
+        blank=True,
+        related_name="mentioned_document_comments",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

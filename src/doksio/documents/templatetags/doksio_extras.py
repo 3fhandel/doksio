@@ -173,7 +173,11 @@ def display_user(user):
 
 @register.filter
 def comment_body_with_mentions(comment):
-    return render_mentions(comment.body, comment.mentioned_users.all())
+    return render_mentions(
+        comment.body,
+        comment.mentioned_users.all(),
+        comment.mentioned_roles.all(),
+    )
 
 
 @register.simple_tag(takes_context=True)

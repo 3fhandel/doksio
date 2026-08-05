@@ -59,12 +59,14 @@ def test_tenant_admin_can_create_role_from_settings(client):
             "slug": "sachbearbeitung",
             "description": "Fachliche Bearbeitung",
             "permissions": [str(view_permission.id)],
+            "is_public_group": "on",
         },
     )
 
     role = TenantRole.objects.get(tenant=tenant, slug="sachbearbeitung")
     assert response.status_code == 302
     assert role.permissions.filter(code=TenantPermissions.DOCUMENTS_VIEW).exists()
+    assert role.is_public_group is True
 
 
 @pytest.mark.django_db

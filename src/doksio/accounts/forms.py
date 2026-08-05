@@ -579,6 +579,15 @@ class TenantRoleCreateForm(forms.Form):
         required=False,
         widget=forms.Textarea(attrs={"class": "form-control", "rows": 2}),
     )
+    is_public_group = forms.BooleanField(
+        label="Öffentliche Gruppe",
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        help_text=(
+            "Die Rolle kann in Kommentaren erwähnt werden. Dabei werden alle "
+            "Mitglieder der Rolle benachrichtigt."
+        ),
+    )
     permissions = forms.ModelMultipleChoiceField(
         label="Berechtigungen",
         queryset=TenantPermission.objects.none(),
@@ -632,6 +641,15 @@ class TenantRoleUpdateForm(forms.Form):
         required=False,
         widget=forms.Textarea(
             attrs={"class": "form-control form-control-sm", "rows": 2}
+        ),
+    )
+    is_public_group = forms.BooleanField(
+        label="Öffentliche Gruppe",
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        help_text=(
+            "Die Rolle kann in Kommentaren erwähnt werden. Dabei werden alle "
+            "Mitglieder der Rolle benachrichtigt."
         ),
     )
     permissions = forms.ModelMultipleChoiceField(

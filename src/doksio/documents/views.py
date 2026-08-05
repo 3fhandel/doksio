@@ -2091,6 +2091,7 @@ def document_detail(
         "files__office_conversion_jobs__output_file",
         "comments__created_by__doksio_profile",
         "comments__mentioned_users",
+        "comments__mentioned_roles",
         "tag_assignments__tag",
     )
     document = get_object_or_404(
@@ -5398,6 +5399,7 @@ def tenant_settings_role_create(
                 can_access_all_document_spaces=form.cleaned_data[
                     "can_access_all_document_spaces"
                 ],
+                is_public_group=form.cleaned_data["is_public_group"],
                 actor=request.user,
             ).execute()
             messages.success(request, "Rolle wurde erstellt.")
@@ -5448,6 +5450,7 @@ def tenant_settings_role_edit(
                     "can_access_all_document_spaces"
                 ],
                 is_active=form.cleaned_data["is_active"],
+                is_public_group=form.cleaned_data["is_public_group"],
                 actor=request.user,
             ).execute()
             messages.success(request, "Rolle wurde aktualisiert.")
@@ -5460,6 +5463,7 @@ def tenant_settings_role_edit(
                 "permissions": role.permissions.all(),
                 "can_access_all_document_spaces": (role.can_access_all_document_spaces),
                 "document_spaces": role.document_spaces.all(),
+                "is_public_group": role.is_public_group,
                 "is_active": role.is_active,
             },
             tenant=tenant,

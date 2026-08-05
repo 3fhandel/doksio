@@ -204,6 +204,7 @@ class TenantRole(models.Model):
         related_name="access_roles",
     )
     can_access_all_document_spaces = models.BooleanField(default=True)
+    is_public_group = models.BooleanField(default=False)
     is_system_role = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)

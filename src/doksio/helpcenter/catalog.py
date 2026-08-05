@@ -295,10 +295,11 @@ HELP_TOPICS = (
             HelpSection(
                 title="Jemanden erwähnen",
                 text=(
-                    "Tippe im Kommentar @ und wähle einen Benutzer aus der "
-                    "Vorschlagsliste. "
-                    "Die erwähnte Person erhält abhängig von ihrem Profil eine In-App- "
-                    "oder E-Mail-Benachrichtigung."
+                    "Tippe im Kommentar @ und wähle einen Benutzer oder eine "
+                    "öffentliche Gruppe aus der Vorschlagsliste. Einzelne Personen "
+                    "beziehungsweise alle berechtigten Mitglieder der Gruppe erhalten "
+                    "abhängig von ihrem Profil eine In-App- oder "
+                    "E-Mail-Benachrichtigung."
                 ),
             ),
             HelpSection(
@@ -409,6 +410,15 @@ HELP_TOPICS = (
                     "Berechtigungen werden über mehrere Rollen additiv vergeben. "
                     "Dokumentenbox-Rechte beschränken zusätzlich, welche Ablagen und "
                     "Dokumente ein Benutzer sehen kann."
+                ),
+            ),
+            HelpSection(
+                title="Öffentliche Gruppen",
+                text=(
+                    "Eine Rolle kann als öffentliche Gruppe markiert werden. Dann "
+                    "erscheint sie bei @-Erwähnungen in Kommentaren. Eine Erwähnung "
+                    "benachrichtigt alle aktiven Rollenmitglieder, die das Dokument "
+                    "sehen dürfen."
                 ),
             ),
             HelpSection(

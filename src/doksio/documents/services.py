@@ -24,7 +24,7 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 from doksio.audit.services import RecordAuditEvent
-from doksio.documents.mentions import display_name_for_user, mentioned_users_from_text
+from doksio.documents.mentions import display_name_for_user, mentioned_entities_from_text
 from doksio.documents.metadata import effective_metadata_fields
 from doksio.documents.models import (
     Document,
@@ -3243,13 +3243,32 @@ class AddDocumentComment:
             body=body,
             created_by=self.actor,
         )
+        directly_mentioned_users, mentioned_roles = mentioned_entities_from_text(
+            body,
+            self.document.tenant,
+        )
+        role_users = list(
+            get_user_model()
+            .objects.filter(
+                tenant_memberships__tenant=self.document.tenant,
+                tenant_memberships__is_active=True,
+                tenant_memberships__roles__in=mentioned_roles,
+                is_active=True,
+            )
+            .select_related("doksio_profile")
+            .distinct()
+        )
+        from doksio.documents.policies import can_view_document
+
         mentioned_users = [
             user
-            for user in mentioned_users_from_text(body, self.document.tenant)
-            if user != self.actor
+            for user in {user.id: user for user in [*directly_mentioned_users, *role_users]}.values()
+            if user != self.actor and can_view_document(user, self.document)
         ]
         if mentioned_users:
             comment.mentioned_users.set(mentioned_users)
+        if mentioned_roles:
+            comment.mentioned_roles.set(mentioned_roles)
         notification_users = {
             user.id: user for user in [*previously_mentioned_users, *mentioned_users]
         }
@@ -3270,6 +3289,7 @@ class AddDocumentComment:
                 "document_id": self.document.id,
                 "body_length": len(body),
                 "mentioned_user_ids": [user.id for user in mentioned_users],
+                "mentioned_role_ids": [role.id for role in mentioned_roles],
             },
         ).execute()
         _schedule_search_index_rebuild(self.document)

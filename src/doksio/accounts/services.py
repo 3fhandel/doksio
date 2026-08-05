@@ -491,6 +491,7 @@ class CreateTenantRole:
     document_spaces: list[DocumentSpace] | None = None
     can_access_all_document_spaces: bool = True
     description: str = ""
+    is_public_group: bool = False
     actor: get_user_model() | None = None
 
     @transaction.atomic
@@ -501,6 +502,7 @@ class CreateTenantRole:
             slug=self.slug,
             description=self.description,
             can_access_all_document_spaces=self.can_access_all_document_spaces,
+            is_public_group=self.is_public_group,
         )
         role.permissions.set(self.permissions)
         role.document_spaces.set(self.document_spaces or [])
@@ -520,6 +522,7 @@ class CreateTenantRole:
                 "can_access_all_document_spaces": (
                     role.can_access_all_document_spaces
                 ),
+                "is_public_group": role.is_public_group,
             },
         ).execute()
         return role
@@ -534,6 +537,7 @@ class UpdateTenantRole:
     is_active: bool
     document_spaces: list[DocumentSpace] | None = None
     can_access_all_document_spaces: bool = True
+    is_public_group: bool = False
     actor: get_user_model() | None = None
 
     @transaction.atomic
@@ -548,6 +552,7 @@ class UpdateTenantRole:
             self.role.can_access_all_document_spaces
         )
         previous_active = self.role.is_active
+        previous_is_public_group = self.role.is_public_group
         previous_name = self.role.name
 
         self.role.name = self.name
@@ -556,12 +561,14 @@ class UpdateTenantRole:
             self.can_access_all_document_spaces
         )
         self.role.is_active = self.is_active
+        self.role.is_public_group = self.is_public_group
         self.role.save(
             update_fields=[
                 "name",
                 "description",
                 "can_access_all_document_spaces",
                 "is_active",
+                "is_public_group",
                 "updated_at",
             ]
         )
@@ -593,6 +600,8 @@ class UpdateTenantRole:
                     previous_can_access_all_document_spaces
                 ),
                 "is_active": self.role.is_active,
+                "is_public_group": self.role.is_public_group,
+                "previous_is_public_group": previous_is_public_group,
                 "previous_active": previous_active,
             },
         ).execute()

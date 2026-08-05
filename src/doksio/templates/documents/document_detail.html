@@ -948,7 +948,7 @@
 
 {% block extra_body %}
   {{ mention_suggestions|json_script:"document-comment-mention-users" }}
-  <script src="{% static 'js/document-mentions.js' %}?v=1"></script>
+  <script src="{% static 'js/document-mentions.js' %}?v=2"></script>
   <script src="{% static 'js/document-metadata.js' %}?v=3"></script>
   {% if preview_kind == "pdf" %}
     <script src="{% static 'vendor/pdfjs/pdf.min.js' %}?v=3.11.174"></script>

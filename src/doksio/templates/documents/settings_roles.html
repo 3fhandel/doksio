@@ -40,6 +40,9 @@
                 {% if role.is_system_role %}
                   <span class="badge text-bg-light ms-2">Standard</span>
                 {% endif %}
+                {% if role.is_public_group %}
+                  <span class="badge text-bg-primary ms-2">Öffentliche Gruppe</span>
+                {% endif %}
               </td>
               <td class="hash-value">{{ role.slug }}</td>
               <td>{{ role.permissions.count }}</td>

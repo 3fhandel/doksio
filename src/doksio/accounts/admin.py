@@ -21,8 +21,15 @@ class TenantPermissionAdmin(admin.ModelAdmin):
 
 @admin.register(TenantRole)
 class TenantRoleAdmin(admin.ModelAdmin):
-    list_display = ["name", "tenant", "slug", "is_system_role", "is_active"]
-    list_filter = ["tenant", "is_system_role", "is_active"]
+    list_display = [
+        "name",
+        "tenant",
+        "slug",
+        "is_public_group",
+        "is_system_role",
+        "is_active",
+    ]
+    list_filter = ["tenant", "is_public_group", "is_system_role", "is_active"]
     search_fields = ["name", "slug", "tenant__name"]
     filter_horizontal = ["permissions"]
 

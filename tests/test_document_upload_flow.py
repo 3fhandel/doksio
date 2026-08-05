@@ -51,6 +51,7 @@ from doksio.documents.services import (
     UpdateDocumentMetadata,
     pdf_page_count,
 )
+from doksio.documents.templatetags.doksio_extras import comment_body_with_mentions
 from doksio.einvoices.zugferd import extract_einvoice_from_pdf
 from doksio.exports.models import ExportRun, ExportRunItem
 from doksio.ingestion.models import ImportJob, ImportSource, TenantSmtpSettings
@@ -2551,6 +2552,46 @@ def test_add_document_comment_mentions_tenant_user_and_notifies():
 
 
 @pytest.mark.django_db
+def test_add_document_comment_mentions_public_role_and_notifies_members():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    public_role = roles["member"]
+    public_role.is_public_group = True
+    public_role.save(update_fields=["is_public_group", "updated_at"])
+    author = get_user_model().objects.create_user(username="alice")
+    first_member = get_user_model().objects.create_user(username="bob")
+    second_member = get_user_model().objects.create_user(username="charlie")
+    for user in (author, first_member, second_member):
+        TenantMembership.objects.create(tenant=tenant, user=user, role=public_role)
+    document, _document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Invoice 4711",
+        space=space,
+        file_obj=BytesIO(b"invoice content"),
+        original_filename="invoice.pdf",
+        content_type="application/pdf",
+        created_by=author,
+    ).execute()
+
+    comment = AddDocumentComment(
+        document=document,
+        body=f"Bitte @gruppe.{public_role.slug} prüfen.",
+        actor=author,
+    ).execute()
+
+    assert list(comment.mentioned_roles.all()) == [public_role]
+    assert set(comment.mentioned_users.all()) == {first_member, second_member}
+    assert set(
+        Notification.objects.filter(document_comment=comment).values_list(
+            "recipient__username",
+            flat=True,
+        )
+    ) == {"bob", "charlie"}
+    assert "document-comment-mention" in comment_body_with_mentions(comment)
+
+
+@pytest.mark.django_db
 def test_previously_mentioned_user_is_notified_about_later_comments():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
@@ -2831,6 +2872,8 @@ def test_document_detail_renders_comment_mention_ui(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    roles["member"].is_public_group = True
+    roles["member"].save(update_fields=["is_public_group", "updated_at"])
     user = get_user_model().objects.create_user(
         username="alice",
         password="secret",
@@ -2877,6 +2920,7 @@ def test_document_detail_renders_comment_mention_ui(client):
     assert "document-comment-mention-users" in content
     assert "document-comment-mention" in content
     assert "@bob" in content
+    assert f"gruppe.{roles['member'].slug}" in content
 
 
 @pytest.mark.django_db

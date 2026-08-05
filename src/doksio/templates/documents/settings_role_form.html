@@ -47,6 +47,14 @@
           {{ form.description.errors }}
         </div>
         <div class="col-12">
+          <div class="form-check">
+            {{ form.is_public_group }}
+            <label class="form-check-label" for="{{ form.is_public_group.id_for_label }}">{{ form.is_public_group.label }}</label>
+          </div>
+          <div class="form-text">{{ form.is_public_group.help_text }}</div>
+          {{ form.is_public_group.errors }}
+        </div>
+        <div class="col-12">
           <div class="metadata-label mb-2">Berechtigungen</div>
           <div class="row">
             {% for checkbox in form.permissions %}
