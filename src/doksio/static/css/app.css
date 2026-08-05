@@ -1423,8 +1423,13 @@ body {
 }
 
 .document-space-picker-option:hover,
+.document-space-picker-option.is-active,
 .document-space-picker-option.selected {
   background: rgba(var(--bs-primary-rgb), 0.09);
+}
+
+.document-space-picker-option.is-active {
+  box-shadow: inset 0.2rem 0 var(--bs-primary);
 }
 
 .document-space-picker-empty {

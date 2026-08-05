@@ -56,23 +56,57 @@
       ? initialOption.textContent.trim()
       : "";
 
-    const close = () => { menu.hidden = true; };
+    let activeIndex = -1;
+    input.setAttribute("role", "combobox");
+    input.setAttribute("aria-autocomplete", "list");
+    input.setAttribute("aria-expanded", "false");
+    menu.setAttribute("role", "listbox");
+
+    const optionButtons = () => Array.from(
+      menu.querySelectorAll(".document-space-picker-option"),
+    );
+    const setActive = (index) => {
+      const buttons = optionButtons();
+      if (!buttons.length) {
+        activeIndex = -1;
+        return;
+      }
+      activeIndex = (index + buttons.length) % buttons.length;
+      buttons.forEach((button, buttonIndex) => {
+        const isActive = buttonIndex === activeIndex;
+        button.classList.toggle("is-active", isActive);
+        button.setAttribute("aria-selected", isActive ? "true" : "false");
+      });
+      buttons[activeIndex].scrollIntoView({ block: "nearest" });
+    };
+    const close = () => {
+      menu.hidden = true;
+      activeIndex = -1;
+      input.setAttribute("aria-expanded", "false");
+    };
     const choose = (option) => {
+      const changed = select.value !== option.value;
       select.value = option.value;
       input.value = selectWasRequired && option.empty ? "" : option.label;
-      select.dispatchEvent(new Event("change", { bubbles: true }));
+      if (changed) {
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
       close();
     };
     const render = () => {
       const query = normalize(input.value);
       const matches = options.filter((option) => !query || normalize(option.label).includes(query));
       menu.replaceChildren();
-      matches.forEach((option) => {
+      matches.forEach((option, optionIndex) => {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "document-space-picker-option";
         button.textContent = option.label;
+        button.setAttribute("role", "option");
+        button.dataset.optionIndex = String(optionIndex);
+        button._documentSpaceOption = option;
         button.classList.toggle("selected", option.value === select.value);
+        button.addEventListener("mouseenter", () => setActive(optionIndex));
         button.addEventListener("mousedown", (event) => {
           event.preventDefault();
           choose(option);
@@ -86,6 +120,9 @@
         menu.append(empty);
       }
       menu.hidden = false;
+      input.setAttribute("aria-expanded", "true");
+      const selectedIndex = matches.findIndex((option) => option.value === select.value);
+      setActive(selectedIndex >= 0 ? selectedIndex : 0);
     };
 
     input.addEventListener("focus", () => {
@@ -94,8 +131,26 @@
     });
     input.addEventListener("input", render);
     input.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") close();
+      if (event.key === "Escape") {
+        close();
+        return;
+      }
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        if (menu.hidden) {
+          input.value = "";
+          render();
+        }
+        setActive(activeIndex + (event.key === "ArrowDown" ? 1 : -1));
+        return;
+      }
       if (event.key === "Enter") {
+        const activeButton = optionButtons()[activeIndex];
+        if (!menu.hidden && activeButton?._documentSpaceOption) {
+          event.preventDefault();
+          choose(activeButton._documentSpaceOption);
+          return;
+        }
         const exact = options.find((option) => normalize(option.label) === normalize(input.value));
         if (exact) { event.preventDefault(); choose(exact); }
       }
