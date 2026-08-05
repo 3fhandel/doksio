@@ -344,8 +344,7 @@
                               <button
                                 class="btn btn-sm btn-warning mt-2"
                                 type="button"
-                                data-bs-toggle="modal"
-                                data-bs-target="#documentRelationPickerModal"
+                                data-relation-picker-open
                                 data-relation-default-space="{{ task.relation_picker_default_space_id }}"
                                 data-relation-default-workflow-status="{{ task.relation_picker_default_workflow_status }}"
                                 data-relation-default-include-children="{% if task.relation_picker_default_include_children %}1{% else %}0{% endif %}"
@@ -559,7 +558,7 @@
                 <p class="text-secondary mb-3">Noch keine Dokumente verknüpft.</p>
               {% endif %}
 
-              <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#documentRelationPickerModal">
+              <button class="btn btn-sm btn-outline-primary" type="button" data-relation-picker-open>
                 Verknüpfung hinzufügen
               </button>
               {{ relation_form.target_document_id.errors }}
@@ -655,6 +654,72 @@
               </div>
             </section>
           {% endif %}
+
+          <section class="app-card document-relation-workspace" data-document-relation-picker data-search-url="{% url 'documents:relation_picker_search' document.tenant.slug document.id %}" hidden>
+            <form method="post" data-document-relation-form>
+              {% csrf_token %}
+              <input type="hidden" name="action" value="add_relation">
+              {{ relation_form.target_document_id }}
+              <div class="document-relation-workspace-header">
+                <div>
+                  <h2 class="h5 mb-0">Dokument verknüpfen</h2>
+                </div>
+                <button class="btn-close" type="button" aria-label="Verknüpfungssuche schließen" data-relation-picker-close></button>
+              </div>
+              <div class="document-relation-workspace-body">
+                <div class="document-relation-filter-grid">
+                  <div>
+                    <label class="form-label" for="document-relation-search">Suche</label>
+                    <input class="form-control" id="document-relation-search" type="search" placeholder="Titel, Volltext, Metadaten, Box oder ID" data-relation-search-input>
+                  </div>
+                  <div>
+                    <label class="form-label" for="document-relation-space">Dokumentenbox</label>
+                    <div class="choice-picker-compact" data-choice-picker data-empty-text="Keine passende Dokumentenbox">
+                      <select class="form-select" id="document-relation-space" data-relation-space-filter>
+                        <option value="">Alle sichtbaren Boxen</option>
+                        {% for space in relation_picker_spaces %}
+                          <option value="{{ space.id }}">{{ space.path }}</option>
+                        {% endfor %}
+                      </select>
+                      <div class="choice-picker-input-wrap">
+                        {% include "includes/icons.html" with icon="search" %}
+                        <input class="form-control" type="text" autocomplete="off" placeholder="Dokumentenbox suchen" aria-label="Dokumentenbox" data-choice-picker-input>
+                      </div>
+                      <div class="choice-picker-menu" data-choice-picker-menu hidden></div>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="form-label" for="document-relation-workflow-status">Workflowstatus</label>
+                    <select class="form-select" id="document-relation-workflow-status" data-relation-workflow-filter>
+                      <option value="any">Alle</option>
+                      <option value="open">Offener Workflow</option>
+                      <option value="completed">Workflows abgeschlossen</option>
+                      <option value="none">Keine Workflows</option>
+                    </select>
+                  </div>
+                  <div class="document-relation-child-filter">
+                    <div class="form-check">
+                      <input class="form-check-input" type="checkbox" id="document-relation-include-children" data-relation-include-children checked>
+                      <label class="form-check-label" for="document-relation-include-children">Unterboxen einschließen</label>
+                    </div>
+                  </div>
+                </div>
+                <div class="document-relation-results mt-3" data-relation-search-results>
+                  <div class="text-secondary small">Filter setzen oder Suchbegriff eingeben, um Dokumente zu finden.</div>
+                </div>
+              </div>
+              <div class="document-relation-workspace-footer">
+                <div class="document-relation-selected" data-relation-selected>Noch kein Dokument ausgewählt.</div>
+                <div class="d-flex justify-content-end gap-2">
+                  <button type="button" class="btn btn-outline-secondary" data-relation-picker-close>Abbrechen</button>
+                  <button type="submit" class="btn btn-primary" data-relation-submit disabled>
+                    {% include "includes/icons.html" with icon="link" %}
+                    <span>Verknüpfen</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </section>
         </aside>
       </div>
 
@@ -853,73 +918,6 @@
       </div>
     {% endif %}
 
-    <div class="modal fade" id="documentRelationPickerModal" tabindex="-1" aria-labelledby="documentRelationPickerModalLabel" aria-hidden="true">
-      <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <form class="modal-content" method="post" data-document-relation-picker data-document-relation-form data-search-url="{% url 'documents:relation_picker_search' document.tenant.slug document.id %}">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="add_relation">
-          {{ relation_form.target_document_id }}
-          <div class="modal-header">
-            <h2 class="modal-title h5" id="documentRelationPickerModalLabel">Dokument auswählen</h2>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
-          </div>
-          <div class="modal-body">
-            <div class="document-relation-filter-grid">
-              <div>
-                <label class="form-label" for="document-relation-search">Suche</label>
-                <input class="form-control" id="document-relation-search" type="search" placeholder="Titel, Volltext, Metadaten, Box oder ID" data-relation-search-input>
-              </div>
-              <div>
-                <label class="form-label" for="document-relation-space">Dokumentenbox</label>
-                <div class="choice-picker-compact" data-choice-picker data-empty-text="Keine passende Dokumentenbox">
-                  <select class="form-select" id="document-relation-space" data-relation-space-filter>
-                    <option value="">Alle sichtbaren Boxen</option>
-                    {% for space in relation_picker_spaces %}
-                      <option value="{{ space.id }}">{{ space.path }}</option>
-                    {% endfor %}
-                  </select>
-                  <div class="choice-picker-input-wrap">
-                    {% include "includes/icons.html" with icon="search" %}
-                    <input class="form-control" type="text" autocomplete="off" placeholder="Dokumentenbox suchen" aria-label="Dokumentenbox" data-choice-picker-input>
-                  </div>
-                  <div class="choice-picker-menu" data-choice-picker-menu hidden></div>
-                </div>
-              </div>
-              <div>
-                <label class="form-label" for="document-relation-workflow-status">Workflowstatus</label>
-                <select class="form-select" id="document-relation-workflow-status" data-relation-workflow-filter>
-                  <option value="any">Alle</option>
-                  <option value="open">Offener Workflow</option>
-                  <option value="completed">Workflows abgeschlossen</option>
-                  <option value="none">Keine Workflows</option>
-                </select>
-              </div>
-              <div class="document-relation-child-filter">
-                <div class="form-check">
-                  <input class="form-check-input" type="checkbox" id="document-relation-include-children" data-relation-include-children checked>
-                  <label class="form-check-label" for="document-relation-include-children">Unterboxen einschließen</label>
-                </div>
-              </div>
-            </div>
-            <div class="document-relation-results mt-3" data-relation-search-results>
-              <div class="text-secondary small">Filter setzen oder Suchbegriff eingeben, um Dokumente zu finden.</div>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <div class="document-relation-selected me-auto" data-relation-selected>
-              Noch kein Dokument ausgewählt.
-            </div>
-            <div class="d-flex gap-2">
-              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
-              <button type="submit" class="btn btn-primary" data-relation-submit disabled>
-                {% include "includes/icons.html" with icon="link" %}
-                <span>Verknüpfen</span>
-              </button>
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
     <div class="modal fade" id="documentRelationRemoveModal" tabindex="-1" aria-labelledby="documentRelationRemoveModalLabel" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered">
         <form class="modal-content" method="post" data-relation-remove-form>
@@ -1084,6 +1082,8 @@
         return;
       }
       const searchUrl = picker.getAttribute("data-search-url");
+      const sidepanel = picker.closest(".document-sidepanel");
+      const workspace = picker.closest(".document-workspace");
       const input = picker.querySelector("[data-relation-search-input]");
       const spaceFilter = picker.querySelector("[data-relation-space-filter]");
       const workflowFilter = picker.querySelector("[data-relation-workflow-filter]");
@@ -1094,6 +1094,8 @@
       const submitButton = form.querySelector("[data-relation-submit]");
       let activeRequest = 0;
       let initializingFilters = false;
+      let returnFocus = null;
+      let closeTimer = null;
 
       const setFilterControlsEditable = (isEditable) => {
         [spaceFilter, workflowFilter, includeChildren].forEach((control) => {
@@ -1146,8 +1148,9 @@
           text.className = "document-relation-result-main";
           const title = document.createElement("strong");
           title.textContent = item.title;
+          title.title = item.title;
           const meta = document.createElement("small");
-          meta.textContent = `#${item.id} · ${item.space}${item.document_date ? ` · ${item.document_date}` : ""}`;
+          meta.textContent = `#${item.id} · ${item.space}`;
           text.append(title, meta);
           if (item.search_match?.excerpt) {
             const match = document.createElement("span");
@@ -1159,8 +1162,14 @@
           badges.className = "document-relation-result-badges";
           const created = document.createElement("span");
           created.className = "badge text-bg-light";
-          created.textContent = item.created_at;
+          created.textContent = `Import: ${item.created_at}`;
           badges.appendChild(created);
+          if (item.document_date) {
+            const documentDate = document.createElement("span");
+            documentDate.className = "badge text-bg-light";
+            documentDate.textContent = `Beleg: ${item.document_date}`;
+            badges.appendChild(documentDate);
+          }
           if (item.workflow_total_count) {
             const workflow = document.createElement("span");
             workflow.className = item.workflow_open_count
@@ -1245,39 +1254,73 @@
           }
         });
       });
-      document
-        .getElementById("documentRelationPickerModal")
-        .addEventListener("show.bs.modal", (event) => {
-          const trigger = event.relatedTarget;
-          const defaultSpace = trigger?.getAttribute("data-relation-default-space") || "";
-          const defaultWorkflowStatus = trigger?.getAttribute("data-relation-default-workflow-status") || "any";
-          const defaultIncludeChildren = trigger?.getAttribute("data-relation-default-include-children");
-          const filtersEditable = trigger?.getAttribute("data-relation-filters-editable") !== "0";
-          targetInput.value = "";
-          selected.textContent = "Noch kein Dokument ausgewählt.";
-          if (submitButton) {
-            submitButton.disabled = true;
-          }
-          initializingFilters = true;
-          if (spaceFilter) {
-            spaceFilter.value = defaultSpace;
-            spaceFilter.dispatchEvent(new Event("change", { bubbles: true }));
-          }
-          if (workflowFilter) {
-            workflowFilter.value = defaultWorkflowStatus;
-          }
-          if (includeChildren) {
-            includeChildren.checked = defaultIncludeChildren !== "0";
-          }
-          setFilterControlsEditable(filtersEditable);
-          initializingFilters = false;
-          search();
+      const openPicker = (trigger) => {
+        window.clearTimeout(closeTimer);
+        returnFocus = trigger;
+        const defaultSpace = trigger?.getAttribute("data-relation-default-space") || "";
+        const defaultWorkflowStatus = trigger?.getAttribute("data-relation-default-workflow-status") || "any";
+        const defaultIncludeChildren = trigger?.getAttribute("data-relation-default-include-children");
+        const filtersEditable = trigger?.getAttribute("data-relation-filters-editable") !== "0";
+        targetInput.value = "";
+        selected.textContent = "Noch kein Dokument ausgewählt.";
+        if (submitButton) {
+          submitButton.disabled = true;
+        }
+        initializingFilters = true;
+        if (spaceFilter) {
+          spaceFilter.value = defaultSpace;
+          spaceFilter.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        if (workflowFilter) {
+          workflowFilter.value = defaultWorkflowStatus;
+        }
+        if (includeChildren) {
+          includeChildren.checked = defaultIncludeChildren !== "0";
+        }
+        setFilterControlsEditable(filtersEditable);
+        initializingFilters = false;
+        picker.hidden = false;
+        sidepanel?.classList.add("document-relation-mode");
+        workspace?.classList.add("document-relation-mode");
+        document.querySelectorAll("[data-relation-picker-open]").forEach((button) => {
+          button.setAttribute("aria-expanded", "true");
         });
-      document
-        .getElementById("documentRelationPickerModal")
-        .addEventListener("shown.bs.modal", () => {
+        search();
+        window.requestAnimationFrame(() => {
+          picker.classList.add("is-open");
           input.focus();
         });
+      };
+
+      const closePicker = () => {
+        activeRequest += 1;
+        picker.classList.remove("is-open");
+        sidepanel?.classList.remove("document-relation-mode");
+        workspace?.classList.remove("document-relation-mode");
+        document.querySelectorAll("[data-relation-picker-open]").forEach((button) => {
+          button.setAttribute("aria-expanded", "false");
+        });
+        returnFocus?.focus();
+        returnFocus = null;
+        closeTimer = window.setTimeout(() => {
+          if (!picker.classList.contains("is-open")) {
+            picker.hidden = true;
+          }
+        }, 260);
+      };
+
+      document.querySelectorAll("[data-relation-picker-open]").forEach((button) => {
+        button.setAttribute("aria-expanded", "false");
+        button.addEventListener("click", () => openPicker(button));
+      });
+      picker.querySelectorAll("[data-relation-picker-close]").forEach((button) => {
+        button.addEventListener("click", closePicker);
+      });
+      picker.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          closePicker();
+        }
+      });
     })();
     (() => {
       const modalElement = document.getElementById("documentRelationRemoveModal");

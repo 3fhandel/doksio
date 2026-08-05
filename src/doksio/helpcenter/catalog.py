@@ -175,9 +175,13 @@ HELP_TOPICS = (
                 title="Dokumente verknüpfen",
                 text=(
                     "Unter „Verknüpfte Dokumente“ öffnest du mit „Verknüpfung "
-                    "hinzufügen“ die Dokumentauswahl. Filtere die Treffer, wähle "
-                    "das gewünschte Dokument aus und bestätige die Verknüpfung "
-                    "direkt im Dialog. Danach wird die Detailansicht mit der neuen "
+                    "hinzufügen“ einen Arbeitsbereich, der von links über die "
+                    "Dokumentinformationen eingeblendet wird. "
+                    "Auf größeren Bildschirmen bleibt die aktuelle Belegvorschau "
+                    "rechts sichtbar und bedienbar, damit du zum Beispiel eine "
+                    "Belegnummer ablesen kannst. Filtere die Treffer, wähle das "
+                    "gewünschte Dokument aus und bestätige die Verknüpfung direkt "
+                    "im Arbeitsbereich. Danach wird die Detailansicht mit der neuen "
                     "Verknüpfung geladen. Ein Klick auf ein Thumbnail öffnet zuvor "
                     "eine Schnellvorschau der Originaldatei. Beim Lösen einer bestehenden Verknüpfung "
                     "zeigt ein Bestätigungsdialog noch einmal das betroffene Dokument."

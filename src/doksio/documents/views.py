@@ -2833,7 +2833,9 @@ def document_relation_picker_search(
             "title": candidate.title,
             "space": candidate.space.path,
             "document_date": (
-                candidate.document_date.isoformat() if candidate.document_date else ""
+                candidate.document_date.strftime("%d.%m.%Y")
+                if candidate.document_date
+                else ""
             ),
             "created_at": timezone.localtime(candidate.created_at).strftime(
                 "%d.%m.%Y %H:%M"

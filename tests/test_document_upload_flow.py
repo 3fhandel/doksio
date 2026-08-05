@@ -1731,6 +1731,8 @@ def test_document_detail_can_link_related_document(client, monkeypatch):
         original_filename="beleg.pdf",
         content_type="application/pdf",
     ).execute()
+    related_document.document_date = date(2026, 7, 23)
+    related_document.save(update_fields=["document_date", "updated_at"])
     unrelated_document, _unrelated_file = CreateDocumentFromUpload(
         tenant=tenant,
         title="Sonstiges",
@@ -1781,10 +1783,13 @@ def test_document_detail_can_link_related_document(client, monkeypatch):
     content = detail_response.content.decode()
     assert "Verknüpfte Dokumente" in content
     assert "Beleg" in content
-    assert "Dokument auswählen" in content
+    assert "Dokument verknüpfen" in content
     assert "Verknüpfung hinzufügen" in content
+    assert "data-document-relation-picker" in content
+    assert "data-relation-picker-open" in content
     assert 'data-relation-submit disabled' in content
-    assert "Dokument verknüpfen</button>" not in content
+    assert 'id="documentRelationPickerModal"' not in content
+    assert 'data-bs-target="#documentRelationPickerModal"' not in content
     assert 'data-bs-target="#documentRelationRemoveModal"' in content
     assert 'data-relation-remove-id="' in content
     assert "Die Dokumente selbst bleiben unverändert erhalten." in content
@@ -1821,6 +1826,7 @@ def test_document_detail_can_link_related_document(client, monkeypatch):
         + "?inline=1"
     )
     assert results[0]["preview_content_type"] == "application/pdf"
+    assert results[0]["document_date"] == "23.07.2026"
     assert results[0]["workflow_open_count"] == 1
     assert unrelated_document.id not in [item["id"] for item in results]
 
