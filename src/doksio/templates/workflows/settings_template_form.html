@@ -40,6 +40,9 @@
         <div class="col-12">
           {% include "includes/document_space_picker_panel.html" with field=form.document_spaces %}
         </div>
+        <div class="col-12">
+          {% include "includes/choice_picker_panel.html" with field=form.supervisor_roles search_placeholder="Supervisor-Gruppen filtern" search_label="Supervisor-Gruppen filtern" selection_label="Supervisor-Gruppen auswählen" empty_text="Noch keine Rollen vorhanden." %}
+        </div>
         <div class="col-md-6 d-flex align-items-end">
           <div class="form-check mb-2">
             {{ form.is_active }}

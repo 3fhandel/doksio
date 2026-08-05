@@ -50,7 +50,7 @@ def workflow_templates(request: HttpRequest, tenant_slug: str) -> HttpResponse:
 
     templates = (
         WorkflowTemplate.objects.filter(tenant=tenant)
-        .prefetch_related("steps", "document_spaces")
+        .prefetch_related("steps", "document_spaces", "supervisor_roles")
         .order_by("name")
     )
     return render(
@@ -82,6 +82,7 @@ def workflow_template_create(
                 description=form.cleaned_data["description"],
                 trigger_type=form.cleaned_data["trigger_type"],
                 document_spaces=list(form.cleaned_data["document_spaces"]),
+                supervisor_roles=list(form.cleaned_data["supervisor_roles"]),
                 is_active=form.cleaned_data["is_active"],
                 actor=request.user,
             ).execute()
@@ -118,7 +119,7 @@ def workflow_template_edit(
 
     template = get_object_or_404(
         WorkflowTemplate.objects.prefetch_related(
-            "steps__assigned_role", "document_spaces"
+            "steps__assigned_role", "document_spaces", "supervisor_roles"
         ),
         id=template_id,
         tenant=tenant,
@@ -132,6 +133,7 @@ def workflow_template_edit(
                 description=form.cleaned_data["description"],
                 trigger_type=form.cleaned_data["trigger_type"],
                 document_spaces=list(form.cleaned_data["document_spaces"]),
+                supervisor_roles=list(form.cleaned_data["supervisor_roles"]),
                 is_active=form.cleaned_data["is_active"],
                 actor=request.user,
             ).execute()
@@ -151,6 +153,7 @@ def workflow_template_edit(
                 "description": template.description,
                 "trigger_type": template.trigger_type,
                 "document_spaces": template.document_spaces.all(),
+                "supervisor_roles": template.supervisor_roles.all(),
                 "is_active": template.is_active,
             },
         )

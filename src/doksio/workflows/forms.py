@@ -43,6 +43,19 @@ class WorkflowTemplateForm(forms.Form):
             "Ohne Auswahl gilt er für alle Dokumentenboxen."
         ),
     )
+    supervisor_roles = forms.ModelMultipleChoiceField(
+        label="Supervisor-Gruppen",
+        required=False,
+        queryset=TenantRole.objects.none(),
+        widget=forms.CheckboxSelectMultiple(
+            attrs={"class": "form-check-input"},
+        ),
+        help_text=(
+            "Mitglieder dieser Rollen dürfen alle Aufgaben des Workflows "
+            "bearbeiten und seine Detailauswertung ansehen. Die Aufgaben werden "
+            "dadurch nicht zu persönlichen Aufgaben."
+        ),
+    )
     is_active = forms.BooleanField(
         label="Aktiv",
         required=False,
@@ -65,6 +78,10 @@ class WorkflowTemplateForm(forms.Form):
             is_active=True,
             deleted_at__isnull=True,
         ).order_by("path")
+        self.fields["supervisor_roles"].queryset = TenantRole.objects.filter(
+            tenant=tenant,
+            is_active=True,
+        ).order_by("name")
 
     def clean_slug(self) -> str:
         name = self.cleaned_data.get("name", "")

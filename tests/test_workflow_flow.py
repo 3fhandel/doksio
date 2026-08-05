@@ -6,10 +6,16 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 
-from doksio.accounts.models import Notification, TenantMembership, UserProfile
+from doksio.accounts.models import (
+    Notification,
+    TenantMembership,
+    TenantRole,
+    UserProfile,
+)
 from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
-from doksio.documents.models import DocumentMetadataField
+from doksio.documents.models import Document, DocumentMetadataField
+from doksio.documents.policies import filter_documents_for_user
 from doksio.documents.services import (
     AddDocumentRelation,
     CreateDocumentFromUpload,
@@ -30,6 +36,10 @@ from doksio.workflows.services import (
     StartMatchingWorkflowsForDocument,
     StartWorkflowForDocument,
     UpdateWorkflowStep,
+)
+from doksio.workflows.policies import (
+    can_complete_workflow_task,
+    filter_workflow_tasks_for_user,
 )
 
 
@@ -501,11 +511,13 @@ def test_workflow_settings_create_template_and_step(client):
             "description": "",
             "trigger_type": WorkflowTemplate.TriggerType.MANUAL,
             "document_spaces": [],
+            "supervisor_roles": [roles["viewer"].id],
             "is_active": "on",
         },
     )
     template = WorkflowTemplate.objects.get(tenant=tenant)
     assert response.status_code == 302
+    assert list(template.supervisor_roles.all()) == [roles["viewer"]]
 
     response = client.get(
         reverse(
@@ -1269,6 +1281,65 @@ def test_dashboard_filters_my_open_workflow_tasks_by_workflow(client):
     assert "Nachprüfung" in content
     assert "Sachlich prüfen" not in content
     assert "Nachprüfung erledigen" in content
+
+
+@pytest.mark.django_db
+def test_workflow_supervisor_can_complete_every_task_without_receiving_it_as_own():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    supervisor_role = TenantRole.objects.create(
+        tenant=tenant,
+        name="Workflow-Aufsicht",
+        slug="workflow-aufsicht",
+        can_access_all_document_spaces=False,
+    )
+    supervisor = get_user_model().objects.create_user(username="supervisor")
+    membership = TenantMembership.objects.create(
+        tenant=tenant,
+        user=supervisor,
+        role=supervisor_role,
+    )
+    membership.roles.add(supervisor_role)
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Rechnungsprüfung",
+        slug="rechnungspruefung",
+        supervisor_roles=[supervisor_role],
+    ).execute()
+    step = CreateWorkflowStep(
+        template=template,
+        name="Sachlich prüfen",
+        step_type="task",
+        assigned_role=roles["member"],
+    ).execute()
+    document = _create_document(tenant, space)
+    instance = WorkflowInstance.objects.create(
+        tenant=tenant,
+        template=template,
+        document=document,
+        current_step=step,
+    )
+    task = WorkflowTask.objects.create(
+        tenant=tenant,
+        instance=instance,
+        step=step,
+        document=document,
+        title=step.name,
+        assigned_role=roles["member"],
+    )
+
+    assert can_complete_workflow_task(supervisor, task) is True
+    assert filter_documents_for_user(
+        Document.objects.filter(id=document.id),
+        supervisor,
+        tenant,
+    ).exists()
+    assert not filter_workflow_tasks_for_user(
+        WorkflowTask.objects.filter(id=task.id),
+        supervisor,
+        tenant,
+    ).exists()
 
 
 @pytest.mark.django_db

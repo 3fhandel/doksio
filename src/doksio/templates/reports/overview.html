@@ -10,10 +10,23 @@
         <div>
           <h1 class="h3 mb-1">Auswertungen</h1>
           <p class="text-secondary mb-0">
-            Dokumenteneingänge, Workflow-Auslastung und Abarbeitung für {{ tenant.name }}.
+            {% if selected_workflow %}
+              Detailauswertung für den Workflow {{ selected_workflow.name }}.
+            {% else %}
+              Dokumenteneingänge, Workflow-Auslastung und Abarbeitung für {{ tenant.name }}.
+            {% endif %}
           </p>
         </div>
         <form method="get" class="reports-period">
+          <label class="form-label mb-0" for="reports-workflow">Workflow</label>
+          <select class="form-select form-select-sm" id="reports-workflow" name="workflow" onchange="this.form.submit()">
+            {% if can_view_all_workflows %}
+              <option value="">Alle Workflows</option>
+            {% endif %}
+            {% for workflow in workflow_templates %}
+              <option value="{{ workflow.id }}"{% if selected_workflow.id == workflow.id %} selected{% endif %}>{{ workflow.name }}</option>
+            {% endfor %}
+          </select>
           <label class="form-label mb-0" for="reports-days">Zeitraum</label>
           <select class="form-select form-select-sm" id="reports-days" name="days" onchange="this.form.submit()">
             {% for option in day_options %}
@@ -100,7 +113,9 @@
           <div class="reports-panel-header">
             <div>
               <h2 class="h5 mb-1">Workflow-Status</h2>
-              <p class="text-secondary mb-0">Alle Workflow-Instanzen des Mandanten.</p>
+              <p class="text-secondary mb-0">
+                {% if selected_workflow %}Instanzen dieses Workflows.{% else %}Alle Workflow-Instanzen des Mandanten.{% endif %}
+              </p>
             </div>
           </div>
           <div class="reports-status-list">

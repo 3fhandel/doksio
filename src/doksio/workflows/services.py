@@ -343,14 +343,18 @@ class CreateWorkflowTemplate:
     description: str = ""
     trigger_type: str = WorkflowTemplate.TriggerType.MANUAL
     document_spaces: list[DocumentSpace] | None = None
+    supervisor_roles: list[TenantRole] | None = None
     is_active: bool = True
     actor: get_user_model() | None = None
 
     @transaction.atomic
     def execute(self) -> WorkflowTemplate:
         document_spaces = list(self.document_spaces or [])
+        supervisor_roles = list(self.supervisor_roles or [])
         if any(space.tenant_id != self.tenant.id for space in document_spaces):
             raise ValueError("Document space belongs to a different tenant.")
+        if any(role.tenant_id != self.tenant.id for role in supervisor_roles):
+            raise ValueError("Supervisor role belongs to a different tenant.")
 
         template = WorkflowTemplate.objects.create(
             tenant=self.tenant,
@@ -361,6 +365,7 @@ class CreateWorkflowTemplate:
             is_active=self.is_active,
         )
         template.document_spaces.set(document_spaces)
+        template.supervisor_roles.set(supervisor_roles)
         RecordAuditEvent(
             tenant=self.tenant,
             actor=self.actor,
@@ -372,6 +377,7 @@ class CreateWorkflowTemplate:
                 "slug": template.slug,
                 "trigger_type": template.trigger_type,
                 "document_space_ids": [space.id for space in document_spaces],
+                "supervisor_role_ids": [role.id for role in supervisor_roles],
             },
         ).execute()
         return template
@@ -385,15 +391,21 @@ class UpdateWorkflowTemplate:
     trigger_type: str
     is_active: bool
     document_spaces: list[DocumentSpace] | None = None
+    supervisor_roles: list[TenantRole] | None = None
     actor: get_user_model() | None = None
 
     @transaction.atomic
     def execute(self) -> WorkflowTemplate:
         document_spaces = list(self.document_spaces or [])
+        supervisor_roles = list(self.supervisor_roles or [])
         if any(
             space.tenant_id != self.template.tenant_id for space in document_spaces
         ):
             raise ValueError("Document space belongs to a different tenant.")
+        if any(
+            role.tenant_id != self.template.tenant_id for role in supervisor_roles
+        ):
+            raise ValueError("Supervisor role belongs to a different tenant.")
 
         self.template.name = self.name
         self.template.description = self.description
@@ -409,6 +421,7 @@ class UpdateWorkflowTemplate:
             ]
         )
         self.template.document_spaces.set(document_spaces)
+        self.template.supervisor_roles.set(supervisor_roles)
         RecordAuditEvent(
             tenant=self.template.tenant,
             actor=self.actor,
@@ -420,6 +433,7 @@ class UpdateWorkflowTemplate:
                 "slug": self.template.slug,
                 "trigger_type": self.template.trigger_type,
                 "document_space_ids": [space.id for space in document_spaces],
+                "supervisor_role_ids": [role.id for role in supervisor_roles],
                 "is_active": self.template.is_active,
             },
         ).execute()

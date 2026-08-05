@@ -161,3 +161,47 @@ def test_reports_overview_requires_reports_permission(client):
 
     assert response.status_code == 403
 
+
+@pytest.mark.django_db
+def test_workflow_supervisor_can_only_open_assigned_workflow_reports(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(
+        username="supervisor",
+        password="secret",
+    )
+    membership = TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["viewer"],
+    )
+    membership.roles.add(roles["viewer"])
+    supervised = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Rechnungsprüfung",
+        slug="rechnungspruefung",
+        supervisor_roles=[roles["viewer"]],
+    ).execute()
+    hidden = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Personalprüfung",
+        slug="personalpruefung",
+    ).execute()
+    client.force_login(user)
+
+    response = client.get(
+        reverse("reports:overview", kwargs={"tenant_slug": tenant.slug}),
+    )
+    content = response.content.decode()
+
+    assert response.status_code == 200
+    assert response.context["selected_workflow"] == supervised
+    assert "Rechnungsprüfung" in content
+    assert "Personalprüfung" not in content
+    assert "Alle Workflows" not in content
+
+    forbidden_response = client.get(
+        reverse("reports:overview", kwargs={"tenant_slug": tenant.slug}),
+        {"workflow": hidden.id},
+    )
+    assert forbidden_response.status_code == 403

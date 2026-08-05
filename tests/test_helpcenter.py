@@ -91,6 +91,8 @@ def test_help_overview_shows_administration_to_tenant_admin(client):
     assert response.status_code == 200
     assert 'id="administration"' in content
     assert 'id="stapelimport"' in content
+    assert "Workflow-Supervisor" in content
+    assert "erscheinen dadurch nicht unter „Meine Aufgaben“" in content
 
 
 @pytest.mark.django_db

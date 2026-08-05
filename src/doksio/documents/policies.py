@@ -74,6 +74,17 @@ def has_document_permission(
     if membership is None:
         return False
 
+    if permission_code == TenantPermissions.DOCUMENTS_VIEW:
+        supervisor_role_ids = list(
+            membership.roles.filter(is_active=True).values_list("id", flat=True)
+        )
+        if membership.role_id and membership.role.is_active:
+            supervisor_role_ids.append(membership.role_id)
+        if supervisor_role_ids and document.workflow_instances.filter(
+            template__supervisor_roles__id__in=set(supervisor_role_ids),
+        ).exists():
+            return True
+
     roles = list(membership.roles.filter(is_active=True).prefetch_related(
         "permissions",
         "document_spaces",
@@ -110,6 +121,20 @@ def filter_documents_for_user(
     if membership is None:
         return documents.none()
 
+    supervisor_query = None
+    if permission_code == TenantPermissions.DOCUMENTS_VIEW:
+        supervisor_role_ids = list(
+            membership.roles.filter(is_active=True).values_list("id", flat=True)
+        )
+        if membership.role_id and membership.role.is_active:
+            supervisor_role_ids.append(membership.role_id)
+        if supervisor_role_ids:
+            supervisor_query = Q(
+                workflow_instances__template__supervisor_roles__id__in=set(
+                    supervisor_role_ids
+                )
+            )
+
     roles = membership.roles.filter(
         is_active=True,
         permissions__code=permission_code,
@@ -126,8 +151,12 @@ def filter_documents_for_user(
                 space__path__startswith=f"{space.path.rstrip('/')}/"
             )
     if not has_allowed_spaces:
-        return documents.none()
-    return documents.filter(allowed_space_query)
+        if supervisor_query is None:
+            return documents.none()
+        return documents.filter(supervisor_query).distinct()
+    if supervisor_query is not None:
+        allowed_space_query |= supervisor_query
+    return documents.filter(allowed_space_query).distinct()
 
 
 def filter_document_spaces_for_user(

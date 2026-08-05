@@ -413,6 +413,17 @@ HELP_TOPICS = (
                 ),
             ),
             HelpSection(
+                title="Workflow-Supervisor",
+                text=(
+                    "Für einen Workflow können eine oder mehrere Rollen als "
+                    "Supervisor-Gruppen festgelegt werden. Deren Mitglieder dürfen "
+                    "jeden offenen Schritt dieses Workflows bearbeiten. Die Aufgaben "
+                    "erscheinen dadurch nicht unter „Meine Aufgaben“. Unter "
+                    "„Auswertungen“ können Supervisor den betreffenden Workflow "
+                    "auswählen und seine Kennzahlen einsehen."
+                ),
+            ),
+            HelpSection(
                 title="Öffentliche Gruppen",
                 text=(
                     "Eine Rolle kann als öffentliche Gruppe markiert werden. Dann "

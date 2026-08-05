@@ -12,7 +12,11 @@ from doksio.documents.policies import (
 from doksio.documents.models import DocumentImportBatchItem, DocumentInbox
 from doksio.tenancy.services import get_tenant_for_user
 from doksio.workflows.models import WorkflowTask
-from doksio.workflows.policies import filter_workflow_tasks_for_user
+from doksio.workflows.models import WorkflowTemplate
+from doksio.workflows.policies import (
+    filter_workflow_tasks_for_user,
+    supervised_workflow_templates_for_user,
+)
 
 
 def user_profile(request):
@@ -45,6 +49,14 @@ def user_profile(request):
             )
             context["can_view_audit"] = can_view_audit(request.user, tenant)
             context["can_view_reports"] = can_view_reports(request.user, tenant)
+            if not context["can_view_reports"]:
+                context["can_view_reports"] = (
+                    supervised_workflow_templates_for_user(
+                        WorkflowTemplate.objects.filter(tenant=tenant),
+                        request.user,
+                        tenant,
+                    ).exists()
+                )
             context["can_export_documents"] = has_tenant_permission(
                 request.user,
                 tenant,

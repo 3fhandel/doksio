@@ -29,6 +29,11 @@ class WorkflowTemplate(models.Model):
         blank=True,
         related_name="workflow_templates",
     )
+    supervisor_roles = models.ManyToManyField(
+        "accounts.TenantRole",
+        blank=True,
+        related_name="supervised_workflow_templates",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

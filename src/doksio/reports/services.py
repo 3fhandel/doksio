@@ -10,7 +10,7 @@ from django.utils import timezone
 from doksio.accounts.models import TenantMembership
 from doksio.documents.models import Document
 from doksio.tenancy.models import Tenant
-from doksio.workflows.models import WorkflowInstance, WorkflowTask
+from doksio.workflows.models import WorkflowInstance, WorkflowTask, WorkflowTemplate
 
 
 def _day_start(value: date) -> datetime:
@@ -42,6 +42,7 @@ def _format_duration(seconds: float | None) -> str:
 class BuildTenantReports:
     tenant: Tenant
     days: int = 30
+    workflow_template: WorkflowTemplate | None = None
 
     def execute(self) -> dict:
         today = timezone.localdate()
@@ -50,6 +51,12 @@ class BuildTenantReports:
         end_at = _day_end(today)
 
         documents = Document.objects.filter(tenant=self.tenant)
+        if self.workflow_template is not None:
+            workflow_document_ids = WorkflowInstance.objects.filter(
+                tenant=self.tenant,
+                template=self.workflow_template,
+            ).values("document_id")
+            documents = documents.filter(id__in=workflow_document_ids)
         active_documents = documents.filter(status=Document.Status.ACTIVE)
         period_documents = active_documents.filter(
             created_at__gte=start_at,
@@ -57,6 +64,13 @@ class BuildTenantReports:
         )
         workflow_instances = WorkflowInstance.objects.filter(tenant=self.tenant)
         workflow_tasks = WorkflowTask.objects.filter(tenant=self.tenant)
+        if self.workflow_template is not None:
+            workflow_instances = workflow_instances.filter(
+                template=self.workflow_template,
+            )
+            workflow_tasks = workflow_tasks.filter(
+                instance__template=self.workflow_template,
+            )
         period_tasks = workflow_tasks.filter(
             created_at__gte=start_at,
             created_at__lte=end_at,
@@ -69,6 +83,9 @@ class BuildTenantReports:
 
         return {
             "period_label": f"{start_date:%d.%m.%Y} bis {today:%d.%m.%Y}",
+            "workflow_name": (
+                self.workflow_template.name if self.workflow_template else None
+            ),
             "summary": self._summary(
                 active_documents=active_documents,
                 period_documents=period_documents,
@@ -81,8 +98,16 @@ class BuildTenantReports:
             "box_distribution": self._box_distribution(period_documents),
             "workflow_status": self._workflow_status(workflow_instances),
             "open_task_trend": self._open_task_trend(workflow_tasks, start_date, today),
-            "workflow_throughput": self._workflow_throughput(period_tasks, start_date, today),
-            "user_performance": self._user_performance(completed_period_tasks),
+            "workflow_throughput": self._workflow_throughput(
+                workflow_tasks,
+                period_tasks,
+                start_date,
+                today,
+            ),
+            "user_performance": self._user_performance(
+                completed_period_tasks,
+                include_all_members=self.workflow_template is None,
+            ),
         }
 
     def _summary(
@@ -214,6 +239,7 @@ class BuildTenantReports:
 
     def _workflow_throughput(
         self,
+        workflow_tasks,
         period_tasks,
         start_date: date,
         today: date,
@@ -226,8 +252,7 @@ class BuildTenantReports:
         }
         completed_counts = {
             row["day"]: row["count"]
-            for row in WorkflowTask.objects.filter(
-                tenant=self.tenant,
+            for row in workflow_tasks.filter(
                 status=WorkflowTask.Status.COMPLETED,
                 completed_at__date__gte=start_date,
                 completed_at__date__lte=today,
@@ -256,7 +281,12 @@ class BuildTenantReports:
             item["completed_pct"] = _pct(item["completed"], maximum)
         return values
 
-    def _user_performance(self, completed_period_tasks) -> list[dict]:
+    def _user_performance(
+        self,
+        completed_period_tasks,
+        *,
+        include_all_members: bool,
+    ) -> list[dict]:
         user_stats: dict[int | None, dict] = {}
         for task in completed_period_tasks:
             user_id = task.completed_by_id
@@ -280,20 +310,21 @@ class BuildTenantReports:
                     (task.completed_at - task.created_at).total_seconds()
                 )
 
-        memberships = TenantMembership.objects.filter(
-            tenant=self.tenant,
-            is_active=True,
-        ).select_related("user")
-        for membership in memberships:
-            user_stats.setdefault(
-                membership.user_id,
-                {
-                    "label": membership.user.get_full_name()
-                    or membership.user.get_username(),
-                    "count": 0,
-                    "durations": [],
-                },
-            )
+        if include_all_members:
+            memberships = TenantMembership.objects.filter(
+                tenant=self.tenant,
+                is_active=True,
+            ).select_related("user")
+            for membership in memberships:
+                user_stats.setdefault(
+                    membership.user_id,
+                    {
+                        "label": membership.user.get_full_name()
+                        or membership.user.get_username(),
+                        "count": 0,
+                        "durations": [],
+                    },
+                )
 
         rows = []
         maximum = max((stat["count"] for stat in user_stats.values()), default=0)
@@ -312,4 +343,3 @@ class BuildTenantReports:
                 }
             )
         return sorted(rows, key=lambda row: (-row["count"], row["label"]))[:10]
-
