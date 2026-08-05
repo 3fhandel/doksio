@@ -63,32 +63,14 @@
           {{ form.permissions.errors }}
         </div>
         <div class="col-12">
-          <div class="metadata-label mb-2">Dokumentenbox-Zugriff</div>
           <div class="form-check mb-2">
             {{ form.can_access_all_document_spaces }}
             <label class="form-check-label" for="{{ form.can_access_all_document_spaces.id_for_label }}">
               {{ form.can_access_all_document_spaces.label }}
             </label>
           </div>
-          {% if form.document_spaces.help_text %}
-            <div class="form-text mb-2">{{ form.document_spaces.help_text }}</div>
-          {% endif %}
-          <div class="row">
-            {% for checkbox in form.document_spaces %}
-              <div class="col-md-6">
-                <div class="form-check">
-                  {{ checkbox.tag }}
-                  <label class="form-check-label" for="{{ checkbox.id_for_label }}">
-                    {{ checkbox.choice_label }}
-                  </label>
-                </div>
-              </div>
-            {% empty %}
-              <div class="col-12 text-secondary">Noch keine Dokumentenboxen vorhanden.</div>
-            {% endfor %}
-          </div>
+          {% include "includes/document_space_picker_panel.html" with field=form.document_spaces %}
           {{ form.can_access_all_document_spaces.errors }}
-          {{ form.document_spaces.errors }}
         </div>
       </div>
       <button class="btn btn-primary mt-4" type="submit">{{ submit_label }}</button>

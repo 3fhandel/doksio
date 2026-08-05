@@ -71,39 +71,7 @@
       </div>
 
       <div class="col-12">
-        <section class="inbox-choice-panel" data-choice-panel>
-          <header class="inbox-choice-panel-header">
-            <div>
-              <h3>{{ form.allowed_target_spaces.label }}</h3>
-              <p>{{ form.allowed_target_spaces.help_text }}</p>
-            </div>
-            <span class="inbox-choice-count" data-choice-count></span>
-          </header>
-          <div class="inbox-choice-tools">
-            <div class="inbox-choice-search">
-              {% include "includes/icons.html" with icon="search" %}
-              <input type="search" class="form-control form-control-sm" placeholder="Boxen filtern" aria-label="Dokumentenboxen filtern" data-choice-search>
-            </div>
-            <div class="btn-group btn-group-sm" role="group" aria-label="Dokumentenboxauswahl">
-              <button class="btn btn-outline-secondary" type="button" data-choice-select>Alle</button>
-              <button class="btn btn-outline-secondary" type="button" data-choice-clear>Keine</button>
-            </div>
-          </div>
-          <div class="inbox-choice-list">
-            {% for checkbox in form.allowed_target_spaces %}
-              <label class="inbox-choice-item" for="{{ checkbox.id_for_label }}" data-choice-item data-choice-label="{{ checkbox.choice_label|lower }}">
-                {{ checkbox.tag }}
-                <span class="inbox-choice-item-copy">
-                  <strong>{{ checkbox.choice_label }}</strong>
-                </span>
-                <span class="inbox-choice-check">{% include "includes/icons.html" with icon="check" %}</span>
-              </label>
-            {% empty %}
-              <div class="inbox-choice-empty">Noch keine Dokumentenboxen vorhanden.</div>
-            {% endfor %}
-          </div>
-          {{ form.allowed_target_spaces.errors }}
-        </section>
+        {% include "includes/document_space_picker_panel.html" with field=form.allowed_target_spaces %}
       </div>
     </div>
     <div class="d-flex justify-content-end mt-4">
@@ -111,41 +79,4 @@
     </div>
   </form>
 
-  <script>
-    (() => {
-      document.querySelectorAll("[data-choice-panel]").forEach((panel) => {
-        const search = panel.querySelector("[data-choice-search]");
-        const items = Array.from(panel.querySelectorAll("[data-choice-item]"));
-        const count = panel.querySelector("[data-choice-count]");
-
-        const sync = () => {
-          const query = search.value.trim().toLocaleLowerCase("de");
-          let selected = 0;
-          items.forEach((item) => {
-            const checkbox = item.querySelector("input[type='checkbox']");
-            item.hidden = Boolean(query) && !item.dataset.choiceLabel.includes(query);
-            item.classList.toggle("selected", checkbox.checked);
-            if (checkbox.checked) selected += 1;
-          });
-          count.textContent = `${selected} gewählt`;
-        };
-
-        panel.addEventListener("change", sync);
-        search.addEventListener("input", sync);
-        panel.querySelector("[data-choice-select]").addEventListener("click", () => {
-          items.filter((item) => !item.hidden).forEach((item) => {
-            item.querySelector("input[type='checkbox']").checked = true;
-          });
-          sync();
-        });
-        panel.querySelector("[data-choice-clear]").addEventListener("click", () => {
-          items.filter((item) => !item.hidden).forEach((item) => {
-            item.querySelector("input[type='checkbox']").checked = false;
-          });
-          sync();
-        });
-        sync();
-      });
-    })();
-  </script>
 {% endblock %}

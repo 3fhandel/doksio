@@ -157,7 +157,14 @@
             <label class="form-label small mb-1">Titel</label>
             <input class="form-control form-control-sm mb-2" type="text" data-part-title placeholder="Automatisch setzen">
             <label class="form-label small mb-1">Zielbox</label>
-            <select class="form-select form-select-sm" data-part-space>${optionsTemplate.innerHTML}</select>
+            <div class="document-space-picker-compact" data-document-space-picker>
+              <select class="form-select form-select-sm" data-part-space>${optionsTemplate.innerHTML}</select>
+              <div class="document-space-picker-input-wrap">
+                {% include "includes/icons.html" with icon="search" %}
+                <input class="form-control form-control-sm" type="text" autocomplete="off" placeholder="Zielbox suchen" aria-label="Zielbox" data-document-space-picker-input>
+              </div>
+              <div class="document-space-picker-menu" data-document-space-picker-menu hidden></div>
+            </div>
           `;
           const titleInput = wrapper.querySelector("[data-part-title]");
           const spaceSelect = wrapper.querySelector("[data-part-space]");
@@ -165,6 +172,7 @@
           if (previous.space) {
             spaceSelect.value = previous.space;
           }
+          window.DoksioDocumentSpacePicker?.init(wrapper.querySelector("[data-document-space-picker]"));
           titleInput.addEventListener("input", syncPayload);
           spaceSelect.addEventListener("change", syncPayload);
           partsList.appendChild(wrapper);

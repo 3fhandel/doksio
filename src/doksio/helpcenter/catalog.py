@@ -404,6 +404,17 @@ HELP_TOPICS = (
                 ),
             ),
             HelpSection(
+                title="Dokumentenboxen auswählen",
+                text=(
+                    "Dokumentenboxen lassen sich in den Einstellungen durchsuchen. "
+                    "Bei Mehrfachauswahlen kannst du die sichtbaren Treffer gemeinsam "
+                    "auswählen oder abwählen. In kompakten Feldern tippst du einen Teil "
+                    "des Boxnamens oder Pfads ein und wählst anschließend den passenden "
+                    "Treffer aus. Es werden nur Boxen angeboten, auf die du im jeweiligen "
+                    "Vorgang zugreifen darfst."
+                ),
+            ),
+            HelpSection(
                 title="Zentrale Auswahllisten",
                 text=(
                     "Unter Einstellungen > Auswahllisten pflegst du wiederverwendbare "

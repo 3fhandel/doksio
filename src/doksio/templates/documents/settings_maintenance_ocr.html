@@ -16,7 +16,7 @@
           <div class="alert alert-info" role="note">Die Verarbeitung läuft in kleinen, fortsetzbaren Batches. Digitale PDFs und Dokumente mit bereits vorhandenen Wortpositionen werden übersprungen.</div>
           <form method="post" novalidate>
             {% csrf_token %}
-            <div class="mb-3"><label class="form-label" for="{{ form.space.id_for_label }}">{{ form.space.label }}</label>{{ form.space }}{% for error in form.space.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}</div>
+            <div class="mb-3"><label class="form-label" for="{{ form.space.id_for_label }}">{{ form.space.label }}</label>{% include "includes/document_space_picker_compact.html" with field=form.space %}{% for error in form.space.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}</div>
             <div class="form-check mb-4">{{ form.include_children }}<label class="form-check-label" for="{{ form.include_children.id_for_label }}">{{ form.include_children.label }}</label></div>
             <button class="btn btn-primary" type="submit">Nachrüstung starten</button>
           </form>

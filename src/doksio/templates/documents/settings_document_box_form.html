@@ -37,7 +37,7 @@
         </div>
         <div class="col-md-6">
           <label class="form-label" for="{{ form.parent.id_for_label }}">Übergeordnete Box</label>
-          {{ form.parent }}
+          {% include "includes/document_space_picker_compact.html" with field=form.parent placeholder="Übergeordnete Box suchen" %}
           {{ form.parent.errors }}
         </div>
         {% if form.is_active %}

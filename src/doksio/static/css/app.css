@@ -1352,6 +1352,72 @@ body {
   text-align: center;
 }
 
+.document-space-picker-compact {
+  position: relative;
+}
+
+.document-space-picker-compact.is-ready > select {
+  display: none;
+}
+
+.document-space-picker-input-wrap {
+  position: relative;
+}
+
+.document-space-picker-input-wrap svg {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 0.7rem;
+  width: 1rem;
+  height: 1rem;
+  color: var(--bs-secondary-color);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.document-space-picker-input-wrap .form-control {
+  padding-left: 2.2rem;
+}
+
+.document-space-picker-menu {
+  position: absolute;
+  z-index: 1080;
+  top: calc(100% + 0.25rem);
+  right: auto;
+  left: 0;
+  width: max(100%, min(34rem, calc(100vw - 2rem)));
+  max-height: 18rem;
+  overflow-y: auto;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.4rem;
+  background: var(--bs-body-bg);
+  box-shadow: 0 0.65rem 1.5rem rgba(25, 35, 45, 0.14);
+}
+
+.document-space-picker-option {
+  display: block;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: 0;
+  border-bottom: 1px solid var(--bs-border-color);
+  background: transparent;
+  color: var(--bs-body-color);
+  font-size: 0.86rem;
+  text-align: left;
+}
+
+.document-space-picker-option:hover,
+.document-space-picker-option.selected {
+  background: rgba(var(--bs-primary-rgb), 0.09);
+}
+
+.document-space-picker-empty {
+  padding: 0.75rem;
+  color: var(--bs-secondary-color);
+  font-size: 0.84rem;
+}
+
 @media (max-width: 991.98px) {
   .inbox-workspace {
     grid-template-columns: 1fr;

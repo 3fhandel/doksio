@@ -882,12 +882,19 @@
               </div>
               <div>
                 <label class="form-label" for="document-relation-space">Dokumentenbox</label>
-                <select class="form-select" id="document-relation-space" data-relation-space-filter>
-                  <option value="">Alle sichtbaren Boxen</option>
-                  {% for space in relation_picker_spaces %}
-                    <option value="{{ space.id }}">{{ space.path }}</option>
-                  {% endfor %}
-                </select>
+                <div class="document-space-picker-compact" data-document-space-picker>
+                  <select class="form-select" id="document-relation-space" data-relation-space-filter>
+                    <option value="">Alle sichtbaren Boxen</option>
+                    {% for space in relation_picker_spaces %}
+                      <option value="{{ space.id }}">{{ space.path }}</option>
+                    {% endfor %}
+                  </select>
+                  <div class="document-space-picker-input-wrap">
+                    {% include "includes/icons.html" with icon="search" %}
+                    <input class="form-control" type="text" autocomplete="off" placeholder="Dokumentenbox suchen" aria-label="Dokumentenbox" data-document-space-picker-input>
+                  </div>
+                  <div class="document-space-picker-menu" data-document-space-picker-menu hidden></div>
+                </div>
               </div>
               <div>
                 <label class="form-label" for="document-relation-workflow-status">Workflowstatus</label>
@@ -1072,6 +1079,10 @@
             control.disabled = !isEditable;
           }
         });
+        const spacePickerInput = picker.querySelector("[data-document-space-picker-input]");
+        if (spacePickerInput) {
+          spacePickerInput.disabled = !isEditable;
+        }
       };
 
       const renderResults = (items) => {
@@ -1189,6 +1200,7 @@
           const filtersEditable = trigger?.getAttribute("data-relation-filters-editable") !== "0";
           if (spaceFilter) {
             spaceFilter.value = defaultSpace;
+            spaceFilter.dispatchEvent(new Event("change", { bubbles: true }));
           }
           if (workflowFilter) {
             workflowFilter.value = defaultWorkflowStatus;

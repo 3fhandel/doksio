@@ -50,7 +50,7 @@
                 <label class="form-label" for="{{ form.space.id_for_label }}">
                   {{ form.space.label }}
                 </label>
-                {{ form.space }}
+                {% include "includes/document_space_picker_compact.html" with field=form.space %}
                 {% for error in form.space.errors %}
                   <div class="invalid-feedback d-block">{{ error }}</div>
                 {% endfor %}

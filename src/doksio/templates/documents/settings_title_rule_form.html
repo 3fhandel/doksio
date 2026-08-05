@@ -21,12 +21,7 @@
 
     <div class="row g-3">
       <div class="col-12">
-        <label class="form-label">Geltungsbereich</label>
-        <div class="title-rule-box-choices">
-          {{ form.document_spaces }}
-        </div>
-        <div class="form-text">{{ form.document_spaces.help_text }}</div>
-        {{ form.document_spaces.errors }}
+        {% include "includes/document_space_picker_panel.html" with field=form.document_spaces %}
       </div>
       <div class="col-md-6">
         <label class="form-label" for="{{ form.strategy.id_for_label }}">Strategie</label>

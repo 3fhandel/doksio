@@ -41,7 +41,7 @@
 
             <div class="mb-4">
               <label class="form-label" for="{{ form.space.id_for_label }}">Dokumentenbox</label>
-              {{ form.space }}
+              {% include "includes/document_space_picker_compact.html" with field=form.space %}
               {{ form.space.errors }}
             </div>
 

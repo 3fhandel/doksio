@@ -101,7 +101,7 @@
                     </td>
                     <td>
                       {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
-                        {{ form.target_space }}
+                        {% include "includes/document_space_picker_compact.html" with field=form.target_space placeholder="Zielbox suchen" %}
                         {{ form.target_space.errors }}
                       {% elif item.imported_document %}
                         <a href="{% url 'documents:detail' tenant.slug item.imported_document.id %}">{{ item.imported_document.title }}</a>

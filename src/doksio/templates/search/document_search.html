@@ -40,7 +40,7 @@
                 <div class="search-filter-group-grid">
                   <div>
                     <label class="form-label" for="{{ form.box.id_for_label }}">{{ form.box.label }}</label>
-                    {{ form.box }}
+                    {% include "includes/document_space_picker_compact.html" with field=form.box %}
                     <div class="form-check mt-2">
                       {{ form.include_child_boxes }}
                       <label class="form-check-label" for="{{ form.include_child_boxes.id_for_label }}">{{ form.include_child_boxes.label }}</label>

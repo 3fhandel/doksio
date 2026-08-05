@@ -39,7 +39,7 @@
         </div>
         <div class="col-md-6">
           <label class="form-label" for="{{ form.trigger_document_space.id_for_label }}">{{ form.trigger_document_space.label }}</label>
-          {{ form.trigger_document_space }}
+          {% include "includes/document_space_picker_compact.html" with field=form.trigger_document_space %}
           {% if form.trigger_document_space.help_text %}
             <div class="form-text">{{ form.trigger_document_space.help_text }}</div>
           {% endif %}

@@ -84,14 +84,7 @@
                 </div>
               </div>
               <div class="col-12">
-                <label class="form-label">{{ form.required_related_document_spaces.label }}</label>
-                <div class="workflow-metadata-field-picker">
-                  {{ form.required_related_document_spaces }}
-                </div>
-                {% if form.required_related_document_spaces.help_text %}
-                  <div class="form-text">{{ form.required_related_document_spaces.help_text }}</div>
-                {% endif %}
-                {{ form.required_related_document_spaces.errors }}
+                {% include "includes/document_space_picker_panel.html" with field=form.required_related_document_spaces %}
               </div>
             </div>
           </div>
@@ -105,7 +98,7 @@
             <div class="row g-3">
               <div class="col-md-6">
                 <label class="form-label" for="{{ form.relation_picker_default_document_space.id_for_label }}">{{ form.relation_picker_default_document_space.label }}</label>
-                {{ form.relation_picker_default_document_space }}
+                {% include "includes/document_space_picker_compact.html" with field=form.relation_picker_default_document_space %}
                 {% if form.relation_picker_default_document_space.help_text %}
                   <div class="form-text">{{ form.relation_picker_default_document_space.help_text }}</div>
                 {% endif %}

@@ -52,7 +52,7 @@
       <div class="row g-3">
         <div class="col-md-6">
           <label class="form-label" for="{{ form.target_space.id_for_label }}">Zielbox beim Verschieben</label>
-          {{ form.target_space }}
+          {% include "includes/document_space_picker_compact.html" with field=form.target_space %}
           <div class="form-text">
             Die Zielbox darf nicht im zu löschenden Box-Zweig liegen.
           </div>

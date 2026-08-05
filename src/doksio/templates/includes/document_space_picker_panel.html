@@ -1,0 +1,33 @@
+<section class="document-space-picker-panel inbox-choice-panel" data-choice-panel>
+  <header class="inbox-choice-panel-header">
+    <div>
+      <h3>{{ field.label }}</h3>
+      {% if field.help_text %}<p>{{ field.help_text }}</p>{% endif %}
+    </div>
+    <span class="inbox-choice-count" data-choice-count></span>
+  </header>
+  <div class="inbox-choice-tools">
+    <div class="inbox-choice-search">
+      {% include "includes/icons.html" with icon="search" %}
+      <input type="search" class="form-control form-control-sm" placeholder="Boxen filtern" aria-label="Dokumentenboxen filtern" data-choice-search>
+    </div>
+    {% if multiple|default:True %}
+      <div class="btn-group btn-group-sm" role="group" aria-label="Dokumentenboxauswahl">
+        <button class="btn btn-outline-secondary" type="button" data-choice-select>Alle</button>
+        <button class="btn btn-outline-secondary" type="button" data-choice-clear>Keine</button>
+      </div>
+    {% endif %}
+  </div>
+  <div class="inbox-choice-list">
+    {% for choice in field %}
+      <label class="inbox-choice-item" for="{{ choice.id_for_label }}" data-choice-item data-choice-label="{{ choice.choice_label|lower }}">
+        {{ choice.tag }}
+        <span class="inbox-choice-item-copy"><strong>{{ choice.choice_label }}</strong></span>
+        <span class="inbox-choice-check">{% include "includes/icons.html" with icon="check" %}</span>
+      </label>
+    {% empty %}
+      <div class="inbox-choice-empty">Noch keine Dokumentenboxen vorhanden.</div>
+    {% endfor %}
+  </div>
+  {{ field.errors }}
+</section>

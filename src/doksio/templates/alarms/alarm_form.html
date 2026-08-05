@@ -35,7 +35,7 @@
             </div>
             <div class="col-12 col-lg-7">
               <label class="form-label" for="{{ form.document_space.id_for_label }}">{{ form.document_space.label }}</label>
-              {{ form.document_space }}
+              {% include "includes/document_space_picker_compact.html" with field=form.document_space %}
               {{ form.document_space.errors }}
             </div>
             <div class="col-12 col-lg-5 d-flex align-items-end">
