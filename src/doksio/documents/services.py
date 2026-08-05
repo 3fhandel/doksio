@@ -848,13 +848,91 @@ class UpdateDocumentMetadataField:
 @dataclass(frozen=True)
 class DeleteDocumentMetadataField:
     metadata_field: DocumentMetadataField
+    target_field: DocumentMetadataField | None = None
     actor: get_user_model() | None = None
 
     @transaction.atomic
-    def execute(self) -> None:
+    def execute(self) -> dict[str, int]:
         metadata_field = self.metadata_field
+        target_field = self.target_field
+        if target_field is not None:
+            effective_target_ids = {
+                field.id for field in effective_metadata_fields(metadata_field.space)
+            }
+            if (
+                target_field.id == metadata_field.id
+                or target_field.tenant_id != metadata_field.tenant_id
+                or target_field.id not in effective_target_ids
+                or target_field.field_type != metadata_field.field_type
+                or (
+                    metadata_field.propagate_to_child_spaces
+                    and not target_field.propagate_to_child_spaces
+                )
+                or (
+                    metadata_field.field_type
+                    == DocumentMetadataField.FieldType.CHOICE
+                    and (
+                        target_field.choice_list_id is None
+                        or target_field.choice_list_id
+                        != metadata_field.choice_list_id
+                    )
+                )
+            ):
+                raise ValueError("Das gewählte Zielfeld ist nicht kompatibel.")
+
         tenant = metadata_field.tenant
         field_id = metadata_field.id
+        affected_documents = Document.objects.filter(
+            tenant=tenant,
+            metadata__has_key=metadata_field.slug,
+        )
+        if metadata_field.propagate_to_child_spaces:
+            affected_documents = affected_documents.filter(
+                Q(space=metadata_field.space)
+                | Q(
+                    space__path__startswith=(
+                        f"{metadata_field.space.path.rstrip('/')}/"
+                    )
+                )
+            )
+        else:
+            affected_documents = affected_documents.filter(
+                space=metadata_field.space
+            )
+
+        migrated_count = 0
+        conflict_count = 0
+        if target_field is not None:
+            pending_updates = []
+            updated_at = timezone.now()
+            for document in affected_documents.only("id", "metadata").iterator(
+                chunk_size=500
+            ):
+                metadata = dict(document.metadata or {})
+                target_value = metadata.get(target_field.slug)
+                target_is_empty = target_value in (None, "", [], {})
+                if not target_is_empty:
+                    conflict_count += 1
+                    continue
+                metadata[target_field.slug] = metadata.pop(metadata_field.slug)
+                document.metadata = metadata
+                document.updated_at = updated_at
+                pending_updates.append(document)
+                migrated_count += 1
+                if len(pending_updates) >= 500:
+                    Document.objects.bulk_update(
+                        pending_updates,
+                        ["metadata", "updated_at"],
+                        batch_size=500,
+                    )
+                    pending_updates.clear()
+            if pending_updates:
+                Document.objects.bulk_update(
+                    pending_updates,
+                    ["metadata", "updated_at"],
+                    batch_size=500,
+                )
+
         field_data = {
             "space_id": metadata_field.space_id,
             "name": metadata_field.name,
@@ -862,6 +940,9 @@ class DeleteDocumentMetadataField:
             "field_type": metadata_field.field_type,
             "choice_list_id": metadata_field.choice_list_id,
             "workflow_step_count": metadata_field.required_by_workflow_steps.count(),
+            "target_field_id": target_field.id if target_field else None,
+            "migrated_document_count": migrated_count,
+            "conflict_document_count": conflict_count,
         }
         metadata_field.delete()
         RecordAuditEvent(
@@ -872,6 +953,10 @@ class DeleteDocumentMetadataField:
             object_id=str(field_id),
             data=field_data,
         ).execute()
+        return {
+            "migrated_document_count": migrated_count,
+            "conflict_document_count": conflict_count,
+        }
 
 
 @dataclass(frozen=True)

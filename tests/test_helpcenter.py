@@ -94,7 +94,7 @@ def test_help_overview_shows_administration_to_tenant_admin(client):
     assert "Workflow-Supervisor" in content
     assert "erscheinen dadurch nicht unter „Meine Aufgaben“" in content
     assert "Metadatenfelder löschen" in content
-    assert "gespeicherte Werte bleiben erhalten" in content
+    assert "in ein kompatibles Feld desselben Typs übertragen" in content
 
 
 @pytest.mark.django_db

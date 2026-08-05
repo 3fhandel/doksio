@@ -14,7 +14,7 @@
         Das Metadatenfeld <strong>{{ metadata_field.name }}</strong> wird aus dieser Dokumentenbox{% if metadata_field.propagate_to_child_spaces %} und ihren Kindboxen{% endif %} entfernt.
       </p>
       <p class="mb-0">
-        Bereits gespeicherte Werte in {{ document_value_count }} Dokument{% if document_value_count != 1 %}en{% endif %} bleiben erhalten, werden aber nicht mehr angezeigt oder bearbeitet.
+        Bereits gespeicherte Werte sind in {{ document_value_count }} Dokument{% if document_value_count != 1 %}en{% endif %} vorhanden. Du kannst sie vor dem Löschen in ein kompatibles Feld übertragen.
         {% if workflow_step_count %}
           Das Feld entfällt außerdem als Pflichtangabe in {{ workflow_step_count }} Workflow-Schritt{% if workflow_step_count != 1 %}en{% endif %}.
         {% endif %}
@@ -23,10 +23,19 @@
 
     <form method="post">
       {% csrf_token %}
-      <label class="form-label" for="metadata-field-confirmation">
+      <div class="mb-4">
+        <label class="form-label" for="{{ form.target_field.id_for_label }}">{{ form.target_field.label }}</label>
+        {% include "includes/choice_picker_compact.html" with field=form.target_field placeholder="Zielfeld suchen" empty_text="Kein kompatibles Zielfeld" %}
+        <div class="form-text">
+          {{ form.target_field.help_text }} Ohne Zielfeld bleiben die bisherigen Werte technisch erhalten, sind nach dem Löschen aber nicht mehr sichtbar.
+        </div>
+        {{ form.target_field.errors }}
+      </div>
+      <label class="form-label" for="{{ form.confirmation.id_for_label }}">
         Gib <strong>{{ metadata_field.name }}</strong> zur Bestätigung ein.
       </label>
-      <input class="form-control" id="metadata-field-confirmation" name="confirmation" autocomplete="off" required>
+      {{ form.confirmation }}
+      {{ form.confirmation.errors }}
       <div class="d-flex justify-content-end gap-2 mt-4">
         <a class="btn btn-outline-secondary" href="{% url 'documents:settings_metadata_field_edit' tenant.slug document_space.id metadata_field.id %}">Abbrechen</a>
         <button class="btn btn-danger" type="submit">Metadatenfeld löschen</button>

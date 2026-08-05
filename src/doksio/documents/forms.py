@@ -10,7 +10,10 @@ from django.utils.text import slugify
 
 from doksio.accounts.models import TenantRole
 from doksio.accounts.permissions import TenantPermissions
-from doksio.documents.metadata import metadata_field_slug_is_available
+from doksio.documents.metadata import (
+    effective_metadata_fields,
+    metadata_field_slug_is_available,
+)
 from doksio.documents.models import (
     Document,
     DocumentImportBatchItem,
@@ -913,6 +916,63 @@ class DocumentSpaceEmptyForm(forms.Form):
                 "Der eingegebene Name stimmt nicht mit der Dokumentenbox überein."
             )
         return confirm_name
+
+
+class DeleteDocumentMetadataFieldForm(forms.Form):
+    target_field = forms.ModelChoiceField(
+        label="Werte übertragen nach",
+        queryset=DocumentMetadataField.objects.none(),
+        required=False,
+        empty_label="Werte nicht übertragen",
+        widget=forms.Select(attrs={"class": "form-select"}),
+        help_text=(
+            "Nur leere Zielwerte werden befüllt. Bereits vorhandene Zielwerte "
+            "werden nicht überschrieben."
+        ),
+    )
+    confirmation = forms.CharField(
+        label="Bestätigung",
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "autocomplete": "off"}
+        ),
+    )
+
+    def __init__(
+        self,
+        *args,
+        metadata_field: DocumentMetadataField,
+        **kwargs,
+    ) -> None:
+        self.metadata_field = metadata_field
+        super().__init__(*args, **kwargs)
+        candidates = [
+            field
+            for field in effective_metadata_fields(metadata_field.space)
+            if field.id != metadata_field.id
+            and field.field_type == metadata_field.field_type
+            and (
+                not metadata_field.propagate_to_child_spaces
+                or field.propagate_to_child_spaces
+            )
+            and (
+                metadata_field.field_type != DocumentMetadataField.FieldType.CHOICE
+                or (
+                    field.choice_list_id is not None
+                    and field.choice_list_id == metadata_field.choice_list_id
+                )
+            )
+        ]
+        self.fields["target_field"].queryset = DocumentMetadataField.objects.filter(
+            id__in=[field.id for field in candidates]
+        ).order_by("space__path", "sort_order", "name")
+
+    def clean_confirmation(self) -> str:
+        confirmation = self.cleaned_data["confirmation"].strip()
+        if confirmation != self.metadata_field.name:
+            raise forms.ValidationError(
+                "Der eingegebene Name stimmt nicht mit dem Metadatenfeld überein."
+            )
+        return confirmation
 
 
 class DocumentMetadataFieldForm(forms.Form):

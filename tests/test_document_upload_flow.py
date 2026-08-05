@@ -3091,6 +3091,96 @@ def test_delete_metadata_field_keeps_document_values_and_removes_workflow_use(cl
 
 
 @pytest.mark.django_db
+def test_delete_metadata_field_can_move_values_to_inherited_compatible_field(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    parent = CreateDocumentSpace(tenant=tenant, name="Verträge").execute()
+    child = CreateDocumentSpace(
+        tenant=tenant,
+        name="Lieferverträge",
+        parent=parent,
+    ).execute()
+    target_field = CreateDocumentMetadataField(
+        tenant=tenant,
+        space=parent,
+        name="Vertragsnummer",
+        slug="vertragsnummer",
+        field_type=DocumentMetadataField.FieldType.TEXT,
+        propagate_to_child_spaces=True,
+    ).execute()
+    source_field = CreateDocumentMetadataField(
+        tenant=tenant,
+        space=child,
+        name="Alte Vertragsnummer",
+        slug="alte_vertragsnummer",
+        field_type=DocumentMetadataField.FieldType.TEXT,
+    ).execute()
+    movable, _movable_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Vertrag A",
+        space=child,
+        file_obj=BytesIO(b"contract-a"),
+        original_filename="a.pdf",
+        content_type="application/pdf",
+        auto_start_ocr=False,
+    ).execute()
+    conflict, _conflict_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Vertrag B",
+        space=child,
+        file_obj=BytesIO(b"contract-b"),
+        original_filename="b.pdf",
+        content_type="application/pdf",
+        auto_start_ocr=False,
+    ).execute()
+    movable.metadata = {source_field.slug: "ALT-1"}
+    movable.save(update_fields=["metadata", "updated_at"])
+    conflict.metadata = {
+        source_field.slug: "ALT-2",
+        target_field.slug: "NEU-2",
+    }
+    conflict.save(update_fields=["metadata", "updated_at"])
+    user = get_user_model().objects.create_user(
+        username="admin-transfer",
+        password="secret",
+    )
+    TenantMembership.objects.create(tenant=tenant, user=user, role=roles["admin"])
+    client.force_login(user)
+
+    response = client.post(
+        reverse(
+            "documents:settings_metadata_field_delete",
+            kwargs={
+                "tenant_slug": tenant.slug,
+                "box_id": child.id,
+                "field_id": source_field.id,
+            },
+        ),
+        {
+            "target_field": target_field.id,
+            "confirmation": source_field.name,
+        },
+    )
+
+    movable.refresh_from_db()
+    conflict.refresh_from_db()
+    assert response.status_code == 302
+    assert movable.metadata == {target_field.slug: "ALT-1"}
+    assert conflict.metadata == {
+        source_field.slug: "ALT-2",
+        target_field.slug: "NEU-2",
+    }
+    event = AuditEvent.objects.get(
+        tenant=tenant,
+        event_type="document_metadata_field.deleted",
+        object_id=str(source_field.id),
+    )
+    assert event.data["target_field_id"] == target_field.id
+    assert event.data["migrated_document_count"] == 1
+    assert event.data["conflict_document_count"] == 1
+
+
+@pytest.mark.django_db
 def test_create_document_from_upload_prefills_metadata_from_einvoice():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()

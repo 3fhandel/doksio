@@ -469,10 +469,13 @@ HELP_TOPICS = (
                 text=(
                     "Nicht mehr benötigte Felddefinitionen kannst du in der "
                     "Dokumentenbox löschen. Zur Sicherheit musst du den Feldnamen "
-                    "bestätigen. Bereits an Dokumenten gespeicherte Werte bleiben "
-                    "erhalten, werden danach aber nicht mehr angezeigt oder "
-                    "bearbeitet. Verwendet ein Workflow das Feld als Pflichtangabe, "
-                    "entfällt diese Anforderung."
+                    "bestätigen. Vorher kannst du vorhandene Werte in ein kompatibles "
+                    "Feld desselben Typs übertragen, zum Beispiel in ein geerbtes "
+                    "Feld. Bereits belegte Zielwerte werden dabei nicht überschrieben. "
+                    "Ohne Übertragung bleiben die alten Werte technisch erhalten, "
+                    "werden danach aber nicht mehr angezeigt oder bearbeitet. "
+                    "Verwendet ein Workflow das Feld als Pflichtangabe, entfällt "
+                    "diese Anforderung."
                 ),
             ),
             HelpSection(

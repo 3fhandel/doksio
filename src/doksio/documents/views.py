@@ -64,6 +64,7 @@ from doksio.documents.forms import (
     DocumentCommentForm,
     DocumentCoreMetadataForm,
     DocumentDeleteForm,
+    DeleteDocumentMetadataFieldForm,
     DocumentImportBatchItemForm,
     DocumentImportBatchUploadForm,
     DocumentInboxForm,
@@ -5186,23 +5187,39 @@ def tenant_settings_metadata_field_delete(
     workflow_step_count = metadata_field.required_by_workflow_steps.count()
 
     if request.method == "POST":
-        confirmation = request.POST.get("confirmation", "").strip()
-        if confirmation != metadata_field.name:
-            messages.error(
-                request,
-                "Bitte den Namen des Metadatenfelds exakt als Bestätigung eingeben.",
-            )
-        else:
-            DeleteDocumentMetadataField(
+        form = DeleteDocumentMetadataFieldForm(
+            request.POST,
+            metadata_field=metadata_field,
+        )
+        if form.is_valid():
+            result = DeleteDocumentMetadataField(
                 metadata_field=metadata_field,
+                target_field=form.cleaned_data["target_field"],
                 actor=request.user,
             ).execute()
-            messages.success(request, "Metadatenfeld wurde gelöscht.")
+            migrated_count = result["migrated_document_count"]
+            conflict_count = result["conflict_document_count"]
+            if form.cleaned_data["target_field"] is not None:
+                message = (
+                    f"Metadatenfeld wurde gelöscht. {migrated_count} Wert"
+                    f"{'e' if migrated_count != 1 else ''} wurden übertragen."
+                )
+                if conflict_count:
+                    message += (
+                        f" Bei {conflict_count} Dokument"
+                        f"{'en' if conflict_count != 1 else ''} blieb der alte Wert "
+                        "wegen eines bereits belegten Zielfelds erhalten."
+                    )
+                messages.success(request, message)
+            else:
+                messages.success(request, "Metadatenfeld wurde gelöscht.")
             return redirect(
                 "documents:settings_document_box_edit",
                 tenant_slug=tenant.slug,
                 box_id=document_space.id,
             )
+    else:
+        form = DeleteDocumentMetadataFieldForm(metadata_field=metadata_field)
 
     return render(
         request,
@@ -5213,6 +5230,7 @@ def tenant_settings_metadata_field_delete(
             "metadata_field": metadata_field,
             "document_value_count": document_value_count,
             "workflow_step_count": workflow_step_count,
+            "form": form,
             "active_settings_section": "document_boxes",
         },
     )
