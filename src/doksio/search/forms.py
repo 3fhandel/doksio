@@ -91,11 +91,26 @@ class DocumentSearchForm(forms.Form):
         elif field_definition.field_type == DocumentMetadataField.FieldType.CHOICE:
             choices = [("", "Alle")]
             choices.extend(field_definition.choice_options())
+            selected_value = (
+                self.data.get(self.add_prefix(base_name), "") if self.is_bound else ""
+            )
+            option_labels = dict(choices)
             self.fields[base_name] = forms.ChoiceField(
                 label=field_definition.name,
                 required=False,
                 choices=choices,
-                widget=forms.Select(attrs={"class": "form-select"}),
+                widget=forms.HiddenInput(
+                    attrs={
+                        "data-metadata-choice-select": "true",
+                        "data-metadata-choice-combobox": "true",
+                        "data-metadata-choice-list": f"{base_name}_search_choices",
+                        "data-metadata-choice-selected-label": (
+                            option_labels.get(selected_value, "")
+                            if selected_value
+                            else ""
+                        ),
+                    }
+                ),
             )
         elif field_definition.field_type == DocumentMetadataField.FieldType.BOOLEAN:
             self.fields[base_name] = forms.ChoiceField(

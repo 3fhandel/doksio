@@ -78,6 +78,10 @@ HELP_TOPICS = (
                         "Workflow-Status."
                     ),
                     (
+                        "Bei Auswahllisten-Metadaten kannst du direkt in das Feld "
+                        "tippen und anschließend einen passenden Eintrag wählen."
+                    ),
+                    (
                         "Aktiviere „Teilwörter finden“ nur für Suchen innerhalb "
                         "längerer Werte."
                     ),

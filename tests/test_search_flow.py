@@ -349,6 +349,9 @@ def test_document_search_filters_by_inherited_box_metadata(client):
     assert "Metadaten" in content
     assert "Kostenstelle" in content
     assert "Projekt" in content
+    assert 'data-metadata-choice-picker' in content
+    assert 'data-metadata-choice-display' in content
+    assert 'value="4711"' in content
     assert "Passende Rechnung" in content
     assert "Andere Rechnung" not in content
 

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load doksio_extras %}
+{% load static doksio_extras %}
 
 {% block title %}Suche | Doksio{% endblock %}
 
@@ -134,6 +134,31 @@
                               {% endwith %}
                             {% endwith %}
                           </div>
+                        {% elif metadata_field.field_type == "choice" %}
+                          <div>
+                            {% with field=form|get_item:base_name %}
+                              <label class="form-label" for="{{ field.id_for_label }}_display">{{ field.label }}</label>
+                              <div class="metadata-choice-picker" data-metadata-choice-picker>
+                                {{ field }}
+                                <input
+                                  class="form-control"
+                                  id="{{ field.id_for_label }}_display"
+                                  type="text"
+                                  value="{{ field|widget_attr:'data-metadata-choice-selected-label' }}"
+                                  list="{{ field|widget_attr:'data-metadata-choice-list' }}"
+                                  placeholder="Auswahl suchen oder wählen"
+                                  autocomplete="off"
+                                  data-metadata-choice-display
+                                >
+                                <datalist id="{{ field|widget_attr:'data-metadata-choice-list' }}">
+                                  {% for value, label in field.field.choices %}
+                                    {% if value %}<option value="{{ label }}" data-choice-value="{{ value }}"></option>{% endif %}
+                                  {% endfor %}
+                                </datalist>
+                              </div>
+                              {{ field.errors }}
+                            {% endwith %}
+                          </div>
                         {% else %}
                           <div>
                             {% with field=form|get_item:base_name %}
@@ -194,4 +219,8 @@
       </section>
     </div>
   </main>
+{% endblock %}
+
+{% block extra_body %}
+  <script src="{% static 'js/document-metadata.js' %}?v=4"></script>
 {% endblock %}

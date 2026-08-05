@@ -56,6 +56,7 @@ def test_help_overview_shows_user_topics_and_hides_restricted_topics(client):
     assert "zwischen Fundstellen wechseln" in content
     assert "automatisch in die Dokumentensuche übernommen" in content
     assert "Cmd+F auf dem Mac" in content
+    assert "Bei Auswahllisten-Metadaten kannst du direkt" in content
     assert "Scans mit vorhandenen OCR-Suchmarkierungen" in content
     assert "wechselt zwischen Dokumenten der geöffneten Liste" in content
     assert 'id="administration"' not in content
