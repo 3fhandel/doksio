@@ -172,6 +172,18 @@ HELP_TOPICS = (
                 ),
             ),
             HelpSection(
+                title="Dokumente verknüpfen",
+                text=(
+                    "Unter „Verknüpfte Dokumente“ öffnest du mit „Verknüpfung "
+                    "hinzufügen“ die Dokumentauswahl. Filtere die Treffer, wähle "
+                    "das gewünschte Dokument aus und bestätige die Verknüpfung "
+                    "direkt im Dialog. Danach wird die Detailansicht mit der neuen "
+                    "Verknüpfung geladen. Ein Klick auf ein Thumbnail öffnet zuvor "
+                    "eine Schnellvorschau der Originaldatei. Beim Lösen einer bestehenden Verknüpfung "
+                    "zeigt ein Bestätigungsdialog noch einmal das betroffene Dokument."
+                ),
+            ),
+            HelpSection(
                 title="Metadaten und Auswahllisten",
                 text=(
                     "Bei langen Auswahllisten kannst du direkt in das Auswahlfeld "

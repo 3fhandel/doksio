@@ -1782,7 +1782,13 @@ def test_document_detail_can_link_related_document(client, monkeypatch):
     assert "Verknüpfte Dokumente" in content
     assert "Beleg" in content
     assert "Dokument auswählen" in content
-    assert "Diese Dokumentverknüpfung wirklich lösen?" in content
+    assert "Verknüpfung hinzufügen" in content
+    assert 'data-relation-submit disabled' in content
+    assert "Dokument verknüpfen</button>" not in content
+    assert 'data-bs-target="#documentRelationRemoveModal"' in content
+    assert 'data-relation-remove-id="' in content
+    assert "Die Dokumente selbst bleiben unverändert erhalten." in content
+    assert "confirm('Diese Dokumentverknüpfung" not in content
     thumbnail = related_document.files.get(file_kind=DocumentFile.Kind.THUMBNAIL)
     assert (
         reverse(
@@ -1807,6 +1813,14 @@ def test_document_detail_can_link_related_document(client, monkeypatch):
     results = picker_response.json()["results"]
     assert [item["id"] for item in results] == [related_document.id]
     assert results[0]["thumbnail_url"]
+    assert results[0]["preview_url"] == (
+        reverse(
+            "documents:download",
+            kwargs={"tenant_slug": tenant.slug, "file_id": _related_file.id},
+        )
+        + "?inline=1"
+    )
+    assert results[0]["preview_content_type"] == "application/pdf"
     assert results[0]["workflow_open_count"] == 1
     assert unrelated_document.id not in [item["id"] for item in results]
 

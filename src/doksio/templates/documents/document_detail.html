@@ -541,18 +541,16 @@
                             </div>
                           </div>
                         </div>
-                        <form method="post">
-                          {% csrf_token %}
-                          <input type="hidden" name="action" value="remove_relation">
-                          <input type="hidden" name="relation_id" value="{{ item.relation.id }}">
-                          <button
-                            class="btn btn-sm btn-outline-secondary"
-                            type="submit"
-                            onclick="return confirm('Diese Dokumentverknüpfung wirklich lösen?');"
-                          >
-                            Lösen
-                          </button>
-                        </form>
+                        <button
+                          class="btn btn-sm btn-outline-secondary"
+                          type="button"
+                          data-bs-toggle="modal"
+                          data-bs-target="#documentRelationRemoveModal"
+                          data-relation-remove-id="{{ item.relation.id }}"
+                          data-relation-remove-title="{{ item.document.title }}"
+                        >
+                          Lösen
+                        </button>
                       </div>
                     </div>
                   {% endfor %}
@@ -561,22 +559,10 @@
                 <p class="text-secondary mb-3">Noch keine Dokumente verknüpft.</p>
               {% endif %}
 
-              <form method="post" data-document-relation-form>
-                {% csrf_token %}
-                <input type="hidden" name="action" value="add_relation">
-                {{ relation_form.target_document_id }}
-                <label class="form-label">Dokument</label>
-                <div class="document-relation-picker">
-                  <div class="document-relation-selected" data-relation-selected>
-                    Noch kein Dokument ausgewählt.
-                  </div>
-                  <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#documentRelationPickerModal">
-                    Dokument auswählen
-                  </button>
-                </div>
-                {{ relation_form.target_document_id.errors }}
-                <button class="btn btn-sm btn-outline-primary mt-2" type="submit">Dokument verknüpfen</button>
-              </form>
+              <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#documentRelationPickerModal">
+                Verknüpfung hinzufügen
+              </button>
+              {{ relation_form.target_document_id.errors }}
             </div>
           </section>
 
@@ -869,7 +855,10 @@
 
     <div class="modal fade" id="documentRelationPickerModal" tabindex="-1" aria-labelledby="documentRelationPickerModalLabel" aria-hidden="true">
       <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content" data-document-relation-picker data-search-url="{% url 'documents:relation_picker_search' document.tenant.slug document.id %}">
+        <form class="modal-content" method="post" data-document-relation-picker data-document-relation-form data-search-url="{% url 'documents:relation_picker_search' document.tenant.slug document.id %}">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="add_relation">
+          {{ relation_form.target_document_id }}
           <div class="modal-header">
             <h2 class="modal-title h5" id="documentRelationPickerModalLabel">Dokument auswählen</h2>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
@@ -917,9 +906,40 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+            <div class="document-relation-selected me-auto" data-relation-selected>
+              Noch kein Dokument ausgewählt.
+            </div>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+              <button type="submit" class="btn btn-primary" data-relation-submit disabled>
+                {% include "includes/icons.html" with icon="link" %}
+                <span>Verknüpfen</span>
+              </button>
+            </div>
           </div>
-        </div>
+        </form>
+      </div>
+    </div>
+    <div class="modal fade" id="documentRelationRemoveModal" tabindex="-1" aria-labelledby="documentRelationRemoveModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" method="post" data-relation-remove-form>
+          {% csrf_token %}
+          <input type="hidden" name="action" value="remove_relation">
+          <input type="hidden" name="relation_id" value="" data-relation-remove-id-input>
+          <div class="modal-header">
+            <h2 class="modal-title h5" id="documentRelationRemoveModalLabel">Verknüpfung lösen?</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-2">Die Verknüpfung mit dem folgenden Dokument wird entfernt:</p>
+            <p class="fw-semibold mb-0" data-relation-remove-title></p>
+            <p class="small text-secondary mt-3 mb-0">Die Dokumente selbst bleiben unverändert erhalten.</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+            <button type="submit" class="btn btn-danger">Verknüpfung lösen</button>
+          </div>
+        </form>
       </div>
     </div>
     <div class="modal fade" id="workflowCompletionConfirmationModal" tabindex="-1" aria-labelledby="workflowCompletionConfirmationModalLabel" aria-hidden="true">
@@ -1071,7 +1091,9 @@
       const results = picker.querySelector("[data-relation-search-results]");
       const selected = form.querySelector("[data-relation-selected]");
       const targetInput = form.querySelector("input[name='target_document_id']");
+      const submitButton = form.querySelector("[data-relation-submit]");
       let activeRequest = 0;
+      let initializingFilters = false;
 
       const setFilterControlsEditable = (isEditable) => {
         [spaceFilter, workflowFilter, includeChildren].forEach((control) => {
@@ -1092,11 +1114,23 @@
           return;
         }
         items.forEach((item) => {
-          const button = document.createElement("button");
-          button.type = "button";
+          const button = document.createElement("div");
           button.className = "document-relation-result";
-          const thumbnail = document.createElement("span");
+          button.setAttribute("role", "button");
+          button.tabIndex = 0;
+          button.setAttribute("aria-pressed", "false");
+          const thumbnail = document.createElement(item.preview_url ? "button" : "span");
           thumbnail.className = "document-row-thumbnail document-relation-thumbnail";
+          if (item.preview_url) {
+            thumbnail.type = "button";
+            thumbnail.classList.add("document-row-thumbnail-button");
+            thumbnail.dataset.documentQuickPreview = "";
+            thumbnail.dataset.previewSrc = item.preview_url;
+            thumbnail.dataset.previewContentType = item.preview_content_type || "";
+            thumbnail.dataset.previewTitle = item.title;
+            thumbnail.setAttribute("aria-label", `Schnellvorschau für ${item.title} öffnen`);
+            thumbnail.title = "Schnellvorschau öffnen";
+          }
           if (item.thumbnail_url) {
             const image = document.createElement("img");
             image.src = item.thumbnail_url;
@@ -1138,19 +1172,36 @@
             badges.appendChild(workflow);
           }
           button.append(thumbnail, text, badges);
-          button.addEventListener("click", () => {
+          const selectDocument = () => {
             targetInput.value = item.id;
+            results.querySelectorAll(".document-relation-result").forEach((result) => {
+              const isSelected = result === button;
+              result.classList.toggle("selected", isSelected);
+              result.setAttribute("aria-pressed", isSelected ? "true" : "false");
+            });
             selected.replaceChildren();
             const selectedTitle = document.createElement("strong");
             selectedTitle.textContent = item.title;
             const selectedMeta = document.createElement("small");
             selectedMeta.textContent = `#${item.id} · ${item.space}`;
             selected.append(selectedTitle, selectedMeta);
-            const modal = window.bootstrap.Modal.getInstance(
-              document.getElementById("documentRelationPickerModal"),
-            );
-            if (modal) {
-              modal.hide();
+            if (submitButton) {
+              submitButton.disabled = false;
+            }
+          };
+          button.addEventListener("click", (event) => {
+            if (event.target.closest("[data-document-quick-preview]")) {
+              return;
+            }
+            selectDocument();
+          });
+          button.addEventListener("keydown", (event) => {
+            if (event.target.closest("[data-document-quick-preview]")) {
+              return;
+            }
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              selectDocument();
             }
           });
           results.appendChild(button);
@@ -1188,7 +1239,11 @@
         searchTimer = window.setTimeout(search, 180);
       });
       [spaceFilter, workflowFilter, includeChildren].forEach((control) => {
-        control.addEventListener("change", search);
+        control.addEventListener("change", () => {
+          if (!initializingFilters) {
+            search();
+          }
+        });
       });
       document
         .getElementById("documentRelationPickerModal")
@@ -1198,6 +1253,12 @@
           const defaultWorkflowStatus = trigger?.getAttribute("data-relation-default-workflow-status") || "any";
           const defaultIncludeChildren = trigger?.getAttribute("data-relation-default-include-children");
           const filtersEditable = trigger?.getAttribute("data-relation-filters-editable") !== "0";
+          targetInput.value = "";
+          selected.textContent = "Noch kein Dokument ausgewählt.";
+          if (submitButton) {
+            submitButton.disabled = true;
+          }
+          initializingFilters = true;
           if (spaceFilter) {
             spaceFilter.value = defaultSpace;
             spaceFilter.dispatchEvent(new Event("change", { bubbles: true }));
@@ -1209,13 +1270,31 @@
             includeChildren.checked = defaultIncludeChildren !== "0";
           }
           setFilterControlsEditable(filtersEditable);
+          initializingFilters = false;
+          search();
         });
       document
         .getElementById("documentRelationPickerModal")
         .addEventListener("shown.bs.modal", () => {
           input.focus();
-          search();
         });
+    })();
+    (() => {
+      const modalElement = document.getElementById("documentRelationRemoveModal");
+      if (!modalElement) {
+        return;
+      }
+      const relationIdInput = modalElement.querySelector("[data-relation-remove-id-input]");
+      const relationTitle = modalElement.querySelector("[data-relation-remove-title]");
+      modalElement.addEventListener("show.bs.modal", (event) => {
+        const trigger = event.relatedTarget;
+        relationIdInput.value = trigger?.getAttribute("data-relation-remove-id") || "";
+        relationTitle.textContent = trigger?.getAttribute("data-relation-remove-title") || "Ausgewähltes Dokument";
+      });
+      modalElement.addEventListener("hidden.bs.modal", () => {
+        relationIdInput.value = "";
+        relationTitle.textContent = "";
+      });
     })();
     {% if document_reminder_modal_open %}
       const documentReminderModal = document.getElementById("documentReminderModal");

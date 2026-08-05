@@ -2813,8 +2813,22 @@ def document_relation_picker_search(
             + "?inline=1"
         )
 
-    results = [
-        {
+    results = []
+    for candidate in documents.order_by("-created_at", "-id")[:12]:
+        preview_file, _preview_kind = _document_preview(candidate)
+        preview_url = ""
+        if preview_file is not None:
+            preview_url = (
+                reverse(
+                    "documents:download",
+                    kwargs={
+                        "tenant_slug": tenant.slug,
+                        "file_id": preview_file.id,
+                    },
+                )
+                + "?inline=1"
+            )
+        results.append({
             "id": candidate.id,
             "title": candidate.title,
             "space": candidate.space.path,
@@ -2825,12 +2839,14 @@ def document_relation_picker_search(
                 "%d.%m.%Y %H:%M"
             ),
             "thumbnail_url": thumbnail_url(candidate),
+            "preview_url": preview_url,
+            "preview_content_type": (
+                preview_file.content_type if preview_file is not None else ""
+            ),
             "workflow_open_count": candidate.workflow_open_count,
             "workflow_total_count": candidate.workflow_total_count,
             "search_match": build_search_match(candidate, query),
-        }
-        for candidate in documents.order_by("-created_at", "-id")[:12]
-    ]
+        })
     return JsonResponse({"results": results})
 
 

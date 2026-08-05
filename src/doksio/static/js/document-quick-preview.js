@@ -27,6 +27,7 @@
   let activePdf = null;
   let renderTask = null;
   let generation = 0;
+  let parentModalElement = null;
 
   const resetPreview = async () => {
     generation += 1;
@@ -122,6 +123,14 @@
     const contentType = (trigger.dataset.previewContentType || "")
       .split(";", 1)[0]
       .toLowerCase();
+    const parentModal = trigger.closest(".modal.show");
+    parentModalElement = parentModal && parentModal !== modalElement
+      ? parentModal
+      : null;
+    if (parentModalElement) {
+      modalElement.classList.add("document-quick-preview-modal-stacked");
+      document.body.classList.add("document-quick-preview-stacking");
+    }
     await resetPreview();
     const expectedGeneration = generation;
     modalTitle.textContent = title;
@@ -145,5 +154,12 @@
   modalElement.addEventListener("hidden.bs.modal", async () => {
     await resetPreview();
     modalTitle.textContent = "Schnellvorschau";
+    modalElement.classList.remove("document-quick-preview-modal-stacked");
+    document.body.classList.remove("document-quick-preview-stacking");
+    if (parentModalElement?.classList.contains("show")) {
+      document.body.classList.add("modal-open");
+      parentModalElement.focus();
+    }
+    parentModalElement = null;
   });
 })();
