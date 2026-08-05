@@ -507,6 +507,17 @@ def test_workflow_settings_create_template_and_step(client):
     template = WorkflowTemplate.objects.get(tenant=tenant)
     assert response.status_code == 302
 
+    response = client.get(
+        reverse(
+            "workflows:settings_step_create",
+            kwargs={"tenant_slug": tenant.slug, "template_id": template.id},
+        )
+    )
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "data-choice-picker" in content
+    assert 'placeholder="Rolle suchen"' in content
+
     response = client.post(
         reverse(
             "workflows:settings_step_create",

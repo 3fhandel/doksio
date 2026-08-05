@@ -1,15 +1,1 @@
-<div class="document-space-picker-compact" data-document-space-picker>
-  {{ field }}
-  <div class="document-space-picker-input-wrap">
-    {% include "includes/icons.html" with icon="search" %}
-    <input
-      class="form-control"
-      type="text"
-      autocomplete="off"
-      placeholder="{{ placeholder|default:'Dokumentenbox suchen' }}"
-      aria-label="{{ field.label }}"
-      data-document-space-picker-input
-    >
-  </div>
-  <div class="document-space-picker-menu" data-document-space-picker-menu hidden></div>
-</div>
+{% include "includes/choice_picker_compact.html" with field=field placeholder=placeholder|default:"Dokumentenbox suchen" empty_text="Keine passende Dokumentenbox" %}

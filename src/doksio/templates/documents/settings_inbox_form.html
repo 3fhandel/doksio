@@ -35,39 +35,7 @@
       </div>
 
       <div class="col-12">
-        <section class="inbox-choice-panel" data-choice-panel>
-          <header class="inbox-choice-panel-header">
-            <div>
-              <h3>{{ form.access_roles.label }}</h3>
-              <p>{{ form.access_roles.help_text }}</p>
-            </div>
-            <span class="inbox-choice-count" data-choice-count></span>
-          </header>
-          <div class="inbox-choice-tools">
-            <div class="inbox-choice-search">
-              {% include "includes/icons.html" with icon="search" %}
-              <input type="search" class="form-control form-control-sm" placeholder="Rollen filtern" aria-label="Rollen filtern" data-choice-search>
-            </div>
-            <div class="btn-group btn-group-sm" role="group" aria-label="Rollenauswahl">
-              <button class="btn btn-outline-secondary" type="button" data-choice-select>Alle</button>
-              <button class="btn btn-outline-secondary" type="button" data-choice-clear>Keine</button>
-            </div>
-          </div>
-          <div class="inbox-choice-list">
-            {% for checkbox in form.access_roles %}
-              <label class="inbox-choice-item" for="{{ checkbox.id_for_label }}" data-choice-item data-choice-label="{{ checkbox.choice_label|lower }}">
-                {{ checkbox.tag }}
-                <span class="inbox-choice-item-copy">
-                  <strong>{{ checkbox.choice_label }}</strong>
-                </span>
-                <span class="inbox-choice-check">{% include "includes/icons.html" with icon="check" %}</span>
-              </label>
-            {% empty %}
-              <div class="inbox-choice-empty">Noch keine Rollen vorhanden.</div>
-            {% endfor %}
-          </div>
-          {{ form.access_roles.errors }}
-        </section>
+        {% include "includes/choice_picker_panel.html" with field=form.access_roles search_placeholder="Rollen filtern" search_label="Rollen filtern" selection_label="Rollenauswahl" empty_text="Noch keine Rollen vorhanden." %}
       </div>
 
       <div class="col-12">

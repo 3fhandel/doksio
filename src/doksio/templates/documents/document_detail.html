@@ -882,18 +882,18 @@
               </div>
               <div>
                 <label class="form-label" for="document-relation-space">Dokumentenbox</label>
-                <div class="document-space-picker-compact" data-document-space-picker>
+                <div class="choice-picker-compact" data-choice-picker data-empty-text="Keine passende Dokumentenbox">
                   <select class="form-select" id="document-relation-space" data-relation-space-filter>
                     <option value="">Alle sichtbaren Boxen</option>
                     {% for space in relation_picker_spaces %}
                       <option value="{{ space.id }}">{{ space.path }}</option>
                     {% endfor %}
                   </select>
-                  <div class="document-space-picker-input-wrap">
+                  <div class="choice-picker-input-wrap">
                     {% include "includes/icons.html" with icon="search" %}
-                    <input class="form-control" type="text" autocomplete="off" placeholder="Dokumentenbox suchen" aria-label="Dokumentenbox" data-document-space-picker-input>
+                    <input class="form-control" type="text" autocomplete="off" placeholder="Dokumentenbox suchen" aria-label="Dokumentenbox" data-choice-picker-input>
                   </div>
-                  <div class="document-space-picker-menu" data-document-space-picker-menu hidden></div>
+                  <div class="choice-picker-menu" data-choice-picker-menu hidden></div>
                 </div>
               </div>
               <div>
@@ -1079,7 +1079,7 @@
             control.disabled = !isEditable;
           }
         });
-        const spacePickerInput = picker.querySelector("[data-document-space-picker-input]");
+        const spacePickerInput = picker.querySelector("[data-choice-picker-input]");
         if (spacePickerInput) {
           spacePickerInput.disabled = !isEditable;
         }

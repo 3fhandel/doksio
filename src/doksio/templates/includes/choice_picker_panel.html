@@ -1,0 +1,37 @@
+<section class="choice-picker-panel" data-choice-picker-panel>
+  <header class="choice-picker-panel-header">
+    <div>
+      <h3>{{ field.label }}</h3>
+      {% if field.help_text %}<p>{{ field.help_text }}</p>{% endif %}
+    </div>
+    <span class="choice-picker-count" data-choice-picker-count></span>
+  </header>
+  <div class="choice-picker-tools">
+    <div class="choice-picker-search">
+      {% include "includes/icons.html" with icon="search" %}
+      <input
+        type="search"
+        class="form-control form-control-sm"
+        placeholder="{{ search_placeholder|default:'Auswahl filtern' }}"
+        aria-label="{{ search_label|default:field.label }}"
+        data-choice-picker-search
+      >
+    </div>
+    <div class="btn-group btn-group-sm" role="group" aria-label="{{ selection_label|default:field.label }}">
+      <button class="btn btn-outline-secondary" type="button" data-choice-picker-select>Alle</button>
+      <button class="btn btn-outline-secondary" type="button" data-choice-picker-clear>Keine</button>
+    </div>
+  </div>
+  <div class="choice-picker-list">
+    {% for choice in field %}
+      <label class="choice-picker-item" for="{{ choice.id_for_label }}" data-choice-picker-item data-choice-picker-label="{{ choice.choice_label|lower }}">
+        {{ choice.tag }}
+        <span class="choice-picker-item-copy"><strong>{{ choice.choice_label }}</strong></span>
+        <span class="choice-picker-check">{% include "includes/icons.html" with icon="check" %}</span>
+      </label>
+    {% empty %}
+      <div class="choice-picker-empty">{{ empty_text|default:'Noch keine Einträge vorhanden.' }}</div>
+    {% endfor %}
+  </div>
+  {{ field.errors }}
+</section>

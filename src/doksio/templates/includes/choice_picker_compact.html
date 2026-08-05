@@ -1,0 +1,16 @@
+<div class="choice-picker-compact" data-choice-picker data-empty-text="{{ empty_text|default:'Kein passender Eintrag' }}">
+  {{ field }}
+  <div class="choice-picker-input-wrap">
+    {% include "includes/icons.html" with icon="search" %}
+    <input
+      class="form-control"
+      type="text"
+      id="{{ field.id_for_label }}_picker"
+      autocomplete="off"
+      placeholder="{{ placeholder|default:'Eintrag suchen' }}"
+      aria-label="{{ field.label }}"
+      data-choice-picker-input
+    >
+  </div>
+  <div class="choice-picker-menu" data-choice-picker-menu hidden></div>
+</div>

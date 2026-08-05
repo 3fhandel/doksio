@@ -422,16 +422,16 @@ HELP_TOPICS = (
                 ),
             ),
             HelpSection(
-                title="Dokumentenboxen auswählen",
+                title="Einträge auswählen",
                 text=(
-                    "Dokumentenboxen lassen sich in den Einstellungen durchsuchen. "
-                    "Bei Mehrfachauswahlen kannst du die sichtbaren Treffer gemeinsam "
-                    "auswählen oder abwählen. In kompakten Feldern tippst du einen Teil "
-                    "des Boxnamens oder Pfads ein und wählst anschließend den passenden "
-                    "Treffer aus. Mit den Pfeiltasten wechselst du zwischen Treffern, "
-                    "mit Enter übernimmst du die markierte Box. Es werden nur Boxen "
-                    "angeboten, auf die du im jeweiligen "
-                    "Vorgang zugreifen darfst."
+                    "Dokumentenboxen und Rollen lassen sich in den Einstellungen "
+                    "durchsuchen. Bei Mehrfachauswahlen kannst du die sichtbaren "
+                    "Treffer gemeinsam auswählen oder abwählen. In kompakten Feldern "
+                    "tippst du einen Teil des Namens oder Pfads ein und wählst den "
+                    "passenden Treffer aus. Mit den Pfeiltasten wechselst du zwischen "
+                    "Treffern, mit Enter übernimmst du den markierten Eintrag. Es "
+                    "werden nur Einträge angeboten, die im jeweiligen Vorgang "
+                    "verwendet werden dürfen."
                 ),
             ),
             HelpSection(

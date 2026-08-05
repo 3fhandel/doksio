@@ -76,20 +76,11 @@
         <div class="col-12">
           <h3 class="h6 mb-0 mt-2">Rollen und Zugriff</h3>
         </div>
-        <div class="col-md-6">
-          <div class="metadata-label mb-2">Rollen</div>
-          {% for checkbox in form.roles %}
-            <div class="form-check">
-              {{ checkbox.tag }}
-              <label class="form-check-label" for="{{ checkbox.id_for_label }}">
-                {{ checkbox.choice_label }}
-              </label>
-            </div>
-          {% endfor %}
-          {{ form.roles.errors }}
+        <div class="col-12">
+          {% include "includes/choice_picker_panel.html" with field=form.roles search_placeholder="Rollen filtern" search_label="Rollen filtern" selection_label="Rollenauswahl" empty_text="Noch keine Rollen vorhanden." %}
         </div>
         {% if form.is_active %}
-          <div class="col-md-6 d-flex align-items-end">
+          <div class="col-12">
             <div class="form-check mb-2">
               {{ form.is_active }}
               <label class="form-check-label" for="{{ form.is_active.id_for_label }}">Aktiv</label>

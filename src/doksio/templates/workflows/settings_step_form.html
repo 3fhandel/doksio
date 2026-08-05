@@ -27,7 +27,7 @@
         </div>
         <div class="col-md-6">
           <label class="form-label" for="{{ form.assigned_role.id_for_label }}">{{ form.assigned_role.label }}</label>
-          {{ form.assigned_role }}
+          {% include "includes/choice_picker_compact.html" with field=form.assigned_role placeholder="Rolle suchen" empty_text="Keine passende Rolle" %}
           {{ form.assigned_role.errors }}
         </div>
         <div class="col-12">

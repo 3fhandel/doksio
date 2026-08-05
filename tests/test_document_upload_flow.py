@@ -643,7 +643,9 @@ def test_inbox_settings_use_filterable_checkbox_pickers_and_save_choices(client)
     )
     content = form_response.content.decode()
     assert form_response.status_code == 200
-    assert content.count("data-choice-panel") >= 2
+    assert content.count("data-choice-picker-panel") >= 2
+    assert 'placeholder="Rollen filtern"' in content
+    assert 'placeholder="Boxen filtern"' in content
     assert 'type="checkbox"' in content
     assert 'name="access_roles"' in content
     assert 'name="allowed_target_spaces"' in content

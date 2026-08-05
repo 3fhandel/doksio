@@ -1,10 +1,10 @@
 (() => {
   const normalize = (value) => value.trim().toLocaleLowerCase("de");
 
-  document.querySelectorAll("[data-choice-panel]").forEach((panel) => {
-    const search = panel.querySelector("[data-choice-search]");
-    const items = Array.from(panel.querySelectorAll("[data-choice-item]"));
-    const count = panel.querySelector("[data-choice-count]");
+  document.querySelectorAll("[data-choice-picker-panel]").forEach((panel) => {
+    const search = panel.querySelector("[data-choice-picker-search]");
+    const items = Array.from(panel.querySelectorAll("[data-choice-picker-item]"));
+    const count = panel.querySelector("[data-choice-picker-count]");
     if (!search || !count) return;
 
     const sync = () => {
@@ -12,7 +12,7 @@
       let selected = 0;
       items.forEach((item) => {
         const input = item.querySelector("input");
-        item.hidden = Boolean(query) && !item.dataset.choiceLabel.includes(query);
+        item.hidden = Boolean(query) && !item.dataset.choicePickerLabel.includes(query);
         item.classList.toggle("selected", input.checked);
         if (input.checked) selected += 1;
       });
@@ -21,13 +21,13 @@
 
     panel.addEventListener("change", sync);
     search.addEventListener("input", sync);
-    panel.querySelector("[data-choice-select]")?.addEventListener("click", () => {
+    panel.querySelector("[data-choice-picker-select]")?.addEventListener("click", () => {
       items.filter((item) => !item.hidden).forEach((item) => {
         item.querySelector("input").checked = true;
       });
       sync();
     });
-    panel.querySelector("[data-choice-clear]")?.addEventListener("click", () => {
+    panel.querySelector("[data-choice-picker-clear]")?.addEventListener("click", () => {
       items.filter((item) => !item.hidden).forEach((item) => {
         item.querySelector("input").checked = false;
       });
@@ -37,10 +37,10 @@
   });
 
   const initCompactPicker = (picker) => {
-    if (picker.dataset.documentSpacePickerReady === "true") return;
+    if (picker.dataset.choicePickerReady === "true") return;
     const select = picker.querySelector("select");
-    const input = picker.querySelector("[data-document-space-picker-input]");
-    const menu = picker.querySelector("[data-document-space-picker-menu]");
+    const input = picker.querySelector("[data-choice-picker-input]");
+    const menu = picker.querySelector("[data-choice-picker-menu]");
     if (!select || !input || !menu) return;
 
     const options = Array.from(select.options).map((option) => ({
@@ -51,6 +51,11 @@
     const selectWasRequired = select.required;
     select.required = false;
     input.required = selectWasRequired;
+    if (select.id && input.id) {
+      document.querySelectorAll(`label[for="${select.id}"]`).forEach((label) => {
+        label.htmlFor = input.id;
+      });
+    }
     const initialOption = select.selectedOptions[0];
     input.value = initialOption && (!selectWasRequired || initialOption.value)
       ? initialOption.textContent.trim()
@@ -63,7 +68,7 @@
     menu.setAttribute("role", "listbox");
 
     const optionButtons = () => Array.from(
-      menu.querySelectorAll(".document-space-picker-option"),
+      menu.querySelectorAll(".choice-picker-option"),
     );
     const setActive = (index) => {
       const buttons = optionButtons();
@@ -100,11 +105,11 @@
       matches.forEach((option, optionIndex) => {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "document-space-picker-option";
+        button.className = "choice-picker-option";
         button.textContent = option.label;
         button.setAttribute("role", "option");
         button.dataset.optionIndex = String(optionIndex);
-        button._documentSpaceOption = option;
+        button._choicePickerOption = option;
         button.classList.toggle("selected", option.value === select.value);
         button.addEventListener("mouseenter", () => setActive(optionIndex));
         button.addEventListener("mousedown", (event) => {
@@ -115,8 +120,8 @@
       });
       if (!matches.length) {
         const empty = document.createElement("div");
-        empty.className = "document-space-picker-empty";
-        empty.textContent = "Keine passende Dokumentenbox";
+        empty.className = "choice-picker-empty";
+        empty.textContent = picker.dataset.emptyText || "Kein passender Eintrag";
         menu.append(empty);
       }
       menu.hidden = false;
@@ -146,9 +151,9 @@
       }
       if (event.key === "Enter") {
         const activeButton = optionButtons()[activeIndex];
-        if (!menu.hidden && activeButton?._documentSpaceOption) {
+        if (!menu.hidden && activeButton?._choicePickerOption) {
           event.preventDefault();
-          choose(activeButton._documentSpaceOption);
+          choose(activeButton._choicePickerOption);
           return;
         }
         const exact = options.find((option) => normalize(option.label) === normalize(input.value));
@@ -173,9 +178,9 @@
     });
     input.disabled = select.disabled;
     picker.classList.add("is-ready");
-    picker.dataset.documentSpacePickerReady = "true";
+    picker.dataset.choicePickerReady = "true";
   };
 
-  window.DoksioDocumentSpacePicker = { init: initCompactPicker };
-  document.querySelectorAll("[data-document-space-picker]").forEach(initCompactPicker);
+  window.DoksioChoicePicker = { init: initCompactPicker };
+  document.querySelectorAll("[data-choice-picker]").forEach(initCompactPicker);
 })();

@@ -9,7 +9,7 @@
     <link rel="icon" type="image/png" href="{% static 'img/favicon-32x32.png' %}" sizes="32x32">
     <link rel="apple-touch-icon" href="{% static 'img/apple-touch-icon.png' %}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="{% static 'css/app.css' %}?v=3">
+    <link rel="stylesheet" href="{% static 'css/app.css' %}?v=4">
     <script>
       const sidebarPreference = window.localStorage.getItem("doksio.sidebarCollapsed");
       if (
@@ -315,7 +315,7 @@
       <script src="{% static 'js/keyboard-shortcuts.js' %}?v=1"></script>
     {% endif %}
     <script src="{% static 'js/smart-date-inputs.js' %}?v=1"></script>
-    <script src="{% static 'js/document-space-picker.js' %}?v=4"></script>
+    <script src="{% static 'js/choice-picker.js' %}?v=1"></script>
     {% if user.is_authenticated %}
       <script src="{% static 'vendor/pdfjs/pdf.min.js' %}?v=3.11.174"></script>
     <script src="{% static 'js/document-quick-preview.js' %}?v=3"></script>

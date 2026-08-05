@@ -237,6 +237,9 @@ def test_tenant_member_create_form_explains_email_oidc_matching(client):
     assert response.status_code == 200
     assert "Neue Benutzer werden beim ersten Login anhand" in content
     assert "Identity Provider anmelden soll" in content
+    assert "data-choice-picker-panel" in content
+    assert 'placeholder="Rollen filtern"' in content
+    assert 'name="roles"' in content
 
 
 @pytest.mark.django_db
