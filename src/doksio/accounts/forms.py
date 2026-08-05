@@ -597,7 +597,7 @@ class TenantRoleCreateForm(forms.Form):
     can_access_all_document_spaces = forms.BooleanField(
         label="Darf auf alle Dokumentenboxen zugreifen",
         required=False,
-        initial=True,
+        initial=False,
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
     document_spaces = forms.ModelMultipleChoiceField(
@@ -617,6 +617,9 @@ class TenantRoleCreateForm(forms.Form):
             "category",
             "sort_order",
             "code",
+        )
+        self.fields["permissions"].help_text = (
+            "Rechte können gesucht und einzeln oder gemeinsam ausgewählt werden."
         )
         self.fields["document_spaces"].queryset = DocumentSpace.objects.filter(
             tenant=tenant,
@@ -684,6 +687,9 @@ class TenantRoleUpdateForm(forms.Form):
             "category",
             "sort_order",
             "code",
+        )
+        self.fields["permissions"].help_text = (
+            "Rechte können gesucht und einzeln oder gemeinsam ausgewählt werden."
         )
         self.fields["document_spaces"].queryset = DocumentSpace.objects.filter(
             tenant=tenant,

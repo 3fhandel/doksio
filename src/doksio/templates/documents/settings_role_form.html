@@ -1,4 +1,5 @@
 {% extends "documents/settings_base.html" %}
+{% load doksio_extras %}
 
 {% block settings_content %}
   <div class="d-flex justify-content-between align-items-center mb-3">
@@ -55,20 +56,7 @@
           {{ form.is_public_group.errors }}
         </div>
         <div class="col-12">
-          <div class="metadata-label mb-2">Berechtigungen</div>
-          <div class="row">
-            {% for checkbox in form.permissions %}
-              <div class="col-md-6">
-                <div class="form-check">
-                  {{ checkbox.tag }}
-                  <label class="form-check-label" for="{{ checkbox.id_for_label }}">
-                    {{ checkbox.choice_label }}
-                  </label>
-                </div>
-              </div>
-            {% endfor %}
-          </div>
-          {{ form.permissions.errors }}
+          {% include "includes/choice_picker_panel.html" with field=form.permissions search_placeholder="Rechte filtern" search_label="Berechtigungen filtern" selection_label="Berechtigungsauswahl" empty_text="Noch keine Berechtigungen vorhanden." %}
         </div>
         <div class="col-12">
           <div class="form-check mb-2">
@@ -80,8 +68,40 @@
           {% include "includes/document_space_picker_panel.html" with field=form.document_spaces %}
           {{ form.can_access_all_document_spaces.errors }}
         </div>
+        {% if role %}
+          <div class="col-12">
+            <section class="role-members-panel">
+              <header>
+                <div>
+                  <h3>Zuordnete Benutzer</h3>
+                  <p>Aktive Benutzer, denen diese Rolle derzeit direkt oder zusätzlich zugeordnet ist.</p>
+                </div>
+                <span>{{ assigned_memberships|length }}</span>
+              </header>
+              <div class="role-members-list">
+                {% for membership in assigned_memberships %}
+                  <div class="role-member-row">
+                    <span class="role-member-avatar">{{ membership.user|display_user|first|upper }}</span>
+                    <span>
+                      <strong>{{ membership.user|display_user }}</strong>
+                      <small>{{ membership.user.email|default:membership.user.username }}</small>
+                    </span>
+                  </div>
+                {% empty %}
+                  <div class="role-members-empty">Dieser Rolle sind derzeit keine aktiven Benutzer zugeordnet.</div>
+                {% endfor %}
+              </div>
+            </section>
+          </div>
+        {% endif %}
       </div>
-      <button class="btn btn-primary mt-4" type="submit">{{ submit_label }}</button>
+      <div class="settings-form-actions">
+        <a class="btn btn-outline-secondary" href="{% url 'documents:settings_roles' tenant.slug %}">Abbrechen</a>
+        <button class="btn btn-primary" type="submit">
+          {% include "includes/icons.html" with icon="check" %}
+          <span>{{ submit_label }}</span>
+        </button>
+      </div>
     </form>
   </div>
 {% endblock %}

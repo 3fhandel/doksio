@@ -4,6 +4,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 
+from doksio.accounts.forms import TenantRoleCreateForm
 from doksio.accounts.models import TenantMembership, TenantPermission, TenantRole
 from doksio.accounts.permissions import TenantPermissions
 from doksio.accounts.services import EnsureDefaultTenantRoles
@@ -67,6 +68,57 @@ def test_tenant_admin_can_create_role_from_settings(client):
     assert response.status_code == 302
     assert role.permissions.filter(code=TenantPermissions.DOCUMENTS_VIEW).exists()
     assert role.is_public_group is True
+    assert role.can_access_all_document_spaces is False
+
+
+@pytest.mark.django_db
+def test_role_create_form_starts_without_global_document_box_access():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+
+    form = TenantRoleCreateForm(tenant=tenant)
+
+    assert form.fields["can_access_all_document_spaces"].initial is False
+
+
+@pytest.mark.django_db
+def test_role_edit_shows_assigned_users_and_searchable_permissions(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    admin_user = get_user_model().objects.create_user(
+        username="admin",
+        email="admin@example.test",
+        password="secret",
+    )
+    assigned_user = get_user_model().objects.create_user(
+        username="alice",
+        email="alice@example.test",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=admin_user,
+        role=roles["admin"],
+    )
+    membership = TenantMembership.objects.create(
+        tenant=tenant,
+        user=assigned_user,
+        role=roles["member"],
+    )
+    membership.roles.add(roles["viewer"])
+    client.force_login(admin_user)
+
+    response = client.get(
+        reverse(
+            "documents:settings_role_edit",
+            kwargs={"tenant_slug": tenant.slug, "role_id": roles["viewer"].id},
+        )
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert 'placeholder="Rechte filtern"' in content
+    assert "Zuordnete Benutzer" in content
+    assert "alice@example.test" in content
 
 
 @pytest.mark.django_db

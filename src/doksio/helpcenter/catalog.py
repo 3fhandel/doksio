@@ -425,7 +425,11 @@ HELP_TOPICS = (
                 text=(
                     "Berechtigungen werden über mehrere Rollen additiv vergeben. "
                     "Dokumentenbox-Rechte beschränken zusätzlich, welche Ablagen und "
-                    "Dokumente ein Benutzer sehen kann."
+                    "Dokumente ein Benutzer sehen kann. Beim Erstellen einer Rolle "
+                    "ist der Zugriff auf alle Dokumentenboxen nicht automatisch "
+                    "aktiv. Rechte und Boxen können über die durchsuchbaren "
+                    "Auswahllisten festgelegt werden. In einer bestehenden Rolle "
+                    "siehst du außerdem die aktuell zugeordneten Benutzer."
                 ),
             ),
             HelpSection(

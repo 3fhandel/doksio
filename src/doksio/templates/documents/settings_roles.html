@@ -19,71 +19,48 @@
     </a>
   </div>
 
-  <div class="app-card">
-    <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Slug</th>
-            <th>Berechtigungen</th>
-            <th>Box-Zugriff</th>
-            <th>Status</th>
-            <th class="text-end">Aktion</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for role in roles %}
-            <tr>
-              <td>
-                {{ role.name }}
-                {% if role.is_system_role %}
-                  <span class="badge text-bg-light ms-2">Standard</span>
-                {% endif %}
-                {% if role.is_public_group %}
-                  <span class="badge text-bg-primary ms-2">Öffentliche Gruppe</span>
-                {% endif %}
-              </td>
-              <td class="hash-value">{{ role.slug }}</td>
-              <td>{{ role.permissions.count }}</td>
-              <td>
-                {% if role.can_access_all_document_spaces %}
-                  <span class="text-secondary">Alle Boxen</span>
-                {% elif role.document_spaces.all %}
-                  {% for space in role.document_spaces.all %}
-                    <span class="badge text-bg-light me-1">{{ space.path }}</span>
-                  {% endfor %}
-                {% else %}
-                  <span class="text-secondary">Keine Boxen</span>
-                {% endif %}
-              </td>
-              <td>
-                {% if role.is_active %}
-                  <span class="badge text-bg-success">Aktiv</span>
-                {% else %}
-                  <span class="badge text-bg-secondary">Inaktiv</span>
-                {% endif %}
-              </td>
-              <td class="text-end">
-                <div class="d-inline-flex gap-2">
-                  <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:settings_role_edit' tenant.slug role.id %}">
-                    Bearbeiten
-                  </a>
-                  {% if not role.is_system_role %}
-                    <a class="btn btn-sm btn-outline-danger" href="{% url 'documents:settings_role_delete' tenant.slug role.id %}">
-                      Löschen
-                    </a>
-                  {% endif %}
-                </div>
-              </td>
-            </tr>
-          {% empty %}
-            <tr>
-              <td colspan="6" class="text-secondary">Keine Rollen vorhanden.</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+  <div class="app-card tenant-role-list">
+    {% for role in roles %}
+      <article class="tenant-role-row">
+        <div class="tenant-role-identity">
+          <span class="tenant-role-icon">{% include "includes/icons.html" with icon="shield" %}</span>
+          <div class="tenant-role-copy">
+            <div class="tenant-role-title">
+              <a href="{% url 'documents:settings_role_edit' tenant.slug role.id %}">{{ role.name }}</a>
+              {% if role.is_system_role %}<span class="badge text-bg-light">Standard</span>{% endif %}
+              {% if role.is_public_group %}<span class="badge text-bg-primary">Öffentliche Gruppe</span>{% endif %}
+            </div>
+            <div class="tenant-role-slug">{{ role.slug }}</div>
+            {% if role.description %}<p>{{ role.description }}</p>{% endif %}
+          </div>
+        </div>
+        <div class="tenant-role-facts">
+          <span><strong>{{ role.permissions.count }}</strong> Rechte</span>
+          <span><strong>{{ role.assigned_user_count }}</strong> Benutzer</span>
+          <span class="tenant-role-access">
+            {% if role.can_access_all_document_spaces %}
+              Alle Dokumentenboxen
+            {% elif role.document_spaces.count %}
+              {{ role.document_spaces.count }} Dokumentenbox{{ role.document_spaces.count|pluralize:"en" }}
+            {% else %}
+              Keine Dokumentenboxen
+            {% endif %}
+          </span>
+        </div>
+        <div class="tenant-role-actions">
+          <span class="tenant-role-status{% if role.is_active %} is-active{% endif %}">
+            <span></span>{% if role.is_active %}Aktiv{% else %}Inaktiv{% endif %}
+          </span>
+          <div class="d-flex gap-2">
+            <a class="btn btn-sm btn-outline-primary" href="{% url 'documents:settings_role_edit' tenant.slug role.id %}">Bearbeiten</a>
+            {% if not role.is_system_role %}
+              <a class="btn btn-sm btn-outline-danger" href="{% url 'documents:settings_role_delete' tenant.slug role.id %}">Löschen</a>
+            {% endif %}
+          </div>
+        </div>
+      </article>
+    {% empty %}
+      <div class="p-4 text-secondary">Keine Rollen vorhanden.</div>
+    {% endfor %}
   </div>
 {% endblock %}

@@ -5454,7 +5454,12 @@ def tenant_settings_roles(
         raise PermissionDenied
 
     roles = (
-        TenantRole.objects.prefetch_related("permissions", "document_spaces")
+        TenantRole.objects.prefetch_related(
+            "permissions",
+            "document_spaces",
+            "memberships",
+            "multi_role_memberships",
+        )
         .filter(tenant=tenant)
         .annotate(
             system_role_order=Case(
@@ -5468,6 +5473,17 @@ def tenant_settings_roles(
         )
         .order_by("system_role_order", "name", "id")
     )
+    for role in roles:
+        role.assigned_user_count = len(
+            {
+                membership.user_id
+                for membership in (
+                    list(role.memberships.all())
+                    + list(role.multi_role_memberships.all())
+                )
+                if membership.is_active
+            }
+        )
     return render(
         request,
         "documents/settings_roles.html",
@@ -5541,6 +5557,13 @@ def tenant_settings_role_edit(
         id=role_id,
         tenant=tenant,
     )
+    assigned_memberships = (
+        TenantMembership.objects.filter(tenant=tenant, is_active=True)
+        .filter(Q(role=role) | Q(roles=role))
+        .select_related("user", "user__doksio_profile")
+        .distinct()
+        .order_by("user__username", "id")
+    )
     if request.method == "POST":
         form = TenantRoleUpdateForm(request.POST, tenant=tenant)
         if form.is_valid():
@@ -5582,6 +5605,7 @@ def tenant_settings_role_edit(
             "form": form,
             "form_title": "Rolle bearbeiten",
             "submit_label": "Rolle speichern",
+            "assigned_memberships": assigned_memberships,
             "active_settings_section": "roles",
         },
     )
