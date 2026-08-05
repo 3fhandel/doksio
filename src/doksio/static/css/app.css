@@ -1064,6 +1064,21 @@ body {
   grid-template-columns: minmax(0, 1fr) minmax(24rem, 34rem);
 }
 
+.import-batch-page-header {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.import-batch-summary {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .inbox-workspace {
   display: grid;
   grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr);
@@ -1433,6 +1448,28 @@ body {
 }
 
 @media (max-width: 575.98px) {
+  .import-batch-page-header {
+    flex-direction: column;
+  }
+
+  .import-batch-summary {
+    justify-content: flex-start;
+  }
+
+  .import-batch-assignment-row {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "file"
+      "suggestion"
+      "target"
+      "state";
+  }
+
+  .import-batch-state {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .inbox-choice-list {
     grid-template-columns: 1fr;
   }
@@ -1484,25 +1521,100 @@ body {
   box-shadow: 0 0.5rem 1.5rem rgb(16 24 40 / 14%);
 }
 
-.table > tbody > .import-batch-item-assigned > * {
-  background-color: #edf8f1;
+.import-batch-assignment-list {
+  position: relative;
 }
 
-.table > tbody > .import-batch-item-pending > * {
-  background-color: #fff8df;
+.import-batch-assignment-row {
+  position: relative;
+  display: grid;
+  grid-template-areas:
+    "file suggestion state"
+    "target target state";
+  grid-template-columns: minmax(12rem, 1.1fr) minmax(11rem, 0.8fr) minmax(9rem, 0.6fr);
+  gap: 0.8rem 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--bs-border-color);
+  background: var(--bs-body-bg);
 }
 
-.table > tbody > .import-batch-item-skipped > * {
-  background-color: #f2f4f7;
+.import-batch-assignment-row:focus-within {
+  z-index: 20;
 }
 
-.table > tbody > .import-batch-item-selected > * {
+.import-batch-assignment-row.import-batch-item-assigned {
+  background: #edf8f1;
+}
+
+.import-batch-assignment-row.import-batch-item-pending {
+  background: #fff8df;
+}
+
+.import-batch-assignment-row.import-batch-item-skipped {
+  background: #f2f4f7;
+}
+
+.import-batch-assignment-row.import-batch-item-selected {
   box-shadow: inset 0.2rem 0 #2f6fed;
 }
 
+.import-batch-file {
+  grid-area: file;
+  min-width: 0;
+}
+
+.import-batch-file-heading {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.import-batch-file-heading .badge {
+  flex: 0 0 auto;
+}
+
+.import-batch-suggestion {
+  grid-area: suggestion;
+  min-width: 0;
+}
+
+.import-batch-target {
+  grid-area: target;
+  min-width: 0;
+}
+
+.import-batch-state {
+  grid-area: state;
+  padding-left: 1rem;
+  border-left: 1px solid var(--bs-border-color);
+}
+
+.import-batch-skip {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  margin-bottom: 0.65rem;
+}
+
+.import-batch-skip .form-check-input {
+  float: none;
+  margin: 0;
+}
+
 .import-batch-preview-trigger {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  margin-top: 0.55rem;
   font-weight: 650;
   text-decoration: none;
+}
+
+.import-batch-preview-trigger .app-icon {
+  width: 0.9rem;
+  height: 0.9rem;
 }
 
 .import-batch-save-state {
@@ -4287,6 +4399,28 @@ body {
 
   .import-batch-workspace {
     grid-template-columns: 1fr;
+  }
+
+  .import-batch-assignment-row {
+    grid-template-columns: minmax(12rem, 1fr) minmax(12rem, 1fr);
+    grid-template-areas:
+      "file suggestion"
+      "target target"
+      "state state";
+  }
+
+  .import-batch-state {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    padding-top: 0.75rem;
+    padding-left: 0;
+    border-top: 1px solid var(--bs-border-color);
+    border-left: 0;
+  }
+
+  .import-batch-skip {
+    margin: 0;
   }
 
   .document-split-layout {

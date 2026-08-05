@@ -14,7 +14,7 @@
         {% endfor %}
       {% endif %}
 
-      <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+      <div class="import-batch-page-header mb-3">
         <div>
           {% if batch.inbox %}
             <a class="text-decoration-none" href="{% url 'documents:inbox_detail' tenant.slug batch.inbox.id %}">&larr; {{ batch.inbox.name }}</a>
@@ -26,7 +26,7 @@
             {{ batch.items.count }} Dateien · Status {{ batch.get_status_display }}
           </div>
         </div>
-        <div class="d-flex align-items-center gap-2">
+        <div class="import-batch-summary">
           <span class="badge text-bg-light">{{ counts_by_status.staged|default:0 }} bereit</span>
           <span class="badge text-bg-success">{{ counts_by_status.imported|default:0 }} importiert</span>
           <span class="badge text-bg-warning">{{ counts_by_status.duplicate|default:0 }} Dubletten</span>
@@ -37,113 +37,71 @@
       <div class="import-batch-workspace" data-import-batch-workspace>
         <form method="post" class="app-card p-0">
           {% csrf_token %}
-          <div class="table-responsive">
-            <table class="table table-sm align-middle mb-0">
-              <thead>
-                <tr>
-                  <th>Status</th>
-                  <th>Datei</th>
-                  <th>Vorschlag</th>
-                  <th style="min-width: 18rem;">Zielbox</th>
-                  <th>Überspringen</th>
-                  <th>Ergebnis</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for item, form in item_forms %}
-                  <tr
-                    class="
+          <div class="import-batch-assignment-list">
+            {% for item, form in item_forms %}
+              <article
+                class="import-batch-assignment-row
                       {% if preview_item and preview_item.id == item.id %}import-batch-item-selected {% endif %}
                       {% if item.status == "skipped" %}import-batch-item-skipped
                       {% elif item.target_space %}import-batch-item-assigned
                       {% elif item.status == "staged" or item.status == "error" %}import-batch-item-pending{% endif %}
-                    "
-                    data-import-batch-item
-                    data-assignment-url="{% url 'documents:import_batch_item_assignment' tenant.slug batch.id item.id %}"
-                  >
-                    <td>
-                      {% if item.status == "imported" %}
-                        <span class="badge text-bg-success">{{ item.get_status_display }}</span>
-                      {% elif item.status == "duplicate" %}
-                        <span class="badge text-bg-warning">{{ item.get_status_display }}</span>
-                      {% elif item.status == "error" %}
-                        <span class="badge text-bg-danger">{{ item.get_status_display }}</span>
-                      {% elif item.status == "skipped" %}
-                        <span class="badge text-bg-secondary">{{ item.get_status_display }}</span>
-                      {% else %}
-                        <span class="badge text-bg-light">{{ item.get_status_display }}</span>
-                      {% endif %}
-                    </td>
-                    <td>
-                      <div class="fw-medium">{{ item.original_filename }}</div>
-                      <div class="small text-secondary">{{ item.content_type }} · {{ item.byte_size|filesizeformat }}</div>
-                      {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
-                        <button
-                          class="btn btn-link btn-sm p-0 import-batch-preview-trigger"
-                          type="button"
-                          data-import-batch-preview-trigger
-                          data-preview-url="{% url 'documents:import_batch_item_preview' tenant.slug batch.id item.id %}"
-                          data-preview-kind="{{ item|import_batch_preview_kind }}"
-                          data-preview-title="{{ item.original_filename }}"
-                          aria-pressed="{% if preview_item and preview_item.id == item.id %}true{% else %}false{% endif %}"
-                        >Vorschau</button>
-                      {% endif %}
-                    </td>
-                    <td>
-                      {% if item.suggested_space %}
-                        <div>{{ item.suggested_space.path }}</div>
-                        {% if item.suggestion_reason %}
-                          <div class="small text-secondary">{{ item.suggestion_reason }}</div>
-                        {% endif %}
-                      {% else %}
-                        <span class="text-secondary">Kein Vorschlag</span>
-                      {% endif %}
-                    </td>
-                    <td>
-                      {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
-                        {% include "includes/document_space_picker_compact.html" with field=form.target_space placeholder="Zielbox suchen" %}
-                        {{ form.target_space.errors }}
-                      {% elif item.imported_document %}
-                        <a href="{% url 'documents:detail' tenant.slug item.imported_document.id %}">{{ item.imported_document.title }}</a>
-                      {% else %}
-                        <span class="text-secondary">-</span>
-                      {% endif %}
-                    </td>
-                    <td>
-                      {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
-                        <div class="form-check mb-0">
-                          {{ form.skip }}
-                        </div>
-                      {% else %}
-                        <span class="text-secondary">-</span>
-                      {% endif %}
-                    </td>
-                    <td class="small">
-                      <div data-assignment-result>
-                        {% if item.message %}
-                          {{ item.message }}
-                        {% elif item.target_space %}
-                          Ziel: {{ item.target_space.path }}
-                        {% else %}
-                          <span class="text-secondary">Bitte Zielbox wählen</span>
-                        {% endif %}
-                      </div>
-                      {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
-                        {% if item.target_space or item.status == "skipped" %}
-                          <div class="import-batch-save-state import-batch-save-state-saved" data-assignment-state>Gespeichert</div>
-                        {% else %}
-                          <div class="import-batch-save-state import-batch-save-state-pending" data-assignment-state>Offen</div>
-                        {% endif %}
-                      {% endif %}
-                    </td>
-                  </tr>
-                {% empty %}
-                  <tr>
-                    <td colspan="6" class="text-center text-secondary py-4">Dieser Stapel enthält keine Dateien.</td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
+                "
+                data-import-batch-item
+                data-assignment-url="{% url 'documents:import_batch_item_assignment' tenant.slug batch.id item.id %}"
+              >
+                <div class="import-batch-file">
+                  <div class="import-batch-file-heading">
+                    <div class="fw-semibold text-truncate" title="{{ item.original_filename }}">{{ item.original_filename }}</div>
+                    {% if item.status == "imported" %}<span class="badge text-bg-success">{{ item.get_status_display }}</span>
+                    {% elif item.status == "duplicate" %}<span class="badge text-bg-warning">{{ item.get_status_display }}</span>
+                    {% elif item.status == "error" %}<span class="badge text-bg-danger">{{ item.get_status_display }}</span>
+                    {% elif item.status == "skipped" %}<span class="badge text-bg-secondary">{{ item.get_status_display }}</span>
+                    {% else %}<span class="badge text-bg-light">{{ item.get_status_display }}</span>{% endif %}
+                  </div>
+                  <div class="small text-secondary">{{ item.content_type }} · {{ item.byte_size|filesizeformat }}</div>
+                  {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
+                    <button class="btn btn-sm btn-outline-secondary import-batch-preview-trigger" type="button" data-import-batch-preview-trigger data-preview-url="{% url 'documents:import_batch_item_preview' tenant.slug batch.id item.id %}" data-preview-kind="{{ item|import_batch_preview_kind }}" data-preview-title="{{ item.original_filename }}" aria-pressed="{% if preview_item and preview_item.id == item.id %}true{% else %}false{% endif %}">
+                      {% include "includes/icons.html" with icon="eye" %}<span>Vorschau</span>
+                    </button>
+                  {% endif %}
+                </div>
+
+                <div class="import-batch-suggestion">
+                  <div class="metadata-label">Vorschlag</div>
+                  {% if item.suggested_space %}
+                    <div class="fw-medium text-truncate" title="{{ item.suggested_space.path }}">{{ item.suggested_space.path }}</div>
+                    {% if item.suggestion_reason %}<div class="small text-secondary">{{ item.suggestion_reason }}</div>{% endif %}
+                  {% else %}
+                    <span class="small text-secondary">Kein Vorschlag</span>
+                  {% endif %}
+                </div>
+
+                <div class="import-batch-target">
+                  <div class="metadata-label">Zielbox</div>
+                  {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
+                    {% include "includes/document_space_picker_compact.html" with field=form.target_space placeholder="Zielbox suchen" %}
+                    {{ form.target_space.errors }}
+                  {% elif item.imported_document %}
+                    <a href="{% url 'documents:detail' tenant.slug item.imported_document.id %}">{{ item.imported_document.title }}</a>
+                  {% else %}<span class="text-secondary">-</span>{% endif %}
+                </div>
+
+                <div class="import-batch-state">
+                  {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
+                    <label class="form-check import-batch-skip">{{ form.skip }}<span class="form-check-label">Überspringen</span></label>
+                  {% endif %}
+                  <div class="small" data-assignment-result>
+                    {% if item.message %}{{ item.message }}{% elif item.target_space %}Ziel: {{ item.target_space.path }}{% else %}<span class="text-secondary">Bitte Zielbox wählen</span>{% endif %}
+                  </div>
+                  {% if item.status == "staged" or item.status == "error" or item.status == "skipped" %}
+                    {% if item.target_space or item.status == "skipped" %}<div class="import-batch-save-state import-batch-save-state-saved" data-assignment-state>Gespeichert</div>
+                    {% else %}<div class="import-batch-save-state import-batch-save-state-pending" data-assignment-state>Offen</div>{% endif %}
+                  {% endif %}
+                </div>
+              </article>
+            {% empty %}
+              <div class="text-center text-secondary py-5">Dieser Stapel enthält keine Dateien.</div>
+            {% endfor %}
           </div>
           {% if batch.status == "open" %}
             <div class="d-flex justify-content-between gap-2 border-top p-3">
@@ -202,5 +160,5 @@
 
 {% block extra_body %}
   {{ block.super }}
-  <script src="{% static 'js/document-import-batch.js' %}?v=2"></script>
+  <script src="{% static 'js/document-import-batch.js' %}?v=3"></script>
 {% endblock %}
