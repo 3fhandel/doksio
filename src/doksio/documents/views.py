@@ -747,12 +747,64 @@ def _document_navigation_context(
             tenant=tenant,
             user=request.user,
         )
+        display_total = navigation.total_count
         current_index = position - 1
         window_start = max(current_index - 1, 0)
         window = list(document_ids[window_start : current_index + 2])
         window_index = current_index - window_start
         if window_index >= len(window) or window[window_index] != document.id:
-            return {"document_nav_param": nav_param}
+            current_total = document_ids.count()
+            display_total = current_total
+            if navigation.total_count != current_total:
+                navigation.total_count = current_total
+                navigation.save(update_fields=["total_count", "updated_at"])
+            nearby_document_positions = {
+                document_id: window_start + index + 1
+                for index, document_id in enumerate(window)
+            }
+            actual_position = nearby_document_positions.get(document.id)
+            if actual_position is not None:
+                position = actual_position
+                current_index = position - 1
+                window_start = max(current_index - 1, 0)
+                window = list(document_ids[window_start : current_index + 2])
+                window_index = current_index - window_start
+            else:
+                previous_document_id = None
+                next_document_id = None
+                if position > 1 and current_total:
+                    previous_ids = list(document_ids[position - 2 : position - 1])
+                    previous_document_id = previous_ids[0] if previous_ids else None
+                if position <= current_total:
+                    next_ids = list(document_ids[position - 1 : position])
+                    next_document_id = next_ids[0] if next_ids else None
+                return {
+                    "document_nav_param": nav_param,
+                    "document_nav_total": current_total,
+                    "document_nav_detached": True,
+                    "previous_document_url": (
+                        _document_detail_context_url(
+                            tenant_slug=tenant.slug,
+                            document_id=previous_document_id,
+                            back_url=back_url,
+                            nav_param=nav_param,
+                            nav_position=position - 1,
+                        )
+                        if previous_document_id is not None
+                        else ""
+                    ),
+                    "next_document_url": (
+                        _document_detail_context_url(
+                            tenant_slug=tenant.slug,
+                            document_id=next_document_id,
+                            back_url=back_url,
+                            nav_param=nav_param,
+                            nav_position=position,
+                        )
+                        if next_document_id is not None
+                        else ""
+                    ),
+                }
 
         previous_document_url = ""
         next_document_url = ""
@@ -775,7 +827,7 @@ def _document_navigation_context(
         return {
             "document_nav_param": nav_param,
             "document_nav_current": position,
-            "document_nav_total": navigation.total_count,
+            "document_nav_total": display_total,
             "previous_document_url": previous_document_url,
             "next_document_url": next_document_url,
         }

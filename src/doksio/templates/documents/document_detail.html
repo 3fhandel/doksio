@@ -75,7 +75,9 @@
 
         <div class="document-detail-navigation">
           <div class="document-detail-position">
-            {% if document_nav_current and document_nav_total %}
+            {% if document_nav_detached %}
+              Bearbeitet · {{ document_nav_total }} Dokument{% if document_nav_total != 1 %}e{% endif %} verbleibend
+            {% elif document_nav_current and document_nav_total %}
               Dokument {{ document_nav_current }} von {{ document_nav_total }}
             {% else %}
               Einzelansicht

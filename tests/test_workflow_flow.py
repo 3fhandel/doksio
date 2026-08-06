@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from urllib.parse import urlencode
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -1773,3 +1774,91 @@ def test_task_list_filters_my_open_workflow_tasks_by_workflow(client):
     assert "Admin-Prüfung" not in content
     assert "Sachlich prüfen" not in content
     assert "Nachprüfung erledigen" in content
+
+
+@pytest.mark.django_db
+def test_task_navigation_survives_completing_current_task(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    user = get_user_model().objects.create_user(
+        username="alice",
+        password="secret",
+    )
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Rechnungsprüfung",
+        slug="navigation-nach-aufgabe",
+    ).execute()
+    CreateWorkflowStep(
+        template=template,
+        name="Sachlich prüfen",
+        step_type="task",
+        assigned_role=roles["member"],
+    ).execute()
+    documents = []
+    tasks = []
+    for index in range(3):
+        document = _create_document(
+            tenant,
+            space,
+            title=f"Navigation {index + 1}",
+        )
+        documents.append(document)
+        instance = StartWorkflowForDocument(
+            template=template,
+            document=document,
+        ).execute()
+        tasks.append(instance.tasks.get(status=WorkflowTask.Status.OPEN))
+    client.force_login(user)
+
+    task_list_response = client.get(
+        reverse("documents:tasks", kwargs={"tenant_slug": tenant.slug})
+    )
+    task_list_url = task_list_response.wsgi_request.get_full_path()
+    navigation_token = str(
+        task_list_response.context["workflow_task_document_nav"]
+    )
+    detail_path = reverse(
+        "documents:detail",
+        kwargs={"tenant_slug": tenant.slug, "document_id": documents[1].id},
+    )
+    detail_url = f"{detail_path}?{urlencode({
+        'back': task_list_url,
+        'nav': navigation_token,
+        'nav_position': 2,
+    })}"
+
+    response = client.post(
+        detail_url,
+        {
+            "action": "complete_workflow_task",
+            "task_id": tasks[1].id,
+            "comment": "",
+        },
+        follow=True,
+    )
+
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert response.context["document_nav_detached"] is True
+    assert response.context["document_nav_total"] == 2
+    assert "Bearbeitet · 2 Dokumente verbleibend" in content
+    assert f"/documents/{documents[0].id}/" in response.context[
+        "previous_document_url"
+    ]
+    assert "nav_position=1" in response.context["previous_document_url"]
+    assert f"/documents/{documents[2].id}/" in response.context["next_document_url"]
+    assert "nav_position=2" in response.context["next_document_url"]
+
+    next_response = client.get(response.context["next_document_url"])
+
+    assert next_response.status_code == 200
+    assert next_response.context["document"] == documents[2]
+    assert next_response.context["document_nav_current"] == 2
+    assert next_response.context["document_nav_total"] == 2
