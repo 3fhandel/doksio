@@ -16,8 +16,11 @@ from doksio.documents.models import (
     DocumentReminder,
 )
 from doksio.documents.policies import filter_documents_for_user
-from doksio.workflows.models import WorkflowTask
-from doksio.workflows.policies import filter_workflow_tasks_for_user
+from doksio.workflows.models import WorkflowTask, WorkflowTemplate
+from doksio.workflows.policies import (
+    filter_workflow_tasks_for_user,
+    supervised_workflow_templates_for_user,
+)
 
 DOCUMENT_BOX_SORT_OPTIONS = {
     "created_desc": ("-created_at", "-id"),
@@ -163,6 +166,31 @@ def document_ids_for_navigation_context(*, context, tenant, user):
             ),
             user,
             tenant,
+        )
+        workflow_id = query_data.get("workflow", "").strip()
+        if workflow_id.isdigit():
+            tasks = tasks.filter(instance__template_id=int(workflow_id))
+        return (
+            tasks.order_by()
+            .values("document_id")
+            .annotate(
+                first_created_at=Min("created_at"),
+                first_task_id=Min("id"),
+            )
+            .order_by("first_created_at", "first_task_id")
+            .values_list("document_id", flat=True)
+        )
+
+    if context.namespace == "supervisor-tasks":
+        supervised_templates = supervised_workflow_templates_for_user(
+            WorkflowTemplate.objects.filter(tenant=tenant),
+            user,
+            tenant,
+        )
+        tasks = WorkflowTask.objects.filter(
+            tenant=tenant,
+            status=WorkflowTask.Status.OPEN,
+            instance__template__in=supervised_templates,
         )
         workflow_id = query_data.get("workflow", "").strip()
         if workflow_id.isdigit():

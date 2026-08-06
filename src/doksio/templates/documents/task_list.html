@@ -14,7 +14,15 @@
             in {{ workflow_documents_count }} Dokument{% if workflow_documents_count != 1 %}en{% endif %}
           </p>
         </div>
-        {% include "includes/workflow_task_filter.html" with workflow_filter_options=workflow_filter_options selected_workflow_id=selected_workflow_id filter_id="tasks" %}
+        <div class="d-flex align-items-end gap-2 flex-wrap justify-content-end">
+          {% if supervised_workflow_count %}
+            <a class="btn btn-outline-primary" href="{% url 'documents:supervisor_tasks' tenant.slug %}">
+              {% include "includes/icons.html" with icon="bar-chart" %}
+              <span>Supervisor-Übersicht</span>
+            </a>
+          {% endif %}
+          {% include "includes/workflow_task_filter.html" with workflow_filter_options=workflow_filter_options selected_workflow_id=selected_workflow_id filter_id="tasks" %}
+        </div>
       </div>
 
       {% if workflow_tasks %}

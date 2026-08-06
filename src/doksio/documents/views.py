@@ -5,6 +5,7 @@ import logging
 import re
 import shlex
 import uuid
+from datetime import timedelta
 from urllib.parse import quote, urlencode
 
 from django.contrib import messages
@@ -17,6 +18,7 @@ from django.db.models import (
     Exists,
     IntegerField,
     Max,
+    Min,
     OuterRef,
     Q,
     Value,
@@ -198,6 +200,7 @@ from doksio.workflows.policies import (
     can_complete_workflow_task,
     can_use_workflows,
     filter_workflow_tasks_for_user,
+    supervised_workflow_templates_for_user,
 )
 from doksio.workflows.services import CompleteWorkflowTask, StartWorkflowForDocument
 
@@ -1102,6 +1105,40 @@ def _open_workflow_tasks_for_user(request: HttpRequest, tenant):
     )
 
 
+def _supervised_open_workflow_tasks(request: HttpRequest, tenant):
+    supervised_templates = supervised_workflow_templates_for_user(
+        WorkflowTemplate.objects.filter(tenant=tenant),
+        request.user,
+        tenant,
+    )
+    return (
+        WorkflowTask.objects.filter(
+            tenant=tenant,
+            status=WorkflowTask.Status.OPEN,
+            instance__template__in=supervised_templates,
+        )
+        .select_related(
+            "assigned_role",
+            "document",
+            "document__space",
+            "instance__template",
+            "step",
+        )
+        .prefetch_related("document__files")
+        .annotate(
+            document_comment_count=Count("document__comments", distinct=True),
+            document_has_personal_reminder=Exists(
+                DocumentReminder.objects.filter(
+                    document_id=OuterRef("document_id"),
+                    recipient=request.user,
+                    completed_at__isnull=True,
+                )
+            ),
+        )
+        .order_by("created_at", "id")
+    )
+
+
 def _workflow_task_filter_options(workflow_tasks_queryset):
     template_ids = (
         workflow_tasks_queryset.order_by()
@@ -1217,6 +1254,11 @@ def task_list(request: HttpRequest, tenant_slug: str) -> HttpResponse:
     if tenant is None:
         raise PermissionDenied
 
+    supervised_workflow_count = supervised_workflow_templates_for_user(
+        WorkflowTemplate.objects.filter(tenant=tenant),
+        request.user,
+        tenant,
+    ).count()
     workflow_tasks_queryset = _open_workflow_tasks_for_user(request, tenant)
     workflow_filter_options = _workflow_task_filter_options(workflow_tasks_queryset)
     selected_workflow_id = _selected_workflow_template_id(
@@ -1249,6 +1291,104 @@ def task_list(request: HttpRequest, tenant_slug: str) -> HttpResponse:
             "workflow_tasks": workflow_tasks_page_obj.object_list,
             "workflow_tasks_count": workflow_tasks_page_obj.paginator.count,
             "workflow_documents_count": workflow_documents_count,
+            "workflow_tasks_page_obj": workflow_tasks_page_obj,
+            "workflow_filter_options": workflow_filter_options,
+            "selected_workflow_id": selected_workflow_id,
+            "workflow_task_document_nav": workflow_task_document_nav,
+            "supervised_workflow_count": supervised_workflow_count,
+            "can_manage_settings": can_administer_tenant(request.user, tenant),
+        },
+    )
+
+
+def supervisor_task_list(request: HttpRequest, tenant_slug: str) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None:
+        raise PermissionDenied
+
+    workflow_filter_options = list(
+        supervised_workflow_templates_for_user(
+            WorkflowTemplate.objects.filter(tenant=tenant),
+            request.user,
+            tenant,
+        ).order_by("name", "id")
+    )
+    if not workflow_filter_options:
+        raise PermissionDenied
+
+    selected_workflow_id = _selected_workflow_template_id(
+        request,
+        workflow_filter_options,
+    )
+    workflow_tasks_queryset = _supervised_open_workflow_tasks(request, tenant)
+    completed_tasks_queryset = WorkflowTask.objects.filter(
+        tenant=tenant,
+        status=WorkflowTask.Status.COMPLETED,
+        instance__template__in=workflow_filter_options,
+        completed_at__gte=timezone.now() - timedelta(days=7),
+    )
+    if selected_workflow_id is not None:
+        workflow_tasks_queryset = workflow_tasks_queryset.filter(
+            instance__template_id=selected_workflow_id,
+        )
+        completed_tasks_queryset = completed_tasks_queryset.filter(
+            instance__template_id=selected_workflow_id,
+        )
+
+    summary = workflow_tasks_queryset.aggregate(
+        open_tasks=Count("id"),
+        open_documents=Count("document_id", distinct=True),
+        active_instances=Count("instance_id", distinct=True),
+        oldest_task_at=Min("created_at"),
+    )
+    oldest_task_at = summary["oldest_task_at"]
+    summary["oldest_days"] = (
+        max(0, (timezone.now() - oldest_task_at).days) if oldest_task_at else 0
+    )
+    summary["completed_last_7_days"] = completed_tasks_queryset.count()
+
+    backlog_rows = list(
+        workflow_tasks_queryset.order_by()
+        .values("instance__template_id", "instance__template__name")
+        .annotate(
+            open_tasks=Count("id"),
+            open_documents=Count("document_id", distinct=True),
+        )
+        .order_by("-open_tasks", "instance__template__name")
+    )
+    largest_backlog = max(
+        (row["open_tasks"] for row in backlog_rows),
+        default=0,
+    )
+    for row in backlog_rows:
+        row["bar_width"] = (
+            max(4, round((row["open_tasks"] / largest_backlog) * 100))
+            if largest_backlog
+            else 0
+        )
+
+    workflow_tasks_page_obj = paginate_queryset(
+        request,
+        workflow_tasks_queryset,
+        per_page=25,
+    )
+    workflow_task_document_nav = create_document_navigation(
+        request=request,
+        tenant=tenant,
+        namespace="supervisor-tasks",
+        total_count=summary["open_documents"],
+    )
+    return render(
+        request,
+        "documents/supervisor_task_list.html",
+        {
+            "tenant": tenant,
+            "summary": summary,
+            "backlog_rows": backlog_rows,
+            "workflow_tasks": workflow_tasks_page_obj.object_list,
             "workflow_tasks_page_obj": workflow_tasks_page_obj,
             "workflow_filter_options": workflow_filter_options,
             "selected_workflow_id": selected_workflow_id,

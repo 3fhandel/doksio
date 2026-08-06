@@ -42,6 +42,7 @@
       <span class="document-row-box">{{ task.document.space.path }}</span>
       <span aria-label="Dateityp {{ task.document|document_file_type }}">{{ task.document|document_file_type }}</span>
       <span>{{ task.instance.template.name }}</span>
+      {% if supervisor_mode %}<span class="workflow-task-supervisor-label">Supervisor</span>{% endif %}
       <span>{{ task.assigned_role.name|default:"Direkt" }}</span>
       <span>seit {{ task.created_at|date:"d.m.Y H:i" }}</span>
     </div>

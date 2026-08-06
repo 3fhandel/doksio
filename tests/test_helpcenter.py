@@ -48,6 +48,8 @@ def test_help_overview_shows_user_topics_and_hides_restricted_topics(client):
     assert "Dokumente finden" in content
     assert "Aufgaben und Workflows" in content
     assert "Was ist ein Workflow?" in content
+    assert "Supervisor-Übersicht" in content
+    assert "Supervisor-Aufgaben erscheinen nicht" in content
     assert "Workflow, Schritt und Aufgabe" in content
     assert "Wiedervorlagen" in content
     assert "Profil &gt; Wiedervorlagen" in content

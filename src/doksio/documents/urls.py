@@ -10,6 +10,11 @@ urlpatterns = [
     path("s/dashboard/", views.dashboard_redirect, name="dashboard_redirect"),
     path("t/<slug:tenant_slug>/dashboard/", views.dashboard, name="dashboard"),
     path("t/<slug:tenant_slug>/tasks/", views.task_list, name="tasks"),
+    path(
+        "t/<slug:tenant_slug>/tasks/supervisor/",
+        views.supervisor_task_list,
+        name="supervisor_tasks",
+    ),
     path("t/<slug:tenant_slug>/documents/", views.document_list, name="list"),
     path(
         "t/<slug:tenant_slug>/documents/boxes/<int:box_id>/",

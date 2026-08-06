@@ -4495,6 +4495,186 @@ body {
   font-weight: 680;
 }
 
+.supervisor-header {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.supervisor-back-link {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  margin-bottom: 0.55rem;
+  color: #667085;
+  font-size: 0.8rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.supervisor-back-link:hover {
+  color: var(--bs-primary);
+}
+
+.supervisor-back-link .app-icon {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.supervisor-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.supervisor-kpi {
+  display: grid;
+  min-height: 6.75rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #dbe4ea;
+  border-radius: 0.5rem;
+  background: #f8fbfd;
+}
+
+.supervisor-kpi > span {
+  color: #475467;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.supervisor-kpi > strong {
+  align-self: center;
+  color: #1d2939;
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+.supervisor-kpi > small {
+  align-self: end;
+  color: #667085;
+  font-size: 0.72rem;
+}
+
+.supervisor-kpi-warm {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.supervisor-kpi-warm > strong {
+  color: #b54708;
+}
+
+.supervisor-kpi-green {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.supervisor-kpi-green > strong {
+  color: #18794e;
+}
+
+.supervisor-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(13rem, 0.28fr);
+  gap: 0.75rem;
+}
+
+.supervisor-backlog-panel {
+  overflow: hidden;
+}
+
+.supervisor-backlog-panel > header {
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--doksio-border-soft);
+  background: #fbfcfe;
+}
+
+.supervisor-backlog-list {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem 1rem;
+}
+
+.supervisor-backlog-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 0.42fr) minmax(12rem, 1fr);
+  gap: 0.9rem;
+  align-items: center;
+}
+
+.supervisor-backlog-label {
+  min-width: 0;
+}
+
+.supervisor-backlog-label strong,
+.supervisor-backlog-label span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.supervisor-backlog-label strong {
+  color: #344054;
+  font-size: 0.82rem;
+}
+
+.supervisor-backlog-label span {
+  margin-top: 0.12rem;
+  color: #667085;
+  font-size: 0.72rem;
+}
+
+.supervisor-backlog-track {
+  height: 0.62rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e9eef2;
+}
+
+.supervisor-backlog-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #16839a;
+}
+
+.supervisor-backlog-empty {
+  color: #667085;
+  font-size: 0.82rem;
+}
+
+.supervisor-oldest-panel {
+  display: grid;
+  align-content: center;
+  padding: 1rem;
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.supervisor-oldest-panel > span {
+  color: #78610b;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.supervisor-oldest-panel > strong {
+  margin: 0.5rem 0 0.35rem;
+  color: #92400e;
+  font-size: 1.35rem;
+}
+
+.supervisor-oldest-panel > small {
+  color: #78610b;
+  font-size: 0.72rem;
+}
+
+.workflow-task-supervisor-label {
+  color: #17659a;
+  font-weight: 700;
+}
+
 .workflow-task-row {
   display: grid;
   grid-template-columns: 3.75rem minmax(0, 1fr) auto;
@@ -5123,10 +5303,25 @@ body {
   }
 
   .reports-kpi-grid,
+  .supervisor-kpi-grid,
   .reports-grid,
   .system-status-check-grid,
   .system-status-grid {
     grid-template-columns: 1fr;
+  }
+
+  .supervisor-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .supervisor-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .supervisor-backlog-row {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
   }
 
   .system-status-panel-wide {

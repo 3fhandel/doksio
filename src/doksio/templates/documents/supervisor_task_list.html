@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% load doksio_extras %}
+
+{% block title %}Supervisor-Übersicht | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container-fluid px-4">
+      <header class="supervisor-header mb-3">
+        <div>
+          <a class="supervisor-back-link" href="{% url 'documents:tasks' tenant.slug %}">
+            {% include "includes/icons.html" with icon="arrow-left" %}
+            <span>Meine Aufgaben</span>
+          </a>
+          <h1 class="h3 mb-1">Supervisor-Übersicht</h1>
+          <p class="text-secondary mb-0">Backlog und offene Aufgaben der von dir beaufsichtigten Workflows.</p>
+        </div>
+        {% include "includes/workflow_task_filter.html" with workflow_filter_options=workflow_filter_options selected_workflow_id=selected_workflow_id filter_id="supervisor-tasks" %}
+      </header>
+
+      <section class="supervisor-kpi-grid mb-3" aria-label="Supervisor-Kennzahlen">
+        <article class="supervisor-kpi supervisor-kpi-warm">
+          <span>Offene Aufgaben</span>
+          <strong>{{ summary.open_tasks }}</strong>
+          <small>aktueller Backlog</small>
+        </article>
+        <article class="supervisor-kpi">
+          <span>Betroffene Dokumente</span>
+          <strong>{{ summary.open_documents }}</strong>
+          <small>mit mindestens einer offenen Aufgabe</small>
+        </article>
+        <article class="supervisor-kpi">
+          <span>Aktive Durchläufe</span>
+          <strong>{{ summary.active_instances }}</strong>
+          <small>laufende Workflow-Instanzen</small>
+        </article>
+        <article class="supervisor-kpi supervisor-kpi-green">
+          <span>Erledigt</span>
+          <strong>{{ summary.completed_last_7_days }}</strong>
+          <small>in den letzten 7 Tagen</small>
+        </article>
+      </section>
+
+      <div class="supervisor-overview-grid mb-3">
+        <section class="app-card supervisor-backlog-panel">
+          <header>
+            <div>
+              <h2 class="h5 mb-1">Backlog nach Workflow</h2>
+              <p class="text-secondary small mb-0">Verteilung der aktuell offenen Aufgaben.</p>
+            </div>
+          </header>
+          <div class="supervisor-backlog-list">
+            {% for row in backlog_rows %}
+              <div class="supervisor-backlog-row">
+                <div class="supervisor-backlog-label">
+                  <strong>{{ row.instance__template__name }}</strong>
+                  <span>{{ row.open_tasks }} Aufgabe{{ row.open_tasks|pluralize:"n" }} · {{ row.open_documents }} Dokument{{ row.open_documents|pluralize:"e" }}</span>
+                </div>
+                <div class="supervisor-backlog-track" aria-hidden="true">
+                  <span style="width: {{ row.bar_width }}%"></span>
+                </div>
+              </div>
+            {% empty %}
+              <div class="supervisor-backlog-empty">Kein offener Backlog vorhanden.</div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <aside class="app-card supervisor-oldest-panel">
+          <span>Älteste offene Aufgabe</span>
+          <strong>{{ summary.oldest_days }} Tag{{ summary.oldest_days|pluralize:"e" }}</strong>
+          <small>seit Erstellung der Aufgabe</small>
+        </aside>
+      </div>
+
+      <div class="d-flex align-items-center justify-content-between gap-3 mb-2">
+        <div>
+          <h2 class="h5 mb-1">Offene Aufgaben</h2>
+          <p class="text-secondary small mb-0">Du kannst diese Aufgaben als Supervisor direkt öffnen und bearbeiten.</p>
+        </div>
+      </div>
+
+      {% if workflow_tasks %}
+        <section class="app-card">
+          <div class="workflow-task-list">
+            {% for task in workflow_tasks %}
+              {% with document_nav_position=workflow_tasks_page_obj.start_index|add:forloop.counter0 %}
+                {% include "includes/workflow_task_row.html" with task=task tenant=tenant workflow_task_document_nav=workflow_task_document_nav document_nav_position=document_nav_position supervisor_mode=True %}
+              {% endwith %}
+            {% endfor %}
+          </div>
+          {% include "includes/pagination.html" with page_obj=workflow_tasks_page_obj page_param="page" label="Supervisor-Aufgabenseiten" %}
+        </section>
+      {% else %}
+        <section class="app-card search-empty-state">
+          <h2 class="h5">Kein offener Backlog</h2>
+          <p class="text-secondary mb-0">In den ausgewählten Workflows sind derzeit keine Aufgaben offen.</p>
+        </section>
+      {% endif %}
+    </div>
+  </main>
+{% endblock %}

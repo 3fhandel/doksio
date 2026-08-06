@@ -1343,6 +1343,113 @@ def test_workflow_supervisor_can_complete_every_task_without_receiving_it_as_own
 
 
 @pytest.mark.django_db
+def test_supervisor_task_overview_shows_backlog_and_supervised_tasks(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    supervisor_role = TenantRole.objects.create(
+        tenant=tenant,
+        name="Workflow-Aufsicht",
+        slug="workflow-aufsicht-overview",
+        can_access_all_document_spaces=False,
+    )
+    supervisor = get_user_model().objects.create_user(username="supervisor")
+    membership = TenantMembership.objects.create(
+        tenant=tenant,
+        user=supervisor,
+        role=supervisor_role,
+    )
+    membership.roles.add(supervisor_role)
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    supervised_template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Rechnungsprüfung",
+        slug="rechnungspruefung-supervisor-overview",
+        supervisor_roles=[supervisor_role],
+    ).execute()
+    hidden_template = CreateWorkflowTemplate(
+        tenant=tenant,
+        name="Verdeckte Prüfung",
+        slug="verdeckte-pruefung-supervisor-overview",
+    ).execute()
+    CreateWorkflowStep(
+        template=supervised_template,
+        name="Sachlich prüfen",
+        step_type="task",
+        assigned_role=roles["member"],
+    ).execute()
+    CreateWorkflowStep(
+        template=hidden_template,
+        name="Verdeckt prüfen",
+        step_type="task",
+        assigned_role=roles["admin"],
+    ).execute()
+    for index in range(3):
+        StartWorkflowForDocument(
+            template=supervised_template,
+            document=_create_document(
+                tenant,
+                space,
+                title=f"Supervisor-Rechnung {index}",
+            ),
+        ).execute()
+    StartWorkflowForDocument(
+        template=hidden_template,
+        document=_create_document(tenant, space, title="Verdeckte Rechnung"),
+    ).execute()
+    completed_task = WorkflowTask.objects.filter(
+        instance__template=supervised_template,
+    ).first()
+    CompleteWorkflowTask(task=completed_task, actor=supervisor).execute()
+    client.force_login(supervisor)
+
+    personal_response = client.get(
+        reverse("documents:tasks", kwargs={"tenant_slug": tenant.slug})
+    )
+    overview_response = client.get(
+        reverse("documents:supervisor_tasks", kwargs={"tenant_slug": tenant.slug})
+    )
+
+    personal_content = personal_response.content.decode()
+    content = overview_response.content.decode()
+    assert personal_response.status_code == 200
+    assert "Supervisor-Übersicht" in personal_content
+    assert personal_response.context["workflow_tasks_count"] == 0
+    assert overview_response.status_code == 200
+    assert overview_response.context["summary"]["open_tasks"] == 2
+    assert overview_response.context["summary"]["open_documents"] == 2
+    assert overview_response.context["summary"]["active_instances"] == 2
+    assert overview_response.context["summary"]["completed_last_7_days"] == 1
+    assert len(overview_response.context["backlog_rows"]) == 1
+    assert "Rechnungsprüfung" in content
+    assert "Sachlich prüfen" in content
+    assert "Verdeckte Prüfung" not in content
+    assert "Verdeckt prüfen" not in content
+    assert "Backlog nach Workflow" in content
+    assert "2 Aufgaben" in content
+    assert "Supervisor" in content
+    assert 'id="contextualHelpLabel">Aufgaben und Workflows</h2>' in content
+
+
+@pytest.mark.django_db
+def test_non_supervisor_cannot_open_supervisor_task_overview(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(username="alice")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    client.force_login(user)
+
+    response = client.get(
+        reverse("documents:supervisor_tasks", kwargs={"tenant_slug": tenant.slug})
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
 def test_workflow_task_creation_creates_in_app_notification_for_visible_member():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()

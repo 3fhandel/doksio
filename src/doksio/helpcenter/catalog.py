@@ -285,7 +285,12 @@ HELP_TOPICS = (
                 text=(
                     "Hier erscheinen alle offenen Schritte, die dir über deine Rollen "
                     "zugeordnet sind. Bei mehreren Workflows kannst du die "
-                    "Liste filtern."
+                    "Liste filtern. Wenn du für Workflows als Supervisor eingetragen "
+                    "bist, führt die Schaltfläche „Supervisor-Übersicht“ zu deren "
+                    "gesamtem Backlog. Dort siehst du offene Aufgaben, betroffene "
+                    "Dokumente, aktive Durchläufe und die Erledigungen der letzten "
+                    "sieben Tage. Supervisor-Aufgaben erscheinen nicht als deine "
+                    "persönlichen Aufgaben, können dort aber von dir bearbeitet werden."
                 ),
             ),
             HelpSection(
@@ -531,6 +536,7 @@ TOPICS_BY_SLUG = {topic.slug: topic for topic in HELP_TOPICS}
 CONTEXT_TOPIC_SLUGS = {
     ("documents", "dashboard"): "erste-schritte",
     ("documents", "tasks"): "aufgaben-workflows",
+    ("documents", "supervisor_tasks"): "aufgaben-workflows",
     ("documents", "list"): "dokumente-finden",
     ("documents", "box"): "dokumente-finden",
     ("documents", "detail"): "dokument-bearbeiten",
