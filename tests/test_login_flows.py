@@ -25,6 +25,9 @@ def test_system_paths_are_under_s_namespace():
 def test_tenant_login_path_is_tenant_root():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
 
+    assert reverse("accounts:tenant_entry", kwargs={"tenant_slug": tenant.slug}) == (
+        "/t/acme"
+    )
     assert reverse("accounts:tenant_login", kwargs={"tenant_slug": tenant.slug}) == (
         "/t/acme/"
     )
@@ -35,6 +38,28 @@ def test_tenant_login_path_is_tenant_root():
         "accounts:tenant_oidc_login",
         kwargs={"tenant_slug": tenant.slug},
     ) == "/t/acme/oidc/login/"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("route_name", ["accounts:tenant_entry", "accounts:tenant_login"])
+def test_tenant_root_redirects_authenticated_member_to_dashboard(client, route_name):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(username="alice")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    client.force_login(user)
+
+    response = client.get(reverse(route_name, kwargs={"tenant_slug": tenant.slug}))
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == reverse(
+        "documents:dashboard",
+        kwargs={"tenant_slug": tenant.slug},
+    )
 
 
 @pytest.mark.django_db

@@ -16,6 +16,7 @@ urlpatterns = [
     ),
     path("s/oidc/callback/", views.oidc_callback, name="oidc_callback"),
     path("s/logout/", views.sign_out, name="logout"),
+    path("t/<slug:tenant_slug>", views.tenant_login, name="tenant_entry"),
     path("t/<slug:tenant_slug>/", views.tenant_login, name="tenant_login"),
     path(
         "t/<slug:tenant_slug>/oidc/login/",
