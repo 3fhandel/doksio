@@ -618,6 +618,14 @@ def test_search_navigation_rebuilds_filtered_result_list(client):
     assert "Dokument 2 von 3" in content
     assert (
         reverse(
+            "documents:core_metadata_edit",
+            kwargs={"tenant_slug": tenant.slug, "document_id": documents[1].id},
+        )
+        in content
+    )
+    assert "nav_position=2" in content
+    assert (
+        reverse(
             "documents:detail",
             kwargs={"tenant_slug": tenant.slug, "document_id": documents[2].id},
         )

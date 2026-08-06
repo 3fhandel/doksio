@@ -700,6 +700,14 @@ def _parse_legacy_document_nav_param(raw_value: str) -> list[int]:
     return document_ids
 
 
+def _positive_int_or_none(raw_value: str | None) -> int | None:
+    try:
+        value = int(raw_value or "")
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
 def _document_detail_context_url(
     *,
     tenant_slug: str,
@@ -780,6 +788,7 @@ def _document_navigation_context(
                     next_document_id = next_ids[0] if next_ids else None
                 return {
                     "document_nav_param": nav_param,
+                    "document_nav_position": position,
                     "document_nav_total": current_total,
                     "document_nav_detached": True,
                     "previous_document_url": (
@@ -826,6 +835,7 @@ def _document_navigation_context(
             )
         return {
             "document_nav_param": nav_param,
+            "document_nav_position": position,
             "document_nav_current": position,
             "document_nav_total": display_total,
             "previous_document_url": previous_document_url,
@@ -2737,6 +2747,7 @@ def document_delete(
         document_id=document.id,
         back_url=back_url,
         nav_param=request.GET.get("nav", ""),
+        nav_position=_positive_int_or_none(request.GET.get("nav_position")),
     )
     if request.method == "POST":
         form = DocumentDeleteForm(request.POST)
@@ -2794,6 +2805,7 @@ def document_core_metadata_edit(
         document_id=document.id,
         back_url=back_url,
         nav_param=request.GET.get("nav", ""),
+        nav_position=_positive_int_or_none(request.GET.get("nav_position")),
     )
     form = DocumentCoreMetadataForm(
         request.POST or None,

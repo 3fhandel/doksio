@@ -399,7 +399,7 @@
           <section class="app-card document-compact-card document-panel">
             <div class="document-panel-header">
               <h2 class="h6 mb-0">Dokumentdaten</h2>
-              <a class="btn btn-sm btn-outline-secondary" href="{% url 'documents:core_metadata_edit' document.tenant.slug document.id %}?back={{ back_url|urlencode }}{% if document_nav_param %}&amp;nav={{ document_nav_param|urlencode }}{% endif %}" data-shortcut-action="document_edit_core">
+              <a class="btn btn-sm btn-outline-secondary" href="{% url 'documents:core_metadata_edit' document.tenant.slug document.id %}?back={{ back_url|urlencode }}{% if document_nav_param %}&amp;nav={{ document_nav_param|urlencode }}{% endif %}{% if document_nav_position %}&amp;nav_position={{ document_nav_position }}{% endif %}" data-shortcut-action="document_edit_core">
                 Kerndaten bearbeiten
               </a>
             </div>

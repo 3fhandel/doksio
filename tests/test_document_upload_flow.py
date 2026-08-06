@@ -4050,7 +4050,7 @@ def test_document_core_metadata_edit_updates_core_metadata(client):
                 "documents:core_metadata_edit",
                 kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
             )
-            + f"?back={quote(back_url, safe='')}&nav={document_nav}"
+            + f"?back={quote(back_url, safe='')}&nav={document_nav}&nav_position=1"
         ),
         {
             "title": "Neuer Titel",
@@ -4063,7 +4063,7 @@ def test_document_core_metadata_edit_updates_core_metadata(client):
     event = AuditEvent.objects.get(event_type="document_core_metadata.updated")
     assert response.status_code == 302
     assert response.headers["Location"].endswith(
-        f"?back={quote(back_url, safe='')}&nav={document_nav}"
+        f"?back={quote(back_url, safe='')}&nav={document_nav}&nav_position=1"
     )
     assert document.title == "Neuer Titel"
     assert document.title_source == Document.TitleSource.MANUAL
