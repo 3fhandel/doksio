@@ -56,6 +56,8 @@ def test_help_overview_shows_user_topics_and_hides_restricted_topics(client):
     assert "zwischen Fundstellen wechseln" in content
     assert "automatisch in die Dokumentensuche übernommen" in content
     assert "Cmd+F auf dem Mac" in content
+    assert "Dokumentenbox direkt neben dem Suchbegriff" in content
+    assert "Tags kannst du dort durchsuchen" in content
     assert "Bei Auswahllisten-Metadaten kannst du direkt" in content
     assert "bleibt die aktuelle Belegvorschau rechts sichtbar" in content
     assert "direkt im Arbeitsbereich" in content

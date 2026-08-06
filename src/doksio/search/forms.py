@@ -248,7 +248,7 @@ class DocumentSearchForm(forms.Form):
         label="Tags",
         required=False,
         queryset=DocumentTag.objects.none(),
-        widget=forms.SelectMultiple(attrs={"class": "form-select", "size": 5}),
+        widget=forms.CheckboxSelectMultiple,
     )
     document_date_from = forms.DateField(
         label="Belegdatum von",

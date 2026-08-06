@@ -471,12 +471,14 @@ def test_document_search_view_renders_results_for_tenant_member(client):
         status=OcrJob.Status.SUCCEEDED,
         extracted_text="Spezialmaschine",
     )
+    SetDocumentTags(document=document, tag_names=["Maschinenbau"]).execute()
+    tag = document.tag_assignments.get().tag
     RebuildDocumentSearchIndex(document=document).execute()
     client.force_login(user)
 
     response = client.get(
         reverse("search:documents", kwargs={"tenant_slug": tenant.slug}),
-        {"q": "Spezialmaschine"},
+        {"q": "Spezialmaschine", "tags": [str(tag.id)]},
     )
 
     assert response.status_code == 200
@@ -490,10 +492,21 @@ def test_document_search_view_renders_results_for_tenant_member(client):
     assert "search-result-row" in content
     assert "search-filter-drawer" in content
     assert "details-summary-title" in content
-    assert "Ablage" in content
+    assert "Dokumentenbox" in content
+    assert content.count('name="box"') == 1
+    assert content.index('name="q"') < content.index('name="box"')
+    assert content.index('name="box"') < content.index(
+        '<button class="btn btn-primary" type="submit">'
+    )
+    assert content.index('name="box"') < content.index(
+        'class="search-filter-drawer"'
+    )
     assert "Zeitraum und Status" in content
     assert "Sortierung" in content
     assert "Suchoptionen" in content
+    assert 'placeholder="Tags filtern"' in content
+    assert 'data-choice-picker-panel' in content
+    assert f'name="tags" value="{tag.id}"' in content
     assert content.index('class="search-filter-drawer"') < content.index(
         'name="partial_words"'
     )

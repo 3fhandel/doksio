@@ -74,8 +74,13 @@ HELP_TOPICS = (
                 steps=(
                     "Gib einen Begriff, eine Nummer oder einen Namen ein.",
                     (
-                        "Wähle bei Bedarf Dokumentenbox, Zeitraum, Tags oder "
-                        "Workflow-Status."
+                        "Wähle die Dokumentenbox direkt neben dem Suchbegriff. "
+                        "Unterboxen kannst du dort ebenfalls einbeziehen."
+                    ),
+                    (
+                        "Weitere Filter wie Zeitraum, Tags oder Workflow-Status "
+                        "findest du im aufklappbaren Filterbereich. Tags kannst du "
+                        "dort durchsuchen und einzeln oder gemeinsam auswählen."
                     ),
                     (
                         "Bei Auswahllisten-Metadaten kannst du direkt in das Feld "

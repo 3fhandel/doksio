@@ -20,6 +20,16 @@
               <label class="form-label" for="{{ form.q.id_for_label }}">{{ form.q.label }}</label>
               {{ form.q }}
             </div>
+            <div class="search-box-field">
+              <div class="search-box-label-row">
+                <label class="form-label" for="{{ form.box.id_for_label }}">{{ form.box.label }}</label>
+                <div class="form-check">
+                  {{ form.include_child_boxes }}
+                  <label class="form-check-label" for="{{ form.include_child_boxes.id_for_label }}">Unterboxen einschließen</label>
+                </div>
+              </div>
+              {% include "includes/document_space_picker_compact.html" with field=form.box %}
+            </div>
             <div class="search-actions">
               <button class="btn btn-primary" type="submit">
                 {% include "includes/icons.html" with icon="search" %}
@@ -29,29 +39,15 @@
             </div>
           </div>
 
-          <details class="search-filter-drawer" {% if form.tags.value or form.document_date_from.value or form.document_date_to.value or form.box.value or form.workflow_status.value or form.fulltext_status.value or form.partial_words.value or form.document_status.value != "active" %}open{% endif %}>
+          <details class="search-filter-drawer" {% if form.tags.value or form.document_date_from.value or form.document_date_to.value or form.workflow_status.value or form.fulltext_status.value or form.partial_words.value or form.document_status.value != "active" %}open{% endif %}>
             <summary>
               <span class="details-summary-title">Filter</span>
-              <span class="details-summary-meta">Ablage, Zeitraum, Status und Sortierung</span>
+              <span class="details-summary-meta">Tags, Zeitraum, Status und Sortierung</span>
             </summary>
             <div class="search-filter-grid">
-              <fieldset class="search-filter-group search-filter-group-wide">
-                <legend>Ablage</legend>
-                <div class="search-filter-group-grid">
-                  <div>
-                    <label class="form-label" for="{{ form.box.id_for_label }}">{{ form.box.label }}</label>
-                    {% include "includes/document_space_picker_compact.html" with field=form.box %}
-                    <div class="form-check mt-2">
-                      {{ form.include_child_boxes }}
-                      <label class="form-check-label" for="{{ form.include_child_boxes.id_for_label }}">{{ form.include_child_boxes.label }}</label>
-                    </div>
-                  </div>
-                  <div>
-                    <label class="form-label" for="{{ form.tags.id_for_label }}">{{ form.tags.label }}</label>
-                    {{ form.tags }}
-                  </div>
-                </div>
-              </fieldset>
+              <div class="search-tag-picker">
+                {% include "includes/choice_picker_panel.html" with field=form.tags search_placeholder="Tags filtern" search_label="Tags filtern" selection_label="Tag-Auswahl" empty_text="Noch keine Tags vorhanden." %}
+              </div>
 
               <fieldset class="search-filter-group">
                 <legend>Zeitraum und Status</legend>

@@ -3287,13 +3287,35 @@ body {
 
 .search-primary-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(18rem, 1.2fr) minmax(15rem, 0.8fr) auto;
   gap: 1rem;
   align-items: end;
 }
 
-.search-query-field .form-control {
+.search-query-field .form-control,
+.search-box-field .form-control {
   min-height: 2.75rem;
+}
+
+.search-box-label-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.search-box-label-row .form-check {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  margin: 0 0 0.5rem;
+  color: #667085;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.search-box-label-row .form-check-input {
+  margin: 0;
 }
 
 .search-actions {
@@ -3348,6 +3370,36 @@ body {
 
 .search-filter-grid .form-select[multiple] {
   min-height: 7.5rem;
+}
+
+.search-tag-picker {
+  min-width: 0;
+}
+
+.search-tag-picker .choice-picker-panel {
+  background: #fbfcfe;
+}
+
+.search-tag-picker .choice-picker-panel-header {
+  padding: 0.75rem 0.875rem 0.65rem;
+}
+
+.search-tag-picker .choice-picker-tools {
+  padding: 0.55rem;
+}
+
+.search-tag-picker .choice-picker-list {
+  grid-template-columns: 1fr;
+  max-height: 10.5rem;
+}
+
+.search-tag-picker .choice-picker-item:nth-child(odd) {
+  border-right: 0;
+}
+
+.search-tag-picker .choice-picker-item {
+  min-height: 2.4rem;
+  padding-block: 0.4rem;
 }
 
 .document-row-list {
@@ -4910,6 +4962,10 @@ body {
   .search-results-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .search-primary-row {
+    grid-template-columns: 1fr;
   }
 
   .search-filter-grid {
