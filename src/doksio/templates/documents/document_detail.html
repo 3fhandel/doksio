@@ -27,20 +27,18 @@
         <div class="document-detail-title-row">
           <h1>{{ document.title }}</h1>
           <div class="document-detail-actions">
-            {% if document.space.reminders_enabled %}
-              <button
-                class="btn btn-sm {% if document_reminder_is_due %}btn-warning{% else %}btn-outline-secondary{% endif %}"
-                type="button"
-                data-bs-toggle="modal"
-                data-bs-target="#documentReminderModal"
-              >
-                {% include "includes/icons.html" with icon="clock" %}
-                <span>Wiedervorlage</span>
-                {% if document_reminder %}
-                  <span class="document-detail-action-detail">{{ document_reminder.remind_on|date:"d.m.Y" }}</span>
-                {% endif %}
-              </button>
-            {% endif %}
+            <button
+              class="btn btn-sm {% if document_reminder_is_due %}btn-warning{% else %}btn-outline-secondary{% endif %}"
+              type="button"
+              data-bs-toggle="modal"
+              data-bs-target="#documentReminderModal"
+            >
+              {% include "includes/icons.html" with icon="clock" %}
+              <span>Wiedervorlage</span>
+              {% if document_reminder %}
+                <span class="document-detail-action-detail">{{ document_reminder.remind_on|date:"d.m.Y" }}</span>
+              {% endif %}
+            </button>
             <div class="dropdown">
               <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                 {% include "includes/icons.html" with icon="share-2" %}
@@ -853,8 +851,7 @@
       </section>
     </div>
 
-    {% if document.space.reminders_enabled %}
-      <div class="modal fade" id="documentReminderModal" tabindex="-1" aria-labelledby="documentReminderModalLabel" aria-hidden="true">
+    <div class="modal fade" id="documentReminderModal" tabindex="-1" aria-labelledby="documentReminderModalLabel" aria-hidden="true">
         <div class="modal-dialog">
           <div class="modal-content">
             <div class="modal-header">
@@ -917,8 +914,7 @@
             </div>
           </div>
         </div>
-      </div>
-    {% endif %}
+    </div>
 
     <div class="modal fade" id="documentRelationRemoveModal" tabindex="-1" aria-labelledby="documentRelationRemoveModalLabel" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered">

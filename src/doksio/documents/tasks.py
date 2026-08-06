@@ -150,7 +150,6 @@ def dispatch_due_document_reminders() -> dict:
             notified_at__isnull=True,
             remind_on__lte=timezone.localdate(),
             document__status="active",
-            document__space__reminders_enabled=True,
             tenant__is_active=True,
             recipient__is_active=True,
         ).values_list("id", flat=True)
@@ -166,7 +165,6 @@ def dispatch_due_document_reminders() -> dict:
                     completed_at__isnull=True,
                     notified_at__isnull=True,
                     document__status="active",
-                    document__space__reminders_enabled=True,
                 )
                 .first()
             )

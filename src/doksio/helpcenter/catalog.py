@@ -229,8 +229,8 @@ HELP_TOPICS = (
             HelpSection(
                 title="Wiedervorlagen",
                 text=(
-                    "Wenn Wiedervorlagen für die Dokumentenbox aktiviert sind, "
-                    "öffnest du sie über die Schaltfläche Wiedervorlage am Dokument. "
+                    "Über die Schaltfläche Wiedervorlage am Dokument legst du eine "
+                    "persönliche Erinnerung an. "
                     "Dort kannst du ein Datum und eine persönliche Bemerkung hinterlegen. "
                     "Am gewählten Tag benachrichtigt dich Doksio. Die Kanäle "
                     "In-App und E-Mail stellst du in deinem Profil ein. Unter "

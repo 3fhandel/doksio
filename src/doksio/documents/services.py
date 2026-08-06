@@ -424,10 +424,6 @@ class SaveDocumentReminder:
 
     @transaction.atomic
     def execute(self) -> DocumentReminder:
-        if not self.document.space.reminders_enabled:
-            raise ValueError(
-                "Wiedervorlagen sind für diese Dokumentenbox nicht aktiviert."
-            )
         reminder = (
             DocumentReminder.objects.select_for_update()
             .filter(
@@ -487,7 +483,6 @@ class CreateDocumentSpace:
     space_kind: str = DocumentSpace.SpaceKind.GENERAL
     review_assist_enabled: bool = False
     advanced_review_assist_enabled: bool = False
-    reminders_enabled: bool = False
     is_active: bool = True
 
     @transaction.atomic
@@ -514,7 +509,6 @@ class CreateDocumentSpace:
                 "space_kind": self.space_kind,
                 "review_assist_enabled": self.review_assist_enabled,
                 "advanced_review_assist_enabled": (self.advanced_review_assist_enabled),
-                "reminders_enabled": self.reminders_enabled,
                 "is_active": self.is_active,
             },
         )
@@ -532,7 +526,6 @@ class UpdateDocumentSpace:
     space_kind: str = DocumentSpace.SpaceKind.GENERAL
     review_assist_enabled: bool = False
     advanced_review_assist_enabled: bool = False
-    reminders_enabled: bool = False
     is_active: bool = True
 
     @transaction.atomic
@@ -563,7 +556,6 @@ class UpdateDocumentSpace:
         self.document_space.advanced_review_assist_enabled = (
             self.advanced_review_assist_enabled
         )
-        self.document_space.reminders_enabled = self.reminders_enabled
         self.document_space.is_active = self.is_active
         self.document_space.save(
             update_fields=[
@@ -576,7 +568,6 @@ class UpdateDocumentSpace:
                 "space_kind",
                 "review_assist_enabled",
                 "advanced_review_assist_enabled",
-                "reminders_enabled",
                 "is_active",
                 "updated_at",
             ]

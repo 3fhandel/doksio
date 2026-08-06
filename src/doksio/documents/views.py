@@ -3531,7 +3531,6 @@ def tenant_settings_document_box_create(
                 advanced_review_assist_enabled=form.cleaned_data[
                     "advanced_review_assist_enabled"
                 ],
-                reminders_enabled=form.cleaned_data["reminders_enabled"],
             ).execute()
             messages.success(request, "Dokumentenbox wurde erstellt.")
             return redirect(
@@ -3588,7 +3587,6 @@ def tenant_settings_document_box_edit(
                 advanced_review_assist_enabled=form.cleaned_data[
                     "advanced_review_assist_enabled"
                 ],
-                reminders_enabled=form.cleaned_data["reminders_enabled"],
                 is_active=form.cleaned_data["is_active"],
             ).execute()
             messages.success(request, "Dokumentenbox wurde aktualisiert.")
@@ -3611,7 +3609,6 @@ def tenant_settings_document_box_edit(
                 "advanced_review_assist_enabled": (
                     document_space.advanced_review_assist_enabled
                 ),
-                "reminders_enabled": document_space.reminders_enabled,
                 "is_active": document_space.is_active,
             },
         )

@@ -44,7 +44,6 @@ class DocumentSpace(models.Model):
     )
     review_assist_enabled = models.BooleanField(default=False)
     advanced_review_assist_enabled = models.BooleanField(default=False)
-    reminders_enabled = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     deleted_at = models.DateTimeField(blank=True, null=True)
     deleted_by = models.ForeignKey(

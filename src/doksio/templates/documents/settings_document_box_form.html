@@ -81,20 +81,6 @@
             {{ form.advanced_review_assist_enabled.errors }}
           </div>
         </div>
-        <div class="col-12">
-          <div class="border rounded-3 p-3 bg-light-subtle">
-            <div class="form-check">
-              {{ form.reminders_enabled }}
-              <label class="form-check-label fw-semibold" for="{{ form.reminders_enabled.id_for_label }}">
-                Wiedervorlagen aktiv
-              </label>
-            </div>
-            <div class="form-text">
-              Benutzer können für Dokumente dieser Box persönliche Wiedervorlagen mit Datum und Bemerkung anlegen.
-            </div>
-            {{ form.reminders_enabled.errors }}
-          </div>
-        </div>
       </div>
       <button class="btn btn-primary mt-4" type="submit">{{ submit_label }}</button>
     </form>

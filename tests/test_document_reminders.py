@@ -27,7 +27,6 @@ def _document_setup():
         name="Verträge",
         slug="vertraege",
         path="/vertraege",
-        reminders_enabled=True,
     )
     document = Document.objects.create(
         tenant=tenant,
@@ -77,24 +76,6 @@ def test_document_detail_creates_and_completes_personal_reminder(client):
     assert response.status_code == 302
     reminder.refresh_from_db()
     assert reminder.completed_at is not None
-
-
-@pytest.mark.django_db
-def test_document_detail_hides_reminder_when_box_feature_is_disabled(client):
-    tenant, user, space, document = _document_setup()
-    space.reminders_enabled = False
-    space.save(update_fields=["reminders_enabled"])
-    client.force_login(user)
-
-    response = client.get(
-        reverse(
-            "documents:detail",
-            kwargs={"tenant_slug": tenant.slug, "document_id": document.id},
-        )
-    )
-
-    assert response.status_code == 200
-    assert 'data-bs-target="#documentReminderModal"' not in response.content.decode()
 
 
 @pytest.mark.django_db

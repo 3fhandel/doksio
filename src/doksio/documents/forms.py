@@ -769,12 +769,6 @@ class DocumentSpaceForm(forms.Form):
         required=False,
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
-    reminders_enabled = forms.BooleanField(
-        label="Wiedervorlagen aktiv",
-        required=False,
-        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-    )
-
     def clean(self) -> dict:
         cleaned_data = super().clean()
         name = cleaned_data.get("name")
