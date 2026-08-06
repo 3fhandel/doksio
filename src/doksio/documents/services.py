@@ -2879,7 +2879,7 @@ class SplitPdfDocument:
             filename = self._part_filename(index=index, part=part)
             document, _document_file = CreateDocumentFromUpload(
                 tenant=self.document.tenant,
-                title=part.title.strip() or self._part_title(index=index, part=part),
+                title=part.title.strip(),
                 space=part.target_space,
                 file_obj=io.BytesIO(extracted_pdf),
                 original_filename=filename,
@@ -2951,12 +2951,6 @@ class SplitPdfDocument:
             expected_start = part.end_page + 1
         if expected_start != page_count + 1:
             raise ValueError("Die Seitenbereiche müssen alle Seiten abdecken.")
-
-    def _part_title(self, *, index: int, part: DocumentSplitPart) -> str:
-        return (
-            f"{self.document.title} - Teil {index} "
-            f"(S. {part.start_page}-{part.end_page})"
-        )
 
     def _part_filename(self, *, index: int, part: DocumentSplitPart) -> str:
         path = Path(self.source_file.original_filename)

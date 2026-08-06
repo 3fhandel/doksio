@@ -667,7 +667,7 @@ class DocumentSplitForm(forms.Form):
     original_handling = forms.ChoiceField(
         label="Originaldatei",
         choices=ORIGINAL_HANDLING_CHOICES,
-        initial="keep",
+        initial="delete",
         widget=forms.RadioSelect(attrs={"class": "form-check-input"}),
     )
 

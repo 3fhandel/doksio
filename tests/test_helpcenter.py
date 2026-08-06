@@ -65,6 +65,8 @@ def test_help_overview_shows_user_topics_and_hides_restricted_topics(client):
     assert "direkt im Arbeitsbereich" in content
     assert "Beim Lösen einer bestehenden Verknüpfung" in content
     assert "Schnellvorschau der Originaldatei" in content
+    assert "Ein Klick auf ein Seitenthumbnail" in content
+    assert "zentralen Titelfindung der jeweiligen Zielbox" in content
     assert "Scans mit vorhandenen OCR-Suchmarkierungen" in content
     assert "wechselt zwischen Dokumenten der geöffneten Liste" in content
     assert 'id="administration"' not in content

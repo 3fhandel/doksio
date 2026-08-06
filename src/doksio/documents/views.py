@@ -2839,7 +2839,7 @@ def document_split(
         tenant=tenant,
         user=request.user,
         page_count=page_count,
-        initial={"original_handling": "keep"},
+        initial={"original_handling": "delete"},
     )
     if request.method == "POST" and form.is_valid():
         parts = [

@@ -1965,6 +1965,9 @@ def test_document_detail_links_to_split_view_for_pdf_with_permission(client):
     assert "Seitenraster" in split_content
     assert "data-document-split" in split_content
     assert "Originaldokument behalten" in split_content
+    assert "data-page-preview-canvas" in split_content
+    assert "Vorschau von Seite" in split_content
+    assert split_response.context["form"]["original_handling"].value() == "delete"
 
 
 @pytest.mark.django_db
@@ -2102,6 +2105,14 @@ def test_document_split_can_delete_original_after_success(client):
     source_document.refresh_from_db()
     assert source_document.status == Document.Status.DELETED
     assert source_document.deleted_reason == "Aufgeteilt"
+    split_documents = Document.objects.filter(tenant=tenant).exclude(
+        id=source_document.id
+    )
+    assert split_documents.count() == 2
+    assert all(
+        document.title_source == Document.TitleSource.FILENAME
+        for document in split_documents
+    )
 
 
 @pytest.mark.django_db

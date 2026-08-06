@@ -203,6 +203,18 @@ HELP_TOPICS = (
                 ),
             ),
             HelpSection(
+                title="Dokument aufteilen",
+                text=(
+                    "In der Seitenübersicht setzt du Trennungen zwischen den "
+                    "gewünschten Abschnitten. Ein Klick auf ein Seitenthumbnail "
+                    "öffnet die betreffende Seite als große Vorschau. Leere Titel "
+                    "werden nach der Aufteilung mit der zentralen Titelfindung der "
+                    "jeweiligen Zielbox ermittelt. Standardmäßig wird das "
+                    "Originaldokument erst gelöscht, nachdem alle Teildokumente "
+                    "erfolgreich erstellt wurden. Du kannst es bei Bedarf behalten."
+                ),
+            ),
+            HelpSection(
                 title="Prüfhilfen",
                 text=(
                     "Die normale Prüfhilfe unterstützt beim zeilenweisen Lesen. "
@@ -540,6 +552,7 @@ CONTEXT_TOPIC_SLUGS = {
     ("documents", "list"): "dokumente-finden",
     ("documents", "box"): "dokumente-finden",
     ("documents", "detail"): "dokument-bearbeiten",
+    ("documents", "split"): "dokument-bearbeiten",
     ("documents", "core_metadata_edit"): "dokument-bearbeiten",
     ("documents", "upload"): "dokumente-hochladen",
     ("documents", "import_batch_list"): "stapelimport",

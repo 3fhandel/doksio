@@ -62,7 +62,7 @@
           <div class="document-panel-section border-0 pt-0">
             <h2 class="h5 mb-2">Teildokumente</h2>
             <div class="small text-secondary mb-3">
-              Wähle pro Abschnitt die Zielbox. Titel sind optional.
+              Wähle pro Abschnitt die Zielbox. Leere Titel werden nach den Regeln der Titelfindung automatisch gesetzt.
             </div>
             <div class="document-split-parts" data-parts-list></div>
           </div>
@@ -94,6 +94,20 @@
           {% endfor %}
         </template>
       </form>
+
+      <div class="modal fade document-split-page-modal" id="documentSplitPagePreview" tabindex="-1" aria-labelledby="documentSplitPagePreviewLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h2 class="modal-title h5" id="documentSplitPagePreviewLabel" data-page-preview-title>Seitenvorschau</h2>
+              <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Vorschau schließen"></button>
+            </div>
+            <div class="modal-body document-split-page-modal-body">
+              <canvas data-page-preview-canvas></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </main>
 {% endblock %}
@@ -114,8 +128,55 @@
       const partsList = root.querySelector("[data-parts-list]");
       const payloadInput = root.querySelector("input[name='split_payload']");
       const optionsTemplate = root.querySelector("[data-space-options-template]");
+      const previewModalElement = document.getElementById("documentSplitPagePreview");
+      const previewCanvas = previewModalElement?.querySelector("[data-page-preview-canvas]");
+      const previewTitle = previewModalElement?.querySelector("[data-page-preview-title]");
+      const previewModal = previewModalElement && window.bootstrap
+        ? window.bootstrap.Modal.getOrCreateInstance(previewModalElement)
+        : null;
       const breaks = new Set();
+      let pdfDocument = null;
+      let previewRenderTask = null;
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+
+      previewModalElement?.addEventListener("hidden.bs.modal", () => {
+        previewRenderTask?.cancel();
+        previewRenderTask = null;
+      });
+
+      const openPagePreview = async (pageNumber) => {
+        if (!pdfDocument || !previewCanvas || !previewModal) {
+          return;
+        }
+        previewRenderTask?.cancel();
+        const page = await pdfDocument.getPage(pageNumber);
+        const baseViewport = page.getViewport({ scale: 1 });
+        const maxWidth = Math.min(window.innerWidth * 0.82, 1050);
+        const maxHeight = window.innerHeight * 0.72;
+        const displayScale = Math.min(
+          maxWidth / baseViewport.width,
+          maxHeight / baseViewport.height,
+        );
+        const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        const viewport = page.getViewport({ scale: displayScale * pixelRatio });
+        previewCanvas.width = Math.ceil(viewport.width);
+        previewCanvas.height = Math.ceil(viewport.height);
+        previewCanvas.style.width = `${Math.ceil(viewport.width / pixelRatio)}px`;
+        previewCanvas.style.height = `${Math.ceil(viewport.height / pixelRatio)}px`;
+        previewTitle.textContent = `Seite ${pageNumber}`;
+        previewModal.show();
+        previewRenderTask = page.render({
+          canvasContext: previewCanvas.getContext("2d"),
+          viewport,
+        });
+        try {
+          await previewRenderTask.promise;
+        } catch (error) {
+          if (error?.name !== "RenderingCancelledException") {
+            throw error;
+          }
+        }
+      };
 
       const rangesFromBreaks = () => {
         const sortedBreaks = Array.from(breaks).sort((a, b) => a - b);
@@ -206,6 +267,7 @@
 
       const renderPdf = async () => {
         const pdf = await window.pdfjsLib.getDocument(pdfUrl).promise;
+        pdfDocument = pdf;
         pageGrid.replaceChildren();
         for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
           const page = await pdf.getPage(pageNumber);
@@ -219,7 +281,19 @@
             canvasContext: canvas.getContext("2d"),
             viewport,
           }).promise;
-          item.appendChild(canvas);
+          const previewButton = document.createElement("button");
+          previewButton.className = "document-split-page-preview";
+          previewButton.type = "button";
+          previewButton.title = `Seite ${pageNumber} vergrößern`;
+          previewButton.setAttribute("aria-label", `Vorschau von Seite ${pageNumber} öffnen`);
+          previewButton.addEventListener("click", () => {
+            openPagePreview(pageNumber).catch(() => {
+              previewTitle.textContent = "Seitenvorschau konnte nicht geladen werden";
+              previewModal?.show();
+            });
+          });
+          previewButton.appendChild(canvas);
+          item.appendChild(previewButton);
           const label = document.createElement("div");
           label.className = "document-split-page-label";
           label.textContent = `Seite ${pageNumber}`;
@@ -232,6 +306,11 @@
             button.textContent = "Trennung";
             button.addEventListener("click", () => toggleBreak(button, pageNumber));
             item.appendChild(button);
+          } else {
+            const placeholder = document.createElement("span");
+            placeholder.className = "document-split-break-placeholder";
+            placeholder.setAttribute("aria-hidden", "true");
+            item.appendChild(placeholder);
           }
           pageGrid.appendChild(item);
         }
