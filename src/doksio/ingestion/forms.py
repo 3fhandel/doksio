@@ -23,7 +23,7 @@ FOLDER_RUN_MODE_CHOICES = [
     ("once", "Einmal ausführen und beenden"),
 ]
 
-EMAIL_UNPROCESSABLE_ACTION_CHOICES = [
+EMAIL_ACTION_CHOICES = [
     ("keep", "In Mailbox belassen"),
     ("mark_seen", "Als gelesen markieren"),
     ("delete", "Löschen"),
@@ -294,16 +294,12 @@ class ImportSourceForm(forms.Form):
         initial=300,
         widget=forms.NumberInput(attrs={"class": "form-control", "min": 60}),
     )
-    email_mark_seen = forms.BooleanField(
-        label="Nach Import als gelesen markieren",
+    email_processed_action = forms.ChoiceField(
+        label="Aktion",
+        choices=EMAIL_ACTION_CHOICES,
         required=False,
-        initial=True,
-        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-    )
-    email_delete_after_import = forms.BooleanField(
-        label="Nach Import löschen",
-        required=False,
-        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        initial="mark_seen",
+        widget=forms.Select(attrs={"class": "form-select"}),
     )
     email_move_processed_to = forms.CharField(
         label="Zielordner nach Import",
@@ -334,7 +330,7 @@ class ImportSourceForm(forms.Form):
     )
     email_unprocessable_action = forms.ChoiceField(
         label="Nicht importierbare Mails",
-        choices=EMAIL_UNPROCESSABLE_ACTION_CHOICES,
+        choices=EMAIL_ACTION_CHOICES,
         required=False,
         initial="keep",
         widget=forms.Select(attrs={"class": "form-select"}),
@@ -402,6 +398,19 @@ class ImportSourceForm(forms.Form):
             is_active=True,
         ).order_by("name")
 
+    @staticmethod
+    def _processed_action_from_settings(email: dict) -> str:
+        action = email.get("processed_action")
+        if action in {choice[0] for choice in EMAIL_ACTION_CHOICES}:
+            return action
+        if email.get("delete_after_import"):
+            return "delete"
+        if (email.get("move_processed_to") or "").strip():
+            return "move"
+        if email.get("mark_seen", True):
+            return "mark_seen"
+        return "keep"
+
     @classmethod
     def initial_from_source(cls, source: ImportSource) -> dict:
         settings = source.settings or {}
@@ -438,8 +447,7 @@ class ImportSourceForm(forms.Form):
             "email_search_criteria": email.get("search_criteria", "UNSEEN"),
             "email_attachment_pattern": email.get("attachment_pattern", "*"),
             "email_poll_interval_seconds": email.get("poll_interval_seconds", 300),
-            "email_mark_seen": email.get("mark_seen", True),
-            "email_delete_after_import": email.get("delete_after_import", False),
+            "email_processed_action": cls._processed_action_from_settings(email),
             "email_move_processed_to": email.get("move_processed_to", ""),
             "email_success_reply_enabled": email.get(
                 "success_reply_enabled",
@@ -609,6 +617,18 @@ class ImportSourceForm(forms.Form):
                     "email_unprocessable_reply_body",
                     "Für automatische Antworten ist ein Antworttext erforderlich.",
                 )
+            if (
+                cleaned_data.get("email_processed_action") == "move"
+                and not cleaned_data.get("email_move_processed_to")
+            ):
+                self.add_error(
+                    "email_move_processed_to",
+                    "Für Verschieben ist ein Zielordner erforderlich.",
+                )
+            if cleaned_data.get("email_processed_action") != "move":
+                cleaned_data["email_move_processed_to"] = ""
+            if cleaned_data.get("email_unprocessable_action") != "move":
+                cleaned_data["email_unprocessable_move_to"] = ""
 
         return cleaned_data
 
@@ -664,9 +684,8 @@ class ImportSourceForm(forms.Form):
                     "poll_interval_seconds": self.cleaned_data[
                         "email_poll_interval_seconds"
                     ],
-                    "mark_seen": self.cleaned_data["email_mark_seen"],
-                    "delete_after_import": self.cleaned_data[
-                        "email_delete_after_import"
+                    "processed_action": self.cleaned_data[
+                        "email_processed_action"
                     ],
                     "move_processed_to": self.cleaned_data["email_move_processed_to"],
                     "success_reply_enabled": self.cleaned_data[

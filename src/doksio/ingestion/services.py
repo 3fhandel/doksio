@@ -692,18 +692,21 @@ class ProcessEmailImportSource:
         email_settings = (self.source.settings or {}).get("email", {})
         connection = self._connect(email_settings)
         result = EmailImportResult()
+        deletion_requested = False
         try:
             self._select_mailbox(connection, email_settings)
             message_ids = self._search_messages(connection, email_settings)
             for message_id in message_ids:
                 result.checked_messages += 1
-                self._process_message(
+                deletion_requested = self._process_message(
                     connection=connection,
                     message_id=message_id,
                     email_settings=email_settings,
                     result=result,
-                )
+                ) or deletion_requested
         finally:
+            if deletion_requested:
+                connection.expunge()
             self._logout(connection)
 
         self._write_poll_state(result)
@@ -737,15 +740,15 @@ class ProcessEmailImportSource:
         message_id: bytes,
         email_settings: dict,
         result: EmailImportResult,
-    ) -> None:
+    ) -> bool:
         status, data = connection.fetch(message_id, "(RFC822 INTERNALDATE)")
         if not _imap_ok(status):
             result.errors.append(f"Mail {message_id!r} konnte nicht gelesen werden.")
-            return
+            return False
         raw_message = _raw_message_from_fetch_data(data)
         if raw_message is None:
             result.errors.append(f"Mail {message_id!r} enthält keine Rohdaten.")
-            return
+            return False
 
         message = BytesParser(policy=policy.default).parsebytes(raw_message)
         received_at = _email_received_at(data, message)
@@ -775,13 +778,12 @@ class ProcessEmailImportSource:
                     "ignoriert: "
                     f"{', '.join(attachment_scan.ignored_filenames)}"
                 )
-            self._handle_unprocessable_message(
+            return self._handle_unprocessable_message(
                 connection=connection,
                 message_id=message_id,
                 email_settings=email_settings,
                 message=message,
             )
-            return
 
         before_failures = result.failed_attachments
         before_processed = (
@@ -809,15 +811,17 @@ class ProcessEmailImportSource:
                 f"Mail {message_id!r}: "
                 "Passende Anhänge gefunden, aber kein Anhang wurde verarbeitet."
             )
-            return
+            return False
 
         if result.failed_attachments == before_failures:
-            self._finalize_processed_message(
+            deletion_requested = self._finalize_processed_message(
                 connection=connection,
                 message_id=message_id,
                 email_settings=email_settings,
             )
             self._send_success_reply(email_settings, message)
+            return deletion_requested
+        return False
 
     def _import_attachment(
         self,
@@ -893,17 +897,28 @@ class ProcessEmailImportSource:
         connection,
         message_id: bytes,
         email_settings: dict,
-    ) -> None:
+    ) -> bool:
+        action = email_settings.get("processed_action")
+        if action not in {"keep", "mark_seen", "delete", "move"}:
+            if email_settings.get("delete_after_import"):
+                action = "delete"
+            elif (email_settings.get("move_processed_to") or "").strip():
+                action = "move"
+            elif email_settings.get("mark_seen", True):
+                action = "mark_seen"
+            else:
+                action = "keep"
+        if action == "delete":
+            self._delete_message(connection, message_id)
+            return True
         move_to = (email_settings.get("move_processed_to") or "").strip()
-        if move_to:
+        if action == "move" and move_to:
             self._copy_to_mailbox(connection, message_id, move_to)
             self._delete_message(connection, message_id)
-            return
-        if email_settings.get("delete_after_import"):
-            self._delete_message(connection, message_id)
-            return
-        if email_settings.get("mark_seen", True):
+            return True
+        if action == "mark_seen":
             connection.store(message_id, "+FLAGS", "\\Seen")
+        return False
 
     def _handle_unprocessable_message(
         self,
@@ -912,17 +927,20 @@ class ProcessEmailImportSource:
         message_id: bytes,
         email_settings: dict,
         message: ParsedEmailMessage,
-    ) -> None:
+    ) -> bool:
         action = email_settings.get("unprocessable_action", "keep")
+        deletion_requested = False
         if action == "mark_seen":
             connection.store(message_id, "+FLAGS", "\\Seen")
         elif action == "delete":
             self._delete_message(connection, message_id)
+            deletion_requested = True
         elif action == "move":
             move_to = email_settings.get("unprocessable_move_to", "").strip()
             if move_to:
                 self._copy_to_mailbox(connection, message_id, move_to)
                 self._delete_message(connection, message_id)
+                deletion_requested = True
         if email_settings.get("unprocessable_reply_enabled"):
             _send_email_import_reply(
                 source=self.source,
@@ -935,6 +953,7 @@ class ProcessEmailImportSource:
                     False,
                 ),
             )
+        return deletion_requested
 
     def _send_success_reply(
         self,
@@ -965,7 +984,6 @@ class ProcessEmailImportSource:
 
     def _delete_message(self, connection, message_id: bytes) -> None:
         connection.store(message_id, "+FLAGS", "\\Deleted")
-        connection.expunge()
 
     def _logout(self, connection) -> None:
         with suppress(Exception):

@@ -446,6 +446,16 @@ HELP_TOPICS = (
                 ),
             ),
             HelpSection(
+                title="Mail-Import abschließen",
+                text=(
+                    "Für erfolgreich importierte und nicht importierbare Mails "
+                    "wählst du jeweils eine eindeutige Aktion: in der Mailbox "
+                    "belassen, als gelesen markieren, löschen oder in einen "
+                    "Zielordner verschieben. Der Zielordner ist nur beim "
+                    "Verschieben erforderlich."
+                ),
+            ),
+            HelpSection(
                 title="Berechtigungen",
                 text=(
                     "Berechtigungen werden über mehrere Rollen additiv vergeben. "

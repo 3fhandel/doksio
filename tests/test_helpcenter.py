@@ -103,6 +103,8 @@ def test_help_overview_shows_administration_to_tenant_admin(client):
     assert 'id="administration"' in content
     assert 'id="stapelimport"' in content
     assert "Workflow-Supervisor" in content
+    assert "Mail-Import abschließen" in content
+    assert "eine eindeutige Aktion" in content
     assert "erscheinen dadurch nicht unter „Meine Aufgaben“" in content
     assert "Zugriff auf alle Dokumentenboxen nicht automatisch" in content
     assert "aktuell zugeordneten Benutzer" in content

@@ -218,29 +218,22 @@
               {{ form.email_poll_interval_seconds }}
               {{ form.email_poll_interval_seconds.errors }}
             </div>
-            <div class="col-md-4">
-              <label class="form-label" for="{{ form.email_move_processed_to.id_for_label }}">Zielordner nach Import</label>
-              {{ form.email_move_processed_to }}
-              <div class="form-text">{{ form.email_move_processed_to.help_text }}</div>
-              {{ form.email_move_processed_to.errors }}
-            </div>
-            <div class="col-md-4 d-flex align-items-end">
-              <div class="form-check mb-2">
-                {{ form.email_mark_seen }}
-                <label class="form-check-label" for="{{ form.email_mark_seen.id_for_label }}">Als gelesen markieren</label>
-              </div>
-            </div>
-            <div class="col-md-4 d-flex align-items-end">
-              <div class="form-check mb-2">
-                {{ form.email_delete_after_import }}
-                <label class="form-check-label" for="{{ form.email_delete_after_import.id_for_label }}">Nach Import löschen</label>
-              </div>
-            </div>
           </div>
 
           <hr class="my-4">
           <h3 class="h6 mb-3">Erfolgreicher Import</h3>
           <div class="row g-3">
+            <div class="col-md-5">
+              <label class="form-label" for="{{ form.email_processed_action.id_for_label }}">Aktion</label>
+              {{ form.email_processed_action }}
+              {{ form.email_processed_action.errors }}
+            </div>
+            <div class="col-md-7" data-email-processed-move-field>
+              <label class="form-label" for="{{ form.email_move_processed_to.id_for_label }}">Zielordner</label>
+              {{ form.email_move_processed_to }}
+              <div class="form-text">{{ form.email_move_processed_to.help_text }}</div>
+              {{ form.email_move_processed_to.errors }}
+            </div>
             <div class="col-12">
               <div class="d-flex flex-wrap gap-4">
                 <div class="form-check">
@@ -273,7 +266,7 @@
               {{ form.email_unprocessable_action }}
               {{ form.email_unprocessable_action.errors }}
             </div>
-            <div class="col-md-7">
+            <div class="col-md-7" data-email-unprocessable-move-field>
               <label class="form-label" for="{{ form.email_unprocessable_move_to.id_for_label }}">Zielordner</label>
               {{ form.email_unprocessable_move_to }}
               {{ form.email_unprocessable_move_to.errors }}
@@ -444,6 +437,12 @@
       const targetSections = document.querySelectorAll("[data-target-strategy-section]");
       const targetSpaceField = document.querySelector("[data-target-space-field]");
       const targetInboxField = document.querySelector("[data-target-inbox-field]");
+      const processedActionField = document.getElementById("{{ form.email_processed_action.id_for_label }}");
+      const processedMoveWrapper = document.querySelector("[data-email-processed-move-field]");
+      const processedMoveField = document.getElementById("{{ form.email_move_processed_to.id_for_label }}");
+      const unprocessableActionField = document.getElementById("{{ form.email_unprocessable_action.id_for_label }}");
+      const unprocessableMoveWrapper = document.querySelector("[data-email-unprocessable-move-field]");
+      const unprocessableMoveField = document.getElementById("{{ form.email_unprocessable_move_to.id_for_label }}");
       function syncImportSettingsSections() {
         sections.forEach((section) => {
           const sectionNames = section.dataset.importSettingsSection.split(" ");
@@ -458,10 +457,21 @@
           section.hidden = section.dataset.targetStrategySection !== targetStrategyField.value;
         });
       }
+      function syncEmailActions() {
+        const movesProcessed = processedActionField.value === "move";
+        processedMoveWrapper.hidden = !movesProcessed;
+        processedMoveField.disabled = !movesProcessed;
+        const movesUnprocessable = unprocessableActionField.value === "move";
+        unprocessableMoveWrapper.hidden = !movesUnprocessable;
+        unprocessableMoveField.disabled = !movesUnprocessable;
+      }
       sourceTypeField.addEventListener("change", syncImportSettingsSections);
       targetStrategyField.addEventListener("change", syncTargetStrategySections);
+      processedActionField.addEventListener("change", syncEmailActions);
+      unprocessableActionField.addEventListener("change", syncEmailActions);
       syncImportSettingsSections();
       syncTargetStrategySections();
+      syncEmailActions();
     })();
   </script>
 {% endblock %}

@@ -972,8 +972,7 @@ def test_process_email_import_source_imports_matching_attachment(client):
                 "mailbox": "INBOX",
                 "search_criteria": "UNSEEN",
                 "attachment_pattern": "*.pdf",
-                "mark_seen": True,
-                "delete_after_import": False,
+                "processed_action": "mark_seen",
                 "move_processed_to": "",
             }
         },
@@ -1033,6 +1032,58 @@ def test_process_email_import_source_imports_matching_attachment(client):
     assert "sender@example.test" in detail_content
     assert "23.07." in detail_content
     assert "09:15" in detail_content
+
+
+@pytest.mark.django_db
+def test_email_import_expunges_only_after_all_messages_are_processed():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Rechnungsmail",
+        source_type=ImportSource.SourceType.EMAIL,
+        settings={
+            "email": {
+                "mailbox": "INBOX",
+                "search_criteria": "UNSEEN",
+                "attachment_pattern": "*.pdf",
+                "delete_after_import": True,
+                "move_processed_to": "Archiv/Doksio",
+            }
+        },
+        auto_start_ocr=False,
+        extract_einvoice=False,
+        start_workflows=False,
+    )
+    imap = FakeImapConnection(
+        {
+            b"1": _raw_email(
+                message_id="<mail-1@example.test>",
+                attachment_name="rechnung-1.pdf",
+                attachment_content=MINIMAL_PDF_BYTES + b" first",
+            ),
+            b"2": _raw_email(
+                message_id="<mail-2@example.test>",
+                attachment_name="rechnung-2.pdf",
+                attachment_content=MINIMAL_PDF_BYTES + b" second",
+            ),
+        }
+    )
+
+    result = ProcessEmailImportSource(
+        source=source,
+        imap_factory=lambda _settings: imap,
+    ).execute()
+
+    assert result.checked_messages == 2
+    assert result.imported_documents == 2
+    assert Document.objects.count() == 2
+    assert imap.actions.count(("expunge",)) == 1
+    assert not any(action[0] == "copy" for action in imap.actions)
+    expunge_index = imap.actions.index(("expunge",))
+    assert imap.actions.index(("fetch", b"1")) < expunge_index
+    assert imap.actions.index(("fetch", b"2")) < expunge_index
 
 
 @pytest.mark.django_db
@@ -1631,8 +1682,7 @@ def test_tenant_admin_can_create_folder_and_email_import_source_settings(client)
             "email_search_criteria": "UNSEEN",
             "email_attachment_pattern": "*.pdf",
             "email_poll_interval_seconds": "300",
-            "email_mark_seen": "on",
-            "email_delete_after_import": "on",
+            "email_processed_action": "delete",
             "email_move_processed_to": "Archiv/Doksio",
             "email_success_reply_enabled": "on",
             "email_success_reply_once_per_sender": "on",
@@ -1651,11 +1701,13 @@ def test_tenant_admin_can_create_folder_and_email_import_source_settings(client)
     source = ImportSource.objects.get(name="Rechnungsmail")
     assert source.settings["email"]["host"] == "imap.example.test"
     assert source.settings["email"]["password"] == "mail-secret"
-    assert source.settings["email"]["delete_after_import"] is True
+    assert source.settings["email"]["processed_action"] == "delete"
+    assert source.settings["email"]["move_processed_to"] == ""
     assert source.settings["email"]["success_reply_enabled"] is True
     assert source.settings["email"]["success_reply_once_per_sender"] is True
     assert source.settings["email"]["success_reply_subject"] == "Import erfolgreich"
     assert source.settings["email"]["unprocessable_action"] == "delete"
+    assert source.settings["email"]["unprocessable_move_to"] == ""
     assert source.settings["email"]["unprocessable_reply_enabled"] is True
     assert (
         source.settings["email"]["unprocessable_reply_once_per_sender"] is True
