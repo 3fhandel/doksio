@@ -2146,6 +2146,15 @@ def test_document_merge_view_and_merge_pdf_documents(client):
         content_type="application/pdf",
         created_by=user,
     ).execute()
+    third_document, _third_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Alpha-Anhang",
+        space=source_space,
+        file_obj=BytesIO(_sample_pdf_bytes(3)),
+        original_filename="alpha-anhang.pdf",
+        content_type="application/pdf",
+        created_by=user,
+    ).execute()
     client.force_login(user)
 
     detail_response = client.get(
@@ -2165,7 +2174,33 @@ def test_document_merge_view_and_merge_pdf_documents(client):
     assert merge_response.status_code == 200
     assert "data-document-merge" in merge_content
     assert "Seiten anordnen" in merge_content
+    assert (
+        f'<option value="{source_space.id}" selected>{source_space.path}</option>'
+        in merge_content
+    )
+    assert '<option value="created_desc" selected>Neueste zuerst</option>' in merge_content
     assert merge_response.context["form"]["original_handling"].value() == "delete"
+
+    picker_url = reverse(
+        "documents:relation_picker_search",
+        kwargs={"tenant_slug": tenant.slug, "document_id": first_document.id},
+    )
+    newest_results = client.get(
+        picker_url,
+        {"space": source_space.id, "pdf_only": "1"},
+    ).json()["results"]
+    assert [item["id"] for item in newest_results[:2]] == [
+        third_document.id,
+        second_document.id,
+    ]
+    title_results = client.get(
+        picker_url,
+        {"space": source_space.id, "pdf_only": "1", "sort": "title_desc"},
+    ).json()["results"]
+    assert [item["id"] for item in title_results[:2]] == [
+        second_document.id,
+        third_document.id,
+    ]
 
     response = client.post(
         merge_url,

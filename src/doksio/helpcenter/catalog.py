@@ -184,7 +184,9 @@ HELP_TOPICS = (
                 text=(
                     "Unter Verwaltung kannst du ein mehrseitiges PDF aufteilen "
                     "oder mehrere PDF-Dokumente zusammenführen. Beim Zusammenführen "
-                    "wählst du weitere Dokumente über Suche und Filter aus. Danach "
+                    "ist die Box des Ausgangsdokuments vorausgewählt. Du kannst "
+                    "weitere Dokumente über Suche und Filter auswählen und die "
+                    "Treffer sortieren; standardmäßig stehen die neuesten oben. Danach "
                     "kannst du alle Seiten per Drag-and-drop in die gewünschte "
                     "Reihenfolge bringen. Standardmäßig werden die Quelldokumente "
                     "nach erfolgreicher Zusammenführung gelöscht; bei Bedarf "

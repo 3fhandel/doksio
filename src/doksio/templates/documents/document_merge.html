@@ -56,7 +56,7 @@
                 <div class="choice-picker-compact" data-choice-picker data-empty-text="Keine passende Dokumentenbox">
                   <select class="form-select" id="document-merge-space" data-merge-space-filter>
                     <option value="">Alle sichtbaren Boxen</option>
-                    {% for space in relation_picker_spaces %}<option value="{{ space.id }}">{{ space.path }}</option>{% endfor %}
+                    {% for space in relation_picker_spaces %}<option value="{{ space.id }}"{% if space.id == document.space_id %} selected{% endif %}>{{ space.path }}</option>{% endfor %}
                   </select>
                   <div class="choice-picker-input-wrap">
                     {% include "includes/icons.html" with icon="search" %}
@@ -72,6 +72,17 @@
                   <option value="open">Offener Workflow</option>
                   <option value="completed">Workflows abgeschlossen</option>
                   <option value="none">Keine Workflows</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label" for="document-merge-sort">Sortierung</label>
+                <select class="form-select" id="document-merge-sort" data-merge-sort>
+                  <option value="created_desc" selected>Neueste zuerst</option>
+                  <option value="created_asc">Älteste zuerst</option>
+                  <option value="date_desc">Belegdatum absteigend</option>
+                  <option value="date_asc">Belegdatum aufsteigend</option>
+                  <option value="title_asc">Titel A-Z</option>
+                  <option value="title_desc">Titel Z-A</option>
                 </select>
               </div>
               <div class="document-relation-child-filter">
@@ -156,6 +167,7 @@
       const searchInput = root.querySelector("[data-merge-search-input]");
       const spaceFilter = root.querySelector("[data-merge-space-filter]");
       const workflowFilter = root.querySelector("[data-merge-workflow-filter]");
+      const sortFilter = root.querySelector("[data-merge-sort]");
       const includeChildren = root.querySelector("[data-merge-include-children]");
       let requestNumber = 0;
 
@@ -238,6 +250,7 @@
           q: searchInput.value.trim(),
           space: spaceFilter.value,
           workflow_status: workflowFilter.value,
+          sort: sortFilter.value,
           include_children: includeChildren.checked ? "1" : "0",
           pdf_only: "1",
         });
@@ -252,7 +265,7 @@
         clearTimeout(timer);
         timer = setTimeout(() => search().catch(() => {}), 180);
       });
-      [spaceFilter, workflowFilter, includeChildren].forEach((field) => field.addEventListener("change", () => search().catch(() => {})));
+      [spaceFilter, workflowFilter, sortFilter, includeChildren].forEach((field) => field.addEventListener("change", () => search().catch(() => {})));
 
       const syncPageOrder = () => {
         orderInput.value = JSON.stringify(Array.from(pageGrid.children).map((item) => ({

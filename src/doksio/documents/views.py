@@ -3135,6 +3135,7 @@ def document_relation_picker_search(
     include_children = request.GET.get("include_children", "1") == "1"
     workflow_status = request.GET.get("workflow_status", "any").strip()
     pdf_only = request.GET.get("pdf_only") == "1"
+    sort = normalize_document_box_sort(request.GET.get("sort", "created_desc"))
     selected_space = None
     if space_id:
         selected_space = get_object_or_404(
@@ -3153,7 +3154,7 @@ def document_relation_picker_search(
                 "include_child_boxes": include_children,
                 "workflow_status": workflow_status,
                 "document_status": "active",
-                "sort": "relevance" if query else "created_desc",
+                "sort": sort,
             },
         )
         .execute()
@@ -3185,7 +3186,7 @@ def document_relation_picker_search(
         )
 
     results = []
-    for candidate in documents.order_by("-created_at", "-id")[:12]:
+    for candidate in documents.order_by(*document_box_ordering(sort))[:12]:
         preview_file, _preview_kind = _document_preview(candidate)
         preview_url = ""
         if preview_file is not None:
