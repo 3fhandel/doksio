@@ -789,7 +789,8 @@ class DocumentMergeForm(forms.Form):
         document_ids = list(dict.fromkeys(document_ids))
         if len(document_ids) < 2 or self.primary_document.id not in document_ids:
             raise forms.ValidationError(
-                "Wähle neben dem aktuellen Dokument mindestens ein weiteres PDF aus."
+                "Wähle neben dem aktuellen Dokument mindestens ein weiteres "
+                "PDF- oder Bilddokument aus."
             )
 
         documents = list(
@@ -808,7 +809,10 @@ class DocumentMergeForm(forms.Form):
             )
 
         from doksio.documents.policies import can_split_document, can_view_document
-        from doksio.documents.services import pdf_page_count
+        from doksio.documents.services import (
+            MERGE_IMAGE_CONTENT_TYPES,
+            merge_source_page_count,
+        )
 
         files_by_document_id = {}
         expected_pages = set()
@@ -820,23 +824,27 @@ class DocumentMergeForm(forms.Form):
                 raise forms.ValidationError(
                     "Für mindestens ein Dokument fehlt die Berechtigung."
                 )
-            source_file = next(
+            source_file = max(
                 (
                     item
                     for item in document.files.all()
                     if item.file_kind == DocumentFile.Kind.ORIGINAL
-                    and item.content_type == "application/pdf"
+                    and (
+                        item.content_type == "application/pdf"
+                        or item.content_type in MERGE_IMAGE_CONTENT_TYPES
+                    )
                 ),
-                None,
+                key=lambda item: (item.version, item.created_at, item.id),
+                default=None,
             )
             if source_file is None:
                 raise forms.ValidationError(
-                    "Es können nur PDF-Dokumente zusammengeführt werden."
+                    "Es können nur PDF- und Bilddokumente zusammengeführt werden."
                 )
             files_by_document_id[document_id] = source_file
             expected_pages.update(
                 (document_id, page_number)
-                for page_number in range(1, pdf_page_count(source_file) + 1)
+                for page_number in range(1, merge_source_page_count(source_file) + 1)
             )
 
         try:

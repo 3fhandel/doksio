@@ -120,6 +120,16 @@ def _sample_pdf_bytes(page_count: int = 3) -> bytes:
         pdf.close()
 
 
+def _sample_png_bytes() -> bytes:
+    from PIL import Image, ImageDraw
+
+    output = BytesIO()
+    image = Image.new("RGB", (320, 480), "white")
+    ImageDraw.Draw(image).rectangle((30, 40, 290, 440), outline="black", width=4)
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
 def _zugferd_pdf_bytes() -> bytes:
     return b"""%PDF-1.4
 <?xml version="1.0" encoding="UTF-8"?>
@@ -2178,7 +2188,10 @@ def test_document_merge_view_and_merge_pdf_documents(client):
         f'<option value="{source_space.id}" selected>{source_space.path}</option>'
         in merge_content
     )
-    assert '<option value="created_desc" selected>Neueste zuerst</option>' in merge_content
+    assert (
+        '<option value="created_desc" selected>Neueste zuerst</option>'
+        in merge_content
+    )
     assert merge_response.context["form"]["original_handling"].value() == "delete"
 
     picker_url = reverse(
@@ -2238,6 +2251,92 @@ def test_document_merge_view_and_merge_pdf_documents(client):
         object_id=str(merged_document.id),
         data__delete_sources=True,
     ).exists()
+
+
+@pytest.mark.django_db
+def test_document_merge_combines_pdf_and_image_as_pdf(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Eingang").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(username="alice", password="secret")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    pdf_document, _pdf_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="PDF-Seite",
+        space=space,
+        file_obj=BytesIO(_sample_pdf_bytes(1)),
+        original_filename="seite.pdf",
+        content_type="application/pdf",
+        created_by=user,
+    ).execute()
+    image_document, _image_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Bildseite",
+        space=space,
+        file_obj=BytesIO(_sample_png_bytes()),
+        original_filename="seite.png",
+        content_type="image/png",
+        created_by=user,
+        auto_start_ocr=False,
+    ).execute()
+    client.force_login(user)
+
+    image_detail = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": image_document.id},
+        )
+    )
+    assert image_detail.status_code == 200
+    assert "Dokumente zusammenführen" in image_detail.content.decode()
+
+    merge_url = reverse(
+        "documents:merge",
+        kwargs={"tenant_slug": tenant.slug, "document_id": pdf_document.id},
+    )
+    picker_response = client.get(
+        reverse(
+            "documents:relation_picker_search",
+            kwargs={"tenant_slug": tenant.slug, "document_id": pdf_document.id},
+        ),
+        {"space": space.id, "mergeable_only": "1"},
+    )
+    assert [item["id"] for item in picker_response.json()["results"]] == [
+        image_document.id
+    ]
+    assert picker_response.json()["results"][0]["preview_content_type"] == "image/png"
+
+    response = client.post(
+        merge_url,
+        {
+            "source_document_ids": json.dumps(
+                [pdf_document.id, image_document.id]
+            ),
+            "page_order": json.dumps(
+                [
+                    {"document_id": pdf_document.id, "page_number": 1},
+                    {"document_id": image_document.id, "page_number": 1},
+                ]
+            ),
+            "title": "PDF mit Bildseite",
+            "target_space": space.id,
+            "original_handling": "keep",
+        },
+    )
+
+    assert response.status_code == 302
+    merged_document = Document.objects.get(title="PDF mit Bildseite")
+    merged_file = merged_document.files.get(file_kind=DocumentFile.Kind.ORIGINAL)
+    assert merged_file.content_type == "application/pdf"
+    assert pdf_page_count(merged_file) == 2
+    assert Document.objects.filter(
+        id__in=[pdf_document.id, image_document.id],
+        status=Document.Status.ACTIVE,
+    ).count() == 2
 
 
 @pytest.mark.django_db

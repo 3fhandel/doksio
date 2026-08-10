@@ -72,6 +72,24 @@ class DuplicateDocumentError(ValueError):
         )
 
 
+MERGE_IMAGE_CONTENT_TYPES = {
+    "image/avif",
+    "image/bmp",
+    "image/gif",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+}
+
+
+def merge_source_page_count(document_file: DocumentFile) -> int:
+    if document_file.content_type == "application/pdf":
+        return pdf_page_count(document_file)
+    if document_file.content_type in MERGE_IMAGE_CONTENT_TYPES:
+        return 1
+    raise ValueError("Dieser Dateityp kann nicht zusammengeführt werden.")
+
+
 def _suggest_upload_space(
     *,
     tenant: Tenant,
@@ -2953,7 +2971,7 @@ class SplitPdfDocument:
 
 
 @dataclass(frozen=True)
-class MergePdfDocuments:
+class MergeDocuments:
     source_documents: list[Document]
     source_files: dict[int, DocumentFile]
     page_order: list[tuple[int, int]]
@@ -2973,7 +2991,7 @@ class MergePdfDocuments:
         if any(document.tenant_id != tenant.id for document in self.source_documents):
             raise ValueError("Quelldokumente gehören zu unterschiedlichen Tenants.")
         if set(self.source_files) != document_ids:
-            raise ValueError("Für mindestens ein Dokument fehlt die PDF-Datei.")
+            raise ValueError("Für mindestens ein Dokument fehlt die Quelldatei.")
 
         merged_pdf = self._merge_pages()
         primary_document = self.source_documents[0]
@@ -3029,12 +3047,18 @@ class MergePdfDocuments:
             for document_id, source_file in self.source_files.items():
                 if source_file.document_id != document_id:
                     raise ValueError("PDF-Datei gehört zum falschen Dokument.")
-                if source_file.content_type != "application/pdf":
+                if source_file.content_type == "application/pdf":
+                    with default_storage.open(
+                        source_file.storage_key, "rb"
+                    ) as stored_file:
+                        source_bytes = stored_file.read()
+                elif source_file.content_type in MERGE_IMAGE_CONTENT_TYPES:
+                    source_bytes = _merge_image_as_pdf(source_file)
+                else:
                     raise ValueError(
-                        "Es können nur PDF-Dokumente zusammengeführt werden."
+                        "Es können nur PDF- und Bilddokumente zusammengeführt werden."
                     )
-                with default_storage.open(source_file.storage_key, "rb") as stored_file:
-                    source_pdfs[document_id] = pdfium.PdfDocument(stored_file.read())
+                source_pdfs[document_id] = pdfium.PdfDocument(source_bytes)
 
             for document_id, page_number in self.page_order:
                 source_pdf = source_pdfs.get(document_id)
@@ -3052,6 +3076,37 @@ class MergePdfDocuments:
             target_pdf.close()
             for source_pdf in source_pdfs.values():
                 source_pdf.close()
+
+
+def _merge_image_as_pdf(source_file: DocumentFile) -> bytes:
+    try:
+        from PIL import Image, ImageOps
+    except ImportError as exc:
+        raise ValueError("Bildkonvertierung ist nicht verfügbar.") from exc
+
+    try:
+        with (
+            default_storage.open(source_file.storage_key, "rb") as stored_file,
+            Image.open(stored_file) as image,
+        ):
+            page = ImageOps.exif_transpose(image)
+            page.load()
+            if page.mode in {"RGBA", "LA"} or (
+                page.mode == "P" and "transparency" in page.info
+            ):
+                page_with_alpha = page.convert("RGBA")
+                background = Image.new("RGB", page.size, "white")
+                background.paste(page_with_alpha, mask=page_with_alpha.getchannel("A"))
+                page = background
+            elif page.mode != "RGB":
+                page = page.convert("RGB")
+            output = io.BytesIO()
+            page.save(output, format="PDF", resolution=300, quality=95)
+            return output.getvalue()
+    except Exception as exc:
+        raise ValueError(
+            "Das Bild konnte nicht in eine PDF-Seite umgewandelt werden."
+        ) from exc
 
 
 @dataclass(frozen=True)

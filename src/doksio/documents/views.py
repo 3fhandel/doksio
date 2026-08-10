@@ -133,6 +133,7 @@ from doksio.documents.policies import (
     has_tenant_permission,
 )
 from doksio.documents.services import (
+    MERGE_IMAGE_CONTENT_TYPES,
     AddDocumentComment,
     AddDocumentMetadataChoice,
     AddDocumentRelation,
@@ -153,7 +154,7 @@ from doksio.documents.services import (
     DuplicateDocumentError,
     EmptyDocumentSpace,
     FinalizeDocumentImportBatch,
-    MergePdfDocuments,
+    MergeDocuments,
     RemoveDocumentRelation,
     RemoveDocumentReviewMarker,
     SaveDocumentMetadataChoiceList,
@@ -2659,7 +2660,10 @@ def document_detail(
     )
     document_can_merge = (
         share_attachment_file is not None
-        and share_attachment_file.content_type == "application/pdf"
+        and (
+            share_attachment_file.content_type == "application/pdf"
+            or share_attachment_file.content_type in MERGE_IMAGE_CONTENT_TYPES
+        )
         and can_split_document(request.user, document)
     )
 
@@ -2977,7 +2981,10 @@ def document_merge(
     if not can_split_document(request.user, document):
         raise PermissionDenied
     source_file = _document_original_file(document)
-    if source_file is None or source_file.content_type != "application/pdf":
+    if source_file is None or (
+        source_file.content_type != "application/pdf"
+        and source_file.content_type not in MERGE_IMAGE_CONTENT_TYPES
+    ):
         raise Http404("Dieses Dokument kann nicht zusammengeführt werden.")
 
     target_spaces = filter_document_spaces_for_user(
@@ -3015,7 +3022,7 @@ def document_merge(
         },
     )
     if request.method == "POST" and form.is_valid():
-        merged_document = MergePdfDocuments(
+        merged_document = MergeDocuments(
             source_documents=form.cleaned_data["source_documents"],
             source_files=form.cleaned_data["source_files"],
             page_order=form.cleaned_data["page_order"],
@@ -3064,14 +3071,17 @@ def document_merge(
         ):
             continue
         initial_file = _document_original_file(initial_document)
-        if initial_file is None or initial_file.content_type != "application/pdf":
+        if initial_file is None or (
+            initial_file.content_type != "application/pdf"
+            and initial_file.content_type not in MERGE_IMAGE_CONTENT_TYPES
+        ):
             continue
         merge_initial_documents.append(
             {
                 "id": initial_document.id,
                 "title": initial_document.title,
                 "space": initial_document.space.path,
-                "pdf_url": reverse(
+                "preview_url": reverse(
                     "documents:download",
                     kwargs={
                         "tenant_slug": tenant.slug,
@@ -3079,6 +3089,7 @@ def document_merge(
                     },
                 )
                 + "?inline=1",
+                "preview_content_type": initial_file.content_type,
                 "locked": initial_document.id == document.id,
             }
         )
@@ -3135,6 +3146,7 @@ def document_relation_picker_search(
     include_children = request.GET.get("include_children", "1") == "1"
     workflow_status = request.GET.get("workflow_status", "any").strip()
     pdf_only = request.GET.get("pdf_only") == "1"
+    mergeable_only = request.GET.get("mergeable_only") == "1"
     sort = normalize_document_box_sort(request.GET.get("sort", "created_desc"))
     selected_space = None
     if space_id:
@@ -3164,6 +3176,13 @@ def document_relation_picker_search(
         documents = documents.filter(
             files__file_kind=DocumentFile.Kind.ORIGINAL,
             files__content_type="application/pdf",
+        )
+    elif mergeable_only:
+        documents = documents.filter(
+            files__file_kind=DocumentFile.Kind.ORIGINAL,
+        ).filter(
+            Q(files__content_type="application/pdf")
+            | Q(files__content_type__in=MERGE_IMAGE_CONTENT_TYPES)
         )
 
     def thumbnail_url(candidate: Document) -> str:

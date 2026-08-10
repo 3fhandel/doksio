@@ -37,7 +37,7 @@
             <div>
               <h2 class="h5 mb-1" data-merge-stage-title>Dokumente auswählen</h2>
               <div class="small text-secondary" data-merge-stage-description>
-                Suche weitere PDF-Dokumente und füge sie der Zusammenführung hinzu.
+                Suche weitere PDF- oder Bilddokumente und füge sie der Zusammenführung hinzu.
               </div>
             </div>
             <button class="btn btn-sm btn-outline-secondary" type="button" data-back-to-selection hidden>
@@ -206,11 +206,10 @@
         window.__mergeLastResults = items;
         results.replaceChildren();
         if (!items.length) {
-          results.innerHTML = '<div class="text-secondary small">Keine passenden PDF-Dokumente gefunden.</div>';
+          results.innerHTML = '<div class="text-secondary small">Keine passenden PDF- oder Bilddokumente gefunden.</div>';
           return;
         }
         items.forEach((item) => {
-          item.pdf_url = item.preview_url;
           const row = document.createElement("button");
           row.type = "button";
           row.className = "document-relation-result document-merge-result";
@@ -252,7 +251,7 @@
           workflow_status: workflowFilter.value,
           sort: sortFilter.value,
           include_children: includeChildren.checked ? "1" : "0",
-          pdf_only: "1",
+          mergeable_only: "1",
         });
         results.innerHTML = '<div class="text-secondary small">Suche läuft...</div>';
         const response = await fetch(`${root.dataset.searchUrl}?${params}`, { credentials: "same-origin" });
@@ -274,6 +273,37 @@
         })));
       };
 
+      const createPageCard = (item, pageNumber, canvas) => {
+        const card = document.createElement("div");
+        card.className = "document-split-page document-merge-page";
+        card.draggable = true;
+        card.dataset.documentId = item.id;
+        card.dataset.pageNumber = pageNumber;
+        const label = document.createElement("div");
+        label.className = "document-split-page-label";
+        label.textContent = `${item.title} · Seite ${pageNumber}`;
+        card.append(canvas, label);
+        return card;
+      };
+
+      const renderImagePage = async (item) => {
+        const image = new Image();
+        image.src = item.preview_url;
+        await new Promise((resolve, reject) => {
+          image.addEventListener("load", resolve, { once: true });
+          image.addEventListener("error", reject, { once: true });
+        });
+        const scale = Math.min(180 / image.naturalWidth, 240 / image.naturalHeight, 1);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const context = canvas.getContext("2d");
+        context.fillStyle = "#fff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        return createPageCard(item, 1, canvas);
+      };
+
       const loadPages = async () => {
         loadButton.disabled = true;
         pageGrid.hidden = false;
@@ -284,24 +314,19 @@
         pageGrid.innerHTML = '<div class="document-preview-empty">Seiten werden geladen...</div>';
         const fragment = document.createDocumentFragment();
         for (const item of selected.values()) {
-          const pdf = await window.pdfjsLib.getDocument(item.pdf_url).promise;
+          if (item.preview_content_type !== "application/pdf") {
+            fragment.appendChild(await renderImagePage(item));
+            continue;
+          }
+          const pdf = await window.pdfjsLib.getDocument(item.preview_url).promise;
           for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
             const page = await pdf.getPage(pageNumber);
             const viewport = page.getViewport({ scale: 0.22 });
-            const card = document.createElement("div");
-            card.className = "document-split-page document-merge-page";
-            card.draggable = true;
-            card.dataset.documentId = item.id;
-            card.dataset.pageNumber = pageNumber;
             const canvas = document.createElement("canvas");
             canvas.width = viewport.width;
             canvas.height = viewport.height;
             await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
-            const label = document.createElement("div");
-            label.className = "document-split-page-label";
-            label.textContent = `${item.title} · Seite ${pageNumber}`;
-            card.append(canvas, label);
-            fragment.appendChild(card);
+            fragment.appendChild(createPageCard(item, pageNumber, canvas));
           }
         }
         pageGrid.replaceChildren(fragment);
@@ -337,7 +362,7 @@
         submitButton.disabled = true;
         loadButton.disabled = selected.size < 2;
         stageTitle.textContent = "Dokumente auswählen";
-        stageDescription.textContent = "Suche weitere PDF-Dokumente und füge sie der Zusammenführung hinzu.";
+        stageDescription.textContent = "Suche weitere PDF- oder Bilddokumente und füge sie der Zusammenführung hinzu.";
       });
       root.addEventListener("submit", (event) => {
         syncSelected();

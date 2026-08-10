@@ -180,10 +180,11 @@ HELP_TOPICS = (
                 ),
             ),
             HelpSection(
-                title="PDF-Dokumente aufteilen und zusammenführen",
+                title="Dokumente aufteilen und zusammenführen",
                 text=(
                     "Unter Verwaltung kannst du ein mehrseitiges PDF aufteilen "
-                    "oder mehrere PDF-Dokumente zusammenführen. Beim Zusammenführen "
+                    "oder PDF- und Bilddokumente zusammenführen. Bilder werden dabei "
+                    "als einzelne Seiten in das neue PDF übernommen. Beim Zusammenführen "
                     "ist die Box des Ausgangsdokuments vorausgewählt. Du kannst "
                     "weitere Dokumente über Suche und Filter auswählen und die "
                     "Treffer sortieren; standardmäßig stehen die neuesten oben. Danach "
