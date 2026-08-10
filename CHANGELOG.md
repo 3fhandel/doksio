@@ -16,6 +16,7 @@
 - Beim Zusammenführen werden Quelldokumente standardmäßig erst nach erfolgreicher Erstellung des neuen Dokuments gelöscht.
 - Die Buildnummer wird in lokalen und produktiven Containern automatisch aus den Buildmetadaten ermittelt.
 - Änderungen am Änderungsprotokoll werden im lokalen Testbetrieb ohne Neustart sichtbar.
+- Die normale Volltextsuche nutzt den PostgreSQL-Suchindex ohne zusätzliche langsame Teiltextprüfung und überträgt weniger interne Indexdaten; Teilwörter bleiben über den gleichnamigen Schalter verfügbar.
 
 ## Build 20260806-1453
 

@@ -227,6 +227,10 @@ class SearchDocuments:
             Document.objects.filter(tenant=self.tenant)
             .select_related("space", "tenant")
             .select_related("search_index")
+            .defer(
+                "search_index__combined_text",
+                "search_index__search_vector",
+            )
             .prefetch_related(
                 "files__ocr_jobs",
                 "tag_assignments__tag",
@@ -264,12 +268,7 @@ class SearchDocuments:
                         term_filter |= Q(id=exact_document_id)
                     documents = documents.filter(term_filter)
             else:
-                text_filter = (
-                    Q(search_index__search_vector=search_query)
-                    | Q(search_index__combined_text__icontains=query)
-                    | Q(title__icontains=query)
-                    | Q(space__path__icontains=query)
-                )
+                text_filter = Q(search_index__search_vector=search_query)
                 if exact_document_id is not None:
                     text_filter |= Q(id=exact_document_id)
                 documents = documents.filter(text_filter)

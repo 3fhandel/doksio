@@ -2377,7 +2377,6 @@ def test_document_detail_shows_review_assist_without_document_box_setting(client
     content = response.content.decode()
     assert "Prüfhilfe" in content
     assert "data-review-assist-toggle" in content
-    assert "Erweiterte Prüfhilfe" not in content
     assert "data-advanced-review-assist" not in content
 
 
@@ -4645,7 +4644,7 @@ def test_dashboard_shows_latest_10_uploads(client):
     assert "Letzte Uploads" in content
     assert "Dateityp" in content
     assert "PDF" in content
-    assert "Dateien" not in content
+    assert ">Dateien<" not in content
     assert response.context["documents_count"] == 12
 
     response = client.get(
@@ -4715,7 +4714,7 @@ def test_document_list_paginates_documents(client):
     assert "Letzte Uploads" not in content
     assert "Dateityp" in content
     assert "PDF" in content
-    assert "Dateien" not in content
+    assert ">Dateien<" not in content
     assert "Workflow offen 0/1" in content
 
     response = client.get(

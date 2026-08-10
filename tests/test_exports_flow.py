@@ -277,7 +277,10 @@ def test_document_image_export_requires_export_permission(client):
     )
 
     assert response.status_code == 403
-    assert "Exporte" not in sidebar_response.content.decode()
+    assert (
+        reverse("exports:document_images", kwargs={"tenant_slug": tenant.slug})
+        not in sidebar_response.content.decode()
+    )
 
 
 @pytest.mark.django_db

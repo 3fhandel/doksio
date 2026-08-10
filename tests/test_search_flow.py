@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.urls import reverse
 
 from doksio.accounts.models import TenantMembership, TenantRole
@@ -77,6 +78,20 @@ def test_search_documents_finds_ocr_text_tags_comments_and_filename():
             filters={"q": query},
         ).execute()
         assert list(results) == [document]
+
+
+@pytest.mark.django_db
+def test_postgres_standard_search_does_not_add_linear_substring_scan(monkeypatch):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    monkeypatch.setattr(connection, "vendor", "postgresql")
+
+    queryset = SearchDocuments(
+        tenant=tenant,
+        filters={"q": "Rechnung", "sort": "relevance"},
+    ).execute()
+    sql, _params = queryset.query.sql_with_params()
+
+    assert " LIKE " not in sql.upper()
 
 
 @pytest.mark.django_db
