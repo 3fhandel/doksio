@@ -2116,6 +2116,96 @@ def test_document_split_can_delete_original_after_success(client):
 
 
 @pytest.mark.django_db
+def test_document_merge_view_and_merge_pdf_documents(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    source_space = CreateDocumentSpace(tenant=tenant, name="Eingang").execute()
+    target_space = CreateDocumentSpace(tenant=tenant, name="Archiv").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    user = get_user_model().objects.create_user(username="alice", password="secret")
+    TenantMembership.objects.create(
+        tenant=tenant,
+        user=user,
+        role=roles["member"],
+    )
+    first_document, _first_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Teil eins",
+        space=source_space,
+        file_obj=BytesIO(_sample_pdf_bytes(1)),
+        original_filename="teil-eins.pdf",
+        content_type="application/pdf",
+        document_date=date(2026, 8, 10),
+        created_by=user,
+    ).execute()
+    second_document, _second_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Teil zwei",
+        space=source_space,
+        file_obj=BytesIO(_sample_pdf_bytes(2)),
+        original_filename="teil-zwei.pdf",
+        content_type="application/pdf",
+        created_by=user,
+    ).execute()
+    client.force_login(user)
+
+    detail_response = client.get(
+        reverse(
+            "documents:detail",
+            kwargs={"tenant_slug": tenant.slug, "document_id": first_document.id},
+        )
+    )
+    assert "Dokumente zusammenführen" in detail_response.content.decode()
+
+    merge_url = reverse(
+        "documents:merge",
+        kwargs={"tenant_slug": tenant.slug, "document_id": first_document.id},
+    )
+    merge_response = client.get(merge_url)
+    merge_content = merge_response.content.decode()
+    assert merge_response.status_code == 200
+    assert "data-document-merge" in merge_content
+    assert "Seiten anordnen" in merge_content
+    assert merge_response.context["form"]["original_handling"].value() == "delete"
+
+    response = client.post(
+        merge_url,
+        {
+            "source_document_ids": json.dumps(
+                [first_document.id, second_document.id]
+            ),
+            "page_order": json.dumps(
+                [
+                    {"document_id": second_document.id, "page_number": 2},
+                    {"document_id": first_document.id, "page_number": 1},
+                    {"document_id": second_document.id, "page_number": 1},
+                ]
+            ),
+            "title": "Gesamtdokument",
+            "target_space": target_space.id,
+            "original_handling": "delete",
+        },
+    )
+
+    assert response.status_code == 302
+    merged_document = Document.objects.get(title="Gesamtdokument")
+    assert merged_document.space == target_space
+    assert merged_document.document_date == date(2026, 8, 10)
+    assert pdf_page_count(
+        merged_document.files.get(file_kind=DocumentFile.Kind.ORIGINAL)
+    ) == 3
+    first_document.refresh_from_db()
+    second_document.refresh_from_db()
+    assert first_document.status == Document.Status.DELETED
+    assert second_document.status == Document.Status.DELETED
+    assert first_document.deleted_reason == "Zusammengeführt"
+    assert AuditEvent.objects.filter(
+        event_type="document.merge",
+        object_id=str(merged_document.id),
+        data__delete_sources=True,
+    ).exists()
+
+
+@pytest.mark.django_db
 def test_document_detail_shows_review_assist_without_document_box_setting(client):
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     space = CreateDocumentSpace(

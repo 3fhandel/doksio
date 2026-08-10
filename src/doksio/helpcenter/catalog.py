@@ -180,6 +180,18 @@ HELP_TOPICS = (
                 ),
             ),
             HelpSection(
+                title="PDF-Dokumente aufteilen und zusammenführen",
+                text=(
+                    "Unter Verwaltung kannst du ein mehrseitiges PDF aufteilen "
+                    "oder mehrere PDF-Dokumente zusammenführen. Beim Zusammenführen "
+                    "wählst du weitere Dokumente über Suche und Filter aus. Danach "
+                    "kannst du alle Seiten per Drag-and-drop in die gewünschte "
+                    "Reihenfolge bringen. Standardmäßig werden die Quelldokumente "
+                    "nach erfolgreicher Zusammenführung gelöscht; bei Bedarf "
+                    "kannst du sie stattdessen behalten."
+                ),
+            ),
+            HelpSection(
                 title="Dokumente verknüpfen",
                 text=(
                     "Unter „Verknüpfte Dokumente“ öffnest du mit „Verknüpfung "
@@ -566,6 +578,7 @@ CONTEXT_TOPIC_SLUGS = {
     ("documents", "box"): "dokumente-finden",
     ("documents", "detail"): "dokument-bearbeiten",
     ("documents", "split"): "dokument-bearbeiten",
+    ("documents", "merge"): "dokument-bearbeiten",
     ("documents", "core_metadata_edit"): "dokument-bearbeiten",
     ("documents", "upload"): "dokumente-hochladen",
     ("documents", "import_batch_list"): "stapelimport",

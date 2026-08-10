@@ -16,6 +16,7 @@ from doksio.documents.metadata import (
 )
 from doksio.documents.models import (
     Document,
+    DocumentFile,
     DocumentImportBatchItem,
     DocumentInbox,
     DocumentMetadataChoiceList,
@@ -724,6 +725,140 @@ class DocumentSplitForm(forms.Form):
         if expected_start != self.page_count + 1:
             raise forms.ValidationError("Die Aufteilung muss alle Seiten abdecken.")
         return cleaned_parts
+
+
+class DocumentMergeForm(forms.Form):
+    ORIGINAL_HANDLING_CHOICES = [
+        ("keep", "Quelldokumente behalten"),
+        ("delete", "Quelldokumente nach erfolgreicher Zusammenführung löschen"),
+    ]
+
+    def __init__(
+        self,
+        *args,
+        tenant,
+        user,
+        primary_document: Document,
+        **kwargs,
+    ) -> None:
+        self.tenant = tenant
+        self.user = user
+        self.primary_document = primary_document
+        super().__init__(*args, **kwargs)
+        self.fields["target_space"].queryset = filter_document_spaces_for_user(
+            DocumentSpace.objects.filter(
+                tenant=tenant,
+                is_active=True,
+                deleted_at__isnull=True,
+            ),
+            user,
+            tenant,
+            TenantPermissions.DOCUMENTS_UPLOAD,
+        ).order_by("path")
+
+    source_document_ids = forms.CharField(widget=forms.HiddenInput)
+    page_order = forms.CharField(widget=forms.HiddenInput)
+    title = forms.CharField(
+        label="Dokumenttitel",
+        required=False,
+        max_length=255,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "placeholder": "Automatisch setzen"}
+        ),
+    )
+    target_space = forms.ModelChoiceField(
+        label="Zielbox",
+        queryset=DocumentSpace.objects.none(),
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    original_handling = forms.ChoiceField(
+        label="Quelldokumente",
+        choices=ORIGINAL_HANDLING_CHOICES,
+        initial="delete",
+        widget=forms.RadioSelect(attrs={"class": "form-check-input"}),
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        try:
+            raw_ids = json.loads(cleaned_data.get("source_document_ids") or "[]")
+            raw_order = json.loads(cleaned_data.get("page_order") or "[]")
+            document_ids = [int(value) for value in raw_ids]
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise forms.ValidationError("Die Dokumentauswahl ist ungültig.") from exc
+        document_ids = list(dict.fromkeys(document_ids))
+        if len(document_ids) < 2 or self.primary_document.id not in document_ids:
+            raise forms.ValidationError(
+                "Wähle neben dem aktuellen Dokument mindestens ein weiteres PDF aus."
+            )
+
+        documents = list(
+            Document.objects.select_related("space")
+            .prefetch_related("files")
+            .filter(
+                tenant=self.tenant,
+                status=Document.Status.ACTIVE,
+                id__in=document_ids,
+            )
+        )
+        documents_by_id = {document.id: document for document in documents}
+        if set(documents_by_id) != set(document_ids):
+            raise forms.ValidationError(
+                "Mindestens ein Dokument ist nicht mehr verfügbar."
+            )
+
+        from doksio.documents.policies import can_split_document, can_view_document
+        from doksio.documents.services import pdf_page_count
+
+        files_by_document_id = {}
+        expected_pages = set()
+        for document_id in document_ids:
+            document = documents_by_id[document_id]
+            if not can_view_document(self.user, document) or not can_split_document(
+                self.user, document
+            ):
+                raise forms.ValidationError(
+                    "Für mindestens ein Dokument fehlt die Berechtigung."
+                )
+            source_file = next(
+                (
+                    item
+                    for item in document.files.all()
+                    if item.file_kind == DocumentFile.Kind.ORIGINAL
+                    and item.content_type == "application/pdf"
+                ),
+                None,
+            )
+            if source_file is None:
+                raise forms.ValidationError(
+                    "Es können nur PDF-Dokumente zusammengeführt werden."
+                )
+            files_by_document_id[document_id] = source_file
+            expected_pages.update(
+                (document_id, page_number)
+                for page_number in range(1, pdf_page_count(source_file) + 1)
+            )
+
+        try:
+            page_order = [
+                (int(item["document_id"]), int(item["page_number"]))
+                for item in raw_order
+            ]
+        except (TypeError, KeyError, ValueError) as exc:
+            raise forms.ValidationError(
+                "Die Seitenreihenfolge ist ungültig."
+            ) from exc
+        if len(page_order) != len(expected_pages) or set(page_order) != expected_pages:
+            raise forms.ValidationError(
+                "Die Seitenreihenfolge muss jede Seite genau einmal enthalten."
+            )
+
+        cleaned_data["source_documents"] = [
+            documents_by_id[document_id] for document_id in document_ids
+        ]
+        cleaned_data["source_files"] = files_by_document_id
+        cleaned_data["page_order"] = page_order
+        return cleaned_data
 
 
 class DocumentSpaceForm(forms.Form):

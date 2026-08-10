@@ -1,0 +1,338 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Dokumente zusammenführen | Doksio{% endblock %}
+
+{% block body %}
+  <main class="app-page">
+    <div class="container-fluid px-4">
+      <div class="mb-3">
+        <a class="text-decoration-none" href="{{ detail_url }}">&larr; Dokument</a>
+        <h1 class="h3 mt-1 mb-1">Dokumente zusammenführen</h1>
+        <div class="text-secondary">{{ document.title }} · {{ document.space.path }}</div>
+      </div>
+
+      {{ merge_initial_documents|json_script:"merge-initial-documents" }}
+      <form
+        class="document-split-layout"
+        method="post"
+        data-document-merge
+        data-search-url="{% url 'documents:relation_picker_search' tenant.slug document.id %}"
+        data-pdf-worker-url="{% static 'vendor/pdfjs/pdf.worker.min.js' %}"
+      >
+        {% csrf_token %}
+        {{ form.source_document_ids }}
+        {{ form.page_order }}
+        {% if form.errors %}
+          <div class="alert alert-danger document-split-errors">
+            {{ form.non_field_errors }}
+            {{ form.source_document_ids.errors }}
+            {{ form.page_order.errors }}
+            {{ form.target_space.errors }}
+          </div>
+        {% endif %}
+
+        <section class="app-card document-split-preview">
+          <div class="document-split-toolbar">
+            <div>
+              <h2 class="h5 mb-1" data-merge-stage-title>Dokumente auswählen</h2>
+              <div class="small text-secondary" data-merge-stage-description>
+                Suche weitere PDF-Dokumente und füge sie der Zusammenführung hinzu.
+              </div>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-back-to-selection hidden>
+              Auswahl ändern
+            </button>
+          </div>
+
+          <div data-merge-selection-stage>
+            <div class="document-relation-filter-grid p-3 border-bottom">
+              <div>
+                <label class="form-label" for="document-merge-search">Suche</label>
+                <input class="form-control" id="document-merge-search" type="search" placeholder="Titel, Volltext, Metadaten, Box oder ID" data-merge-search-input>
+              </div>
+              <div>
+                <label class="form-label" for="document-merge-space">Dokumentenbox</label>
+                <div class="choice-picker-compact" data-choice-picker data-empty-text="Keine passende Dokumentenbox">
+                  <select class="form-select" id="document-merge-space" data-merge-space-filter>
+                    <option value="">Alle sichtbaren Boxen</option>
+                    {% for space in relation_picker_spaces %}<option value="{{ space.id }}">{{ space.path }}</option>{% endfor %}
+                  </select>
+                  <div class="choice-picker-input-wrap">
+                    {% include "includes/icons.html" with icon="search" %}
+                    <input class="form-control" type="text" autocomplete="off" placeholder="Dokumentenbox suchen" aria-label="Dokumentenbox" data-choice-picker-input>
+                  </div>
+                  <div class="choice-picker-menu" data-choice-picker-menu hidden></div>
+                </div>
+              </div>
+              <div>
+                <label class="form-label" for="document-merge-workflow">Workflowstatus</label>
+                <select class="form-select" id="document-merge-workflow" data-merge-workflow-filter>
+                  <option value="any">Alle</option>
+                  <option value="open">Offener Workflow</option>
+                  <option value="completed">Workflows abgeschlossen</option>
+                  <option value="none">Keine Workflows</option>
+                </select>
+              </div>
+              <div class="document-relation-child-filter">
+                <div class="form-check">
+                  <input class="form-check-input" id="document-merge-children" type="checkbox" data-merge-include-children checked>
+                  <label class="form-check-label" for="document-merge-children">Unterboxen einschließen</label>
+                </div>
+              </div>
+            </div>
+            <div class="document-relation-results p-3" data-merge-results>
+              <div class="text-secondary small">Dokumente werden geladen...</div>
+            </div>
+          </div>
+
+          <div class="document-split-grid document-merge-grid" data-merge-page-grid hidden></div>
+        </section>
+
+        <aside class="app-card document-split-sidebar">
+          <div class="document-panel-section border-0 pt-0">
+            <h2 class="h5 mb-2">Ausgewählte Dokumente</h2>
+            <div class="small text-secondary mb-3">Das aktuelle Dokument bleibt immer Teil der Auswahl.</div>
+            <div class="document-merge-selected" data-merge-selected></div>
+            <button class="btn btn-outline-primary w-100 mt-3" type="button" data-load-pages disabled>
+              Seiten anordnen
+            </button>
+          </div>
+
+          <div class="document-panel-section">
+            <label class="form-label" for="{{ form.title.id_for_label }}">Dokumenttitel</label>
+            {{ form.title }}
+            <div class="form-text">Leer lassen, um die Titelfindung der Zielbox zu verwenden.</div>
+            {{ form.title.errors }}
+          </div>
+          <div class="document-panel-section">
+            <label class="form-label" for="{{ form.target_space.id_for_label }}">Zielbox</label>
+            {% include "includes/document_space_picker_compact.html" with field=form.target_space %}
+            {{ form.target_space.errors }}
+          </div>
+          <div class="document-panel-section">
+            <h3 class="document-section-title">Quelldokumente</h3>
+            {% for radio in form.original_handling %}
+              <div class="form-check mb-2">
+                {{ radio.tag }}
+                <label class="form-check-label" for="{{ radio.id_for_label }}">{{ radio.choice_label }}</label>
+              </div>
+            {% endfor %}
+            {{ form.original_handling.errors }}
+          </div>
+          <div class="document-panel-section">
+            <div class="d-grid gap-2">
+              <button class="btn btn-primary" type="submit" data-merge-submit disabled>Zusammenführung erstellen</button>
+              <a class="btn btn-outline-secondary" href="{{ detail_url }}">Abbrechen</a>
+            </div>
+          </div>
+        </aside>
+      </form>
+    </div>
+  </main>
+{% endblock %}
+
+{% block extra_body %}
+  <script src="{% static 'vendor/pdfjs/pdf.min.js' %}?v=3.11.174"></script>
+  <script>
+    (() => {
+      const root = document.querySelector("[data-document-merge]");
+      if (!root || !window.pdfjsLib) return;
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = root.dataset.pdfWorkerUrl;
+      const initial = JSON.parse(document.getElementById("merge-initial-documents").textContent);
+      const selected = new Map(initial.map((item) => [Number(item.id), item]));
+      const primaryId = Number(initial.find((item) => item.locked)?.id);
+      const idsInput = root.querySelector("input[name='source_document_ids']");
+      const orderInput = root.querySelector("input[name='page_order']");
+      const selectedList = root.querySelector("[data-merge-selected]");
+      const loadButton = root.querySelector("[data-load-pages]");
+      const submitButton = root.querySelector("[data-merge-submit]");
+      const selectionStage = root.querySelector("[data-merge-selection-stage]");
+      const pageGrid = root.querySelector("[data-merge-page-grid]");
+      const backButton = root.querySelector("[data-back-to-selection]");
+      const stageTitle = root.querySelector("[data-merge-stage-title]");
+      const stageDescription = root.querySelector("[data-merge-stage-description]");
+      const results = root.querySelector("[data-merge-results]");
+      const searchInput = root.querySelector("[data-merge-search-input]");
+      const spaceFilter = root.querySelector("[data-merge-space-filter]");
+      const workflowFilter = root.querySelector("[data-merge-workflow-filter]");
+      const includeChildren = root.querySelector("[data-merge-include-children]");
+      let requestNumber = 0;
+
+      const syncSelected = () => {
+        idsInput.value = JSON.stringify(Array.from(selected.keys()));
+        selectedList.replaceChildren();
+        selected.forEach((item, id) => {
+          const row = document.createElement("div");
+          row.className = "document-merge-selected-row";
+          const text = document.createElement("span");
+          const title = document.createElement("strong");
+          title.textContent = item.title;
+          const meta = document.createElement("small");
+          meta.textContent = `#${id} · ${item.space}`;
+          text.append(title, meta);
+          row.appendChild(text);
+          if (id !== primaryId) {
+            const remove = document.createElement("button");
+            remove.className = "btn btn-sm btn-outline-danger";
+            remove.type = "button";
+            remove.setAttribute("aria-label", `${item.title} entfernen`);
+            remove.textContent = "Entfernen";
+            remove.addEventListener("click", () => {
+              selected.delete(id);
+              syncSelected();
+              renderResults(window.__mergeLastResults || []);
+            });
+            row.appendChild(remove);
+          }
+          selectedList.appendChild(row);
+        });
+        loadButton.disabled = selected.size < 2;
+      };
+
+      const renderResults = (items) => {
+        window.__mergeLastResults = items;
+        results.replaceChildren();
+        if (!items.length) {
+          results.innerHTML = '<div class="text-secondary small">Keine passenden PDF-Dokumente gefunden.</div>';
+          return;
+        }
+        items.forEach((item) => {
+          item.pdf_url = item.preview_url;
+          const row = document.createElement("button");
+          row.type = "button";
+          row.className = "document-relation-result document-merge-result";
+          row.classList.toggle("selected", selected.has(Number(item.id)));
+          const thumbnail = document.createElement("span");
+          thumbnail.className = "document-row-thumbnail document-relation-thumbnail";
+          if (item.thumbnail_url) {
+            const image = document.createElement("img");
+            image.src = item.thumbnail_url;
+            image.alt = "";
+            thumbnail.appendChild(image);
+          }
+          const text = document.createElement("span");
+          text.className = "document-relation-result-main";
+          const title = document.createElement("strong");
+          title.textContent = item.title;
+          const meta = document.createElement("small");
+          meta.textContent = `#${item.id} · ${item.space}`;
+          text.append(title, meta);
+          const state = document.createElement("span");
+          state.className = selected.has(Number(item.id)) ? "badge text-bg-success" : "badge text-bg-light";
+          state.textContent = selected.has(Number(item.id)) ? "Ausgewählt" : "Hinzufügen";
+          row.append(thumbnail, text, state);
+          row.addEventListener("click", () => {
+            const id = Number(item.id);
+            if (selected.has(id)) selected.delete(id); else selected.set(id, item);
+            syncSelected();
+            renderResults(items);
+          });
+          results.appendChild(row);
+        });
+      };
+
+      const search = async () => {
+        const ownRequest = ++requestNumber;
+        const params = new URLSearchParams({
+          q: searchInput.value.trim(),
+          space: spaceFilter.value,
+          workflow_status: workflowFilter.value,
+          include_children: includeChildren.checked ? "1" : "0",
+          pdf_only: "1",
+        });
+        results.innerHTML = '<div class="text-secondary small">Suche läuft...</div>';
+        const response = await fetch(`${root.dataset.searchUrl}?${params}`, { credentials: "same-origin" });
+        if (!response.ok || ownRequest !== requestNumber) return;
+        renderResults((await response.json()).results || []);
+      };
+
+      let timer;
+      searchInput.addEventListener("input", () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => search().catch(() => {}), 180);
+      });
+      [spaceFilter, workflowFilter, includeChildren].forEach((field) => field.addEventListener("change", () => search().catch(() => {})));
+
+      const syncPageOrder = () => {
+        orderInput.value = JSON.stringify(Array.from(pageGrid.children).map((item) => ({
+          document_id: Number(item.dataset.documentId),
+          page_number: Number(item.dataset.pageNumber),
+        })));
+      };
+
+      const loadPages = async () => {
+        loadButton.disabled = true;
+        pageGrid.hidden = false;
+        selectionStage.hidden = true;
+        backButton.hidden = false;
+        stageTitle.textContent = "Seiten anordnen";
+        stageDescription.textContent = "Ziehe Seiten an die gewünschte Position.";
+        pageGrid.innerHTML = '<div class="document-preview-empty">Seiten werden geladen...</div>';
+        const fragment = document.createDocumentFragment();
+        for (const item of selected.values()) {
+          const pdf = await window.pdfjsLib.getDocument(item.pdf_url).promise;
+          for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+            const page = await pdf.getPage(pageNumber);
+            const viewport = page.getViewport({ scale: 0.22 });
+            const card = document.createElement("div");
+            card.className = "document-split-page document-merge-page";
+            card.draggable = true;
+            card.dataset.documentId = item.id;
+            card.dataset.pageNumber = pageNumber;
+            const canvas = document.createElement("canvas");
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+            const label = document.createElement("div");
+            label.className = "document-split-page-label";
+            label.textContent = `${item.title} · Seite ${pageNumber}`;
+            card.append(canvas, label);
+            fragment.appendChild(card);
+          }
+        }
+        pageGrid.replaceChildren(fragment);
+        syncPageOrder();
+        submitButton.disabled = false;
+      };
+
+      let dragged = null;
+      pageGrid.addEventListener("dragstart", (event) => {
+        dragged = event.target.closest("[data-document-id]");
+        dragged?.classList.add("is-dragging");
+      });
+      pageGrid.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        const target = event.target.closest("[data-document-id]");
+        if (!dragged || !target || target === dragged) return;
+        const rect = target.getBoundingClientRect();
+        pageGrid.insertBefore(dragged, event.clientX < rect.left + rect.width / 2 ? target : target.nextSibling);
+      });
+      pageGrid.addEventListener("dragend", () => {
+        dragged?.classList.remove("is-dragging");
+        dragged = null;
+        syncPageOrder();
+      });
+      loadButton.addEventListener("click", () => loadPages().catch(() => {
+        pageGrid.innerHTML = '<div class="document-preview-empty">Die Seiten konnten nicht geladen werden.</div>';
+        loadButton.disabled = false;
+      }));
+      backButton.addEventListener("click", () => {
+        pageGrid.hidden = true;
+        selectionStage.hidden = false;
+        backButton.hidden = true;
+        submitButton.disabled = true;
+        loadButton.disabled = selected.size < 2;
+        stageTitle.textContent = "Dokumente auswählen";
+        stageDescription.textContent = "Suche weitere PDF-Dokumente und füge sie der Zusammenführung hinzu.";
+      });
+      root.addEventListener("submit", (event) => {
+        syncSelected();
+        syncPageOrder();
+        if (selected.size < 2 || !orderInput.value || pageGrid.hidden) event.preventDefault();
+      });
+      syncSelected();
+      search().catch(() => {});
+    })();
+  </script>
+{% endblock %}

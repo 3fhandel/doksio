@@ -59,11 +59,12 @@ PERMISSION_DEFINITIONS = [
     ),
     PermissionDefinition(
         code=TenantPermissions.DOCUMENTS_SPLIT,
-        label="Dokumente aufteilen",
+        label="Dokumente aufteilen und zusammenführen",
         category="Dokumente",
         sort_order=27,
         description=(
-            "Mehrseitige PDF-Dokumente in mehrere neue Dokumente aufteilen."
+            "PDF-Dokumente aufteilen oder mehrere PDFs zu einem neuen Dokument "
+            "zusammenführen."
         ),
     ),
     PermissionDefinition(

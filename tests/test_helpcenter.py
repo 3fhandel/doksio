@@ -52,6 +52,7 @@ def test_help_overview_shows_user_topics_and_hides_restricted_topics(client):
     assert "Supervisor-Aufgaben erscheinen nicht" in content
     assert "Workflow, Schritt und Aufgabe" in content
     assert "Wiedervorlagen" in content
+    assert "PDF-Dokumente aufteilen und zusammenführen" in content
     assert "Profil &gt; Wiedervorlagen" in content
     assert "Ein entfernter Wert bleibt am Dokument" in content
     assert "springt die Vorschau direkt zu dieser Seite" in content

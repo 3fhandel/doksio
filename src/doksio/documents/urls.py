@@ -94,6 +94,11 @@ urlpatterns = [
         name="split",
     ),
     path(
+        "t/<slug:tenant_slug>/documents/<int:document_id>/merge/",
+        views.document_merge,
+        name="merge",
+    ),
+    path(
         "t/<slug:tenant_slug>/documents/<int:document_id>/delete/",
         views.document_delete,
         name="delete",

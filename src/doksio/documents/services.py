@@ -24,7 +24,10 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 from doksio.audit.services import RecordAuditEvent
-from doksio.documents.mentions import display_name_for_user, mentioned_entities_from_text
+from doksio.documents.mentions import (
+    display_name_for_user,
+    mentioned_entities_from_text,
+)
 from doksio.documents.metadata import effective_metadata_fields
 from doksio.documents.models import (
     Document,
@@ -2947,6 +2950,108 @@ class SplitPdfDocument:
         path = Path(self.source_file.original_filename)
         stem = path.stem or f"dokument-{self.document.id}"
         return f"{stem}-teil-{index}-seiten-{part.start_page}-{part.end_page}.pdf"
+
+
+@dataclass(frozen=True)
+class MergePdfDocuments:
+    source_documents: list[Document]
+    source_files: dict[int, DocumentFile]
+    page_order: list[tuple[int, int]]
+    target_space: DocumentSpace
+    title: str = ""
+    delete_sources: bool = False
+    actor: get_user_model() | None = None
+
+    @transaction.atomic
+    def execute(self) -> Document:
+        if len(self.source_documents) < 2:
+            raise ValueError("Mindestens zwei Dokumente sind erforderlich.")
+        tenant = self.source_documents[0].tenant
+        if self.target_space.tenant_id != tenant.id:
+            raise ValueError("Zielbox gehört zu einem anderen Tenant.")
+        document_ids = {document.id for document in self.source_documents}
+        if any(document.tenant_id != tenant.id for document in self.source_documents):
+            raise ValueError("Quelldokumente gehören zu unterschiedlichen Tenants.")
+        if set(self.source_files) != document_ids:
+            raise ValueError("Für mindestens ein Dokument fehlt die PDF-Datei.")
+
+        merged_pdf = self._merge_pages()
+        primary_document = self.source_documents[0]
+        filename = (
+            f"{Path(primary_document.title).stem or 'dokument'}"
+            "-zusammengefuehrt.pdf"
+        )
+        merged_document, _merged_file = CreateDocumentFromUpload(
+            tenant=tenant,
+            title=self.title.strip(),
+            space=self.target_space,
+            file_obj=io.BytesIO(merged_pdf),
+            original_filename=filename,
+            content_type="application/pdf",
+            created_by=self.actor,
+            document_date=primary_document.document_date,
+        ).execute()
+
+        RecordAuditEvent(
+            tenant=tenant,
+            actor=self.actor,
+            event_type="document.merge",
+            object_type="documents.Document",
+            object_id=str(merged_document.id),
+            data={
+                "source_document_ids": [
+                    document.id for document in self.source_documents
+                ],
+                "target_space_id": self.target_space.id,
+                "page_count": len(self.page_order),
+                "delete_sources": self.delete_sources,
+            },
+        ).execute()
+
+        if self.delete_sources:
+            for document in self.source_documents:
+                DeleteDocument(
+                    document=document,
+                    reason="Zusammengeführt",
+                    actor=self.actor,
+                ).execute()
+        return merged_document
+
+    def _merge_pages(self) -> bytes:
+        try:
+            import pypdfium2 as pdfium
+        except ImportError as exc:
+            raise ValueError("PDF-Zusammenführung ist nicht verfügbar.") from exc
+
+        source_pdfs = {}
+        target_pdf = pdfium.PdfDocument.new()
+        try:
+            for document_id, source_file in self.source_files.items():
+                if source_file.document_id != document_id:
+                    raise ValueError("PDF-Datei gehört zum falschen Dokument.")
+                if source_file.content_type != "application/pdf":
+                    raise ValueError(
+                        "Es können nur PDF-Dokumente zusammengeführt werden."
+                    )
+                with default_storage.open(source_file.storage_key, "rb") as stored_file:
+                    source_pdfs[document_id] = pdfium.PdfDocument(stored_file.read())
+
+            for document_id, page_number in self.page_order:
+                source_pdf = source_pdfs.get(document_id)
+                if (
+                    source_pdf is None
+                    or page_number < 1
+                    or page_number > len(source_pdf)
+                ):
+                    raise ValueError("Ungültige Seite in der Zusammenführung.")
+                target_pdf.import_pages(source_pdf, pages=[page_number - 1])
+            output = io.BytesIO()
+            target_pdf.save(output)
+            return output.getvalue()
+        finally:
+            target_pdf.close()
+            for source_pdf in source_pdfs.values():
+                source_pdf.close()
 
 
 @dataclass(frozen=True)

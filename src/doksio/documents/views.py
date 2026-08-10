@@ -60,16 +60,17 @@ from doksio.audit.forms import AuditEventFilterForm
 from doksio.audit.models import AuditEvent
 from doksio.audit.services import RecordAuditEvent
 from doksio.documents.forms import (
+    DeleteDocumentMetadataFieldForm,
     DocumentBoxOcrLayoutForm,
     DocumentBoxScanOptimizationForm,
     DocumentBoxTitleRefreshForm,
     DocumentCommentForm,
     DocumentCoreMetadataForm,
     DocumentDeleteForm,
-    DeleteDocumentMetadataFieldForm,
     DocumentImportBatchItemForm,
     DocumentImportBatchUploadForm,
     DocumentInboxForm,
+    DocumentMergeForm,
     DocumentMetadataChoiceListForm,
     DocumentMetadataFieldForm,
     DocumentMetadataForm,
@@ -152,6 +153,7 @@ from doksio.documents.services import (
     DuplicateDocumentError,
     EmptyDocumentSpace,
     FinalizeDocumentImportBatch,
+    MergePdfDocuments,
     RemoveDocumentRelation,
     RemoveDocumentReviewMarker,
     SaveDocumentMetadataChoiceList,
@@ -2655,6 +2657,11 @@ def document_detail(
         and share_attachment_file.content_type == "application/pdf"
         and can_split_document(request.user, document)
     )
+    document_can_merge = (
+        share_attachment_file is not None
+        and share_attachment_file.content_type == "application/pdf"
+        and can_split_document(request.user, document)
+    )
 
     return render(
         request,
@@ -2694,6 +2701,7 @@ def document_detail(
             "share_attachment_download_url": share_attachment_download_url,
             "share_can_open_mail_client": share_can_open_mail_client,
             "document_can_split": document_can_split,
+            "document_can_merge": document_can_merge,
             "document_share_url": document_share_url,
             "share_mailto_url": share_mailto_url,
             "tag_form": tag_form,
@@ -2948,6 +2956,159 @@ def document_split(
     )
 
 
+def document_merge(
+    request: HttpRequest,
+    tenant_slug: str,
+    document_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None:
+        raise PermissionDenied
+
+    document = get_object_or_404(
+        Document.objects.select_related("space").prefetch_related("files"),
+        id=document_id,
+        tenant=tenant,
+        status=Document.Status.ACTIVE,
+    )
+    if not can_split_document(request.user, document):
+        raise PermissionDenied
+    source_file = _document_original_file(document)
+    if source_file is None or source_file.content_type != "application/pdf":
+        raise Http404("Dieses Dokument kann nicht zusammengeführt werden.")
+
+    target_spaces = filter_document_spaces_for_user(
+        DocumentSpace.objects.filter(
+            tenant=tenant,
+            is_active=True,
+            deleted_at__isnull=True,
+        ),
+        request.user,
+        tenant,
+        TenantPermissions.DOCUMENTS_UPLOAD,
+    ).order_by("path")
+    if not target_spaces.exists():
+        raise PermissionDenied
+
+    detail_url = _document_detail_context_url(
+        tenant_slug=tenant.slug,
+        document_id=document.id,
+        back_url=_safe_return_url(
+            request,
+            reverse("documents:list", kwargs={"tenant_slug": tenant.slug}),
+            value=request.GET.get("back"),
+        ),
+        nav_param=request.GET.get("nav", ""),
+        nav_position=_positive_int_or_none(request.GET.get("nav_position")),
+    )
+    form = DocumentMergeForm(
+        request.POST or None,
+        tenant=tenant,
+        user=request.user,
+        primary_document=document,
+        initial={
+            "target_space": document.space_id,
+            "original_handling": "delete",
+        },
+    )
+    if request.method == "POST" and form.is_valid():
+        merged_document = MergePdfDocuments(
+            source_documents=form.cleaned_data["source_documents"],
+            source_files=form.cleaned_data["source_files"],
+            page_order=form.cleaned_data["page_order"],
+            target_space=form.cleaned_data["target_space"],
+            title=form.cleaned_data["title"],
+            delete_sources=form.cleaned_data["original_handling"] == "delete",
+            actor=request.user,
+        ).execute()
+        messages.success(
+            request,
+            f"{len(form.cleaned_data['source_documents'])} Dokumente wurden "
+            "zusammengeführt.",
+        )
+        return redirect(
+            "documents:detail",
+            tenant_slug=tenant.slug,
+            document_id=merged_document.id,
+        )
+
+    initial_document_ids = [document.id]
+    if request.method == "POST":
+        try:
+            initial_document_ids = [
+                int(value)
+                for value in json.loads(request.POST.get("source_document_ids", "[]"))
+            ]
+        except (json.JSONDecodeError, TypeError, ValueError):
+            initial_document_ids = [document.id]
+    if document.id not in initial_document_ids:
+        initial_document_ids.insert(0, document.id)
+    initial_documents_by_id = {
+        item.id: item
+        for item in Document.objects.select_related("space")
+        .prefetch_related("files")
+        .filter(
+            tenant=tenant,
+            status=Document.Status.ACTIVE,
+            id__in=initial_document_ids,
+        )
+    }
+    merge_initial_documents = []
+    for initial_document_id in dict.fromkeys(initial_document_ids):
+        initial_document = initial_documents_by_id.get(initial_document_id)
+        if initial_document is None or not can_view_document(
+            request.user, initial_document
+        ):
+            continue
+        initial_file = _document_original_file(initial_document)
+        if initial_file is None or initial_file.content_type != "application/pdf":
+            continue
+        merge_initial_documents.append(
+            {
+                "id": initial_document.id,
+                "title": initial_document.title,
+                "space": initial_document.space.path,
+                "pdf_url": reverse(
+                    "documents:download",
+                    kwargs={
+                        "tenant_slug": tenant.slug,
+                        "file_id": initial_file.id,
+                    },
+                )
+                + "?inline=1",
+                "locked": initial_document.id == document.id,
+            }
+        )
+
+    return render(
+        request,
+        "documents/document_merge.html",
+        {
+            "tenant": tenant,
+            "document": document,
+            "source_file": source_file,
+            "form": form,
+            "target_spaces": target_spaces,
+            "detail_url": detail_url,
+            "merge_initial_documents": merge_initial_documents,
+            "relation_picker_spaces": filter_document_spaces_for_user(
+                DocumentSpace.objects.filter(
+                    tenant=tenant,
+                    is_active=True,
+                    deleted_at__isnull=True,
+                ),
+                request.user,
+                tenant,
+                TenantPermissions.DOCUMENTS_VIEW,
+            ).order_by("path"),
+            "can_manage_settings": can_administer_tenant(request.user, tenant),
+        },
+    )
+
+
 def document_relation_picker_search(
     request: HttpRequest,
     tenant_slug: str,
@@ -2973,6 +3134,7 @@ def document_relation_picker_search(
     space_id = request.GET.get("space", "").strip()
     include_children = request.GET.get("include_children", "1") == "1"
     workflow_status = request.GET.get("workflow_status", "any").strip()
+    pdf_only = request.GET.get("pdf_only") == "1"
     selected_space = None
     if space_id:
         selected_space = get_object_or_404(
@@ -2997,6 +3159,11 @@ def document_relation_picker_search(
         .execute()
         .exclude(id=document.id)
     )
+    if pdf_only:
+        documents = documents.filter(
+            files__file_kind=DocumentFile.Kind.ORIGINAL,
+            files__content_type="application/pdf",
+        )
 
     def thumbnail_url(candidate: Document) -> str:
         thumbnail = next(
