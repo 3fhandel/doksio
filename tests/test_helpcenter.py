@@ -45,6 +45,7 @@ def test_help_overview_shows_user_topics_and_hides_restricted_topics(client):
     content = response.content.decode()
     assert response.status_code == 200
     assert "Erste Schritte" in content
+    assert "Klicke in der Kopfzeile auf die Buildnummer" in content
     assert "Dokumente finden" in content
     assert "Aufgaben und Workflows" in content
     assert "Was ist ein Workflow?" in content

@@ -49,6 +49,15 @@ HELP_TOPICS = (
                     "Erledige den hervorgehobenen Workflow-Schritt.",
                 ),
             ),
+            HelpSection(
+                title="Was ist neu?",
+                text=(
+                    "Klicke in der Kopfzeile auf die Buildnummer, um das "
+                    "Änderungsprotokoll zu öffnen. Dort findest du Datum und Uhrzeit "
+                    "des Builds sowie eine kurze Übersicht über Neuerungen und "
+                    "geändertes Verhalten."
+                ),
+            ),
         ),
         quick_tips=(
             "Deine offenen Aufgaben erkennst du am gelben Zähler im linken Menü.",

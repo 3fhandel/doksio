@@ -11,10 +11,13 @@ COPY . ./
 
 RUN if [ -n "$DOKSIO_BUILD_VERSION" ]; then \
         printf "%s" "$DOKSIO_BUILD_VERSION" > .doksio-build-version; \
+        date -u +%Y-%m-%dT%H:%M:%SZ > .doksio-build-datetime; \
     elif [ -d .git ]; then \
         git log -1 --format=%cd --date=format:%Y%m%d-%H%M > .doksio-build-version; \
+        git log -1 --format=%cI > .doksio-build-datetime; \
     else \
         date -u +%Y%m%d-%H%M > .doksio-build-version; \
+        date -u +%Y-%m-%dT%H:%M:%SZ > .doksio-build-datetime; \
     fi
 
 FROM python:3.14-slim
@@ -36,10 +39,12 @@ RUN apt-get update \
         tesseract-ocr-deu \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md CHANGELOG.md ./
 COPY src ./src
 COPY manage.py ./
 COPY --from=build-metadata /build/.doksio-build-version ./.doksio-build-version
+COPY --from=build-metadata /build/.doksio-build-version /opt/doksio/.doksio-build-version
+COPY --from=build-metadata /build/.doksio-build-datetime /opt/doksio/.doksio-build-datetime
 
 RUN pip install --upgrade pip \
     && if [ "$INSTALL_DEV" = "true" ]; then pip install -e ".[dev]"; else pip install -e "."; fi

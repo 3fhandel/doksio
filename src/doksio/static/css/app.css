@@ -84,6 +84,73 @@ body {
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.app-build-version:hover,
+.app-build-version:focus-visible {
+  border-color: #72afa5;
+  color: var(--doksio-primary-strong);
+  background: #fff;
+}
+
+.app-changelog-dialog {
+  max-width: 46rem;
+}
+
+.app-changelog-modal {
+  border: 1px solid #cfe0dd;
+  box-shadow: 0 1.25rem 3rem rgb(15 23 42 / 20%);
+}
+
+.app-changelog-eyebrow {
+  margin-bottom: 0.15rem;
+  color: var(--doksio-primary);
+  font-size: 0.72rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.app-changelog-content {
+  padding: 1.25rem 1.5rem 1.5rem;
+  color: #344054;
+}
+
+.app-changelog-content > :first-child {
+  margin-top: 0;
+}
+
+.app-changelog-content h1 {
+  margin-bottom: 1.25rem;
+  color: #101828;
+  font-size: 1.35rem;
+}
+
+.app-changelog-content h2 {
+  margin: 1.25rem 0 0.35rem;
+  color: #173f3b;
+  font-size: 1.05rem;
+}
+
+.app-changelog-content h3 {
+  margin: 1.15rem 0 0.45rem;
+  color: #344054;
+  font-size: 0.82rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.app-changelog-content p,
+.app-changelog-content ul {
+  margin-bottom: 0.75rem;
+}
+
+.app-changelog-content ul {
+  padding-left: 1.2rem;
+}
+
+.app-changelog-content li + li {
+  margin-top: 0.4rem;
 }
 
 .app-topbar .btn-outline-secondary {

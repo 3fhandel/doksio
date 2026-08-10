@@ -35,9 +35,16 @@
               <img class="app-brand-logo" src="{% static 'img/doksio-logo-compact.png' %}" alt="Doksio">
             </a>
             {% if doksio_build_version %}
-              <span class="app-build-version" title="Build {{ doksio_build_version }}">
+              <button
+                class="app-build-version"
+                type="button"
+                data-bs-toggle="modal"
+                data-bs-target="#doksioChangelogModal"
+                title="Änderungsprotokoll für Build {{ doksio_build_version }} öffnen"
+                aria-label="Änderungsprotokoll für Build {{ doksio_build_version }} öffnen"
+              >
                 Build {{ doksio_build_version }}
-              </span>
+              </button>
             {% endif %}
           </div>
           <div class="app-topbar-actions">
@@ -228,6 +235,22 @@
             Doksio DMS &copy; {% now "Y" %} - Sebastian Walter -
             Page Rendering Time {% page_rendering_time request %}
           </footer>
+        </div>
+      </div>
+    </div>
+    <div class="modal fade" id="doksioChangelogModal" tabindex="-1" aria-labelledby="doksioChangelogModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable app-changelog-dialog">
+        <div class="modal-content app-changelog-modal">
+          <div class="modal-header">
+            <div>
+              <div class="app-changelog-eyebrow">Doksio</div>
+              <h2 class="modal-title h5" id="doksioChangelogModalLabel">Änderungsprotokoll</h2>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+          </div>
+          <div class="modal-body app-changelog-content">
+            {{ doksio_changelog }}
+          </div>
         </div>
       </div>
     </div>

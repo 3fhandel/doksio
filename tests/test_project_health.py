@@ -56,8 +56,13 @@ def test_topbar_shows_build_version(client):
     )
 
     assert response.status_code == 200
-    assert "Build 20260713-1336" in response.content.decode()
-    assert "app-mobile-sidebar-toggle" in response.content.decode()
+    content = response.content.decode()
+    assert "Build 20260713-1336" in content
+    assert 'data-bs-target="#doksioChangelogModal"' in content
+    assert 'id="doksioChangelogModal"' in content
+    assert "Doksio Änderungsprotokoll" in content
+    assert "Neuerungen" in content
+    assert "app-mobile-sidebar-toggle" in content
     build_version.cache_clear()
 
 
