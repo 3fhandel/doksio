@@ -637,25 +637,27 @@
 
           {% if document_can_split or document_can_merge or can_delete_document %}
             <section class="document-admin-toolbar" aria-labelledby="document-admin-toolbar-title">
-              <h2 class="document-admin-toolbar-title" id="document-admin-toolbar-title">Verwaltung</h2>
+              <h2 class="visually-hidden" id="document-admin-toolbar-title">Verwaltung</h2>
               <div class="document-admin-actions" role="toolbar" aria-label="Dokument verwalten">
                 {% if document_can_split %}
-                  <a class="btn btn-outline-primary document-admin-tool" href="{% url 'documents:split' document.tenant.slug document.id %}?back={{ back_url|urlencode }}{% if document_nav_param %}&amp;nav={{ document_nav_param|urlencode }}{% endif %}" title="Dokument aufteilen" aria-label="Dokument aufteilen">
-                    {% include "includes/icons.html" with icon="scissors" %}
-                    <span class="visually-hidden">Dokument aufteilen</span>
+                  <a class="btn document-admin-tool document-admin-tool-labeled" href="{% url 'documents:split' document.tenant.slug document.id %}?back={{ back_url|urlencode }}{% if document_nav_param %}&amp;nav={{ document_nav_param|urlencode }}{% endif %}" title="Dokument aufteilen">
+                    {% include "includes/icons.html" with icon="route-split" %}
+                    <span>Aufteilen</span>
                   </a>
                 {% endif %}
                 {% if document_can_merge %}
-                  <a class="btn btn-outline-primary document-admin-tool" href="{% url 'documents:merge' document.tenant.slug document.id %}?back={{ back_url|urlencode }}{% if document_nav_param %}&amp;nav={{ document_nav_param|urlencode }}{% endif %}{% if document_nav_position %}&amp;nav_position={{ document_nav_position }}{% endif %}" title="Dokumente zusammenführen" aria-label="Dokumente zusammenführen">
-                    {% include "includes/icons.html" with icon="files" %}
-                    <span class="visually-hidden">Dokumente zusammenführen</span>
+                  <a class="btn document-admin-tool document-admin-tool-labeled" href="{% url 'documents:merge' document.tenant.slug document.id %}?back={{ back_url|urlencode }}{% if document_nav_param %}&amp;nav={{ document_nav_param|urlencode }}{% endif %}{% if document_nav_position %}&amp;nav_position={{ document_nav_position }}{% endif %}" title="Dokumente zusammenführen">
+                    {% include "includes/icons.html" with icon="route-merge" %}
+                    <span>Zusammenführen</span>
                   </a>
                 {% endif %}
                 {% if can_delete_document %}
-                  <span class="document-admin-toolbar-separator" aria-hidden="true"></span>
-                  <a class="btn btn-outline-danger document-admin-tool" href="{% url 'documents:delete' document.tenant.slug document.id %}?back={{ back_url|urlencode }}{% if document_nav_param %}&amp;nav={{ document_nav_param|urlencode }}{% endif %}" title="Dokument löschen" aria-label="Dokument löschen">
+                  {% if document_can_split or document_can_merge %}
+                    <span class="document-admin-toolbar-separator" aria-hidden="true"></span>
+                  {% endif %}
+                  <a class="btn document-admin-tool document-admin-tool-labeled document-admin-tool-danger" href="{% url 'documents:delete' document.tenant.slug document.id %}?back={{ back_url|urlencode }}{% if document_nav_param %}&amp;nav={{ document_nav_param|urlencode }}{% endif %}" title="Dokument löschen">
                     {% include "includes/icons.html" with icon="trash-2" %}
-                    <span class="visually-hidden">Dokument löschen</span>
+                    <span>Löschen</span>
                   </a>
                 {% endif %}
               </div>
