@@ -7,6 +7,9 @@
 ### Neuerungen
 
 - Importquellen können mehrseitige Stapelscan-PDFs automatisch seitenweise als einzelne Dokumente importieren.
+- Text-Metadatenfelder können per RegEx aus dem OCR-Volltext befüllt werden.
+- Dokumente können bei identischen Werten eines Metadatenfelds automatisch verknüpft werden.
+- Eine fortsetzbare Wartung wendet Metadaten-Verknüpfungsregeln nachträglich auf bestehende Dokumentenboxen an.
 
 ### Änderungen
 

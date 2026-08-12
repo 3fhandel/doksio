@@ -25,6 +25,7 @@ from doksio.accounts.services import EnsureDefaultTenantRoles
 from doksio.audit.models import AuditEvent
 from doksio.documents.models import (
     Document,
+    DocumentBoxMetadataLinkJob,
     DocumentBoxScanOptimizationJob,
     DocumentComment,
     DocumentFile,
@@ -41,6 +42,8 @@ from doksio.documents.models import (
 from doksio.documents.navigation import document_ids_for_navigation_context
 from doksio.documents.services import (
     AddDocumentComment,
+    AddDocumentRelation,
+    ApplyOcrMetadataRules,
     CreateDocumentBoxScanOptimizationJob,
     CreateDocumentFromUpload,
     CreateDocumentMetadataField,
@@ -51,6 +54,7 @@ from doksio.documents.services import (
     UpdateDocumentMetadata,
     pdf_page_count,
 )
+from doksio.documents.tasks import process_document_box_metadata_link_job
 from doksio.documents.templatetags.doksio_extras import comment_body_with_mentions
 from doksio.einvoices.zugferd import extract_einvoice_from_pdf
 from doksio.exports.models import ExportRun, ExportRunItem
@@ -3212,6 +3216,9 @@ def test_create_document_metadata_field_from_box_settings(client):
             "choices_text": "",
             "allow_custom_choices": "",
             "einvoice_source": DocumentMetadataField.EInvoiceSource.INVOICE_DATE,
+            "regex_pattern": "",
+            "regex_replacement": "",
+            "auto_link_matching_values": "on",
             "sort_order": "10",
             "is_required": "on",
             "propagate_to_child_spaces": "on",
@@ -3230,6 +3237,38 @@ def test_create_document_metadata_field_from_box_settings(client):
     assert metadata_field.allow_custom_choices is False
     assert metadata_field.is_required is True
     assert metadata_field.propagate_to_child_spaces is True
+    assert metadata_field.auto_link_matching_values is True
+
+
+@pytest.mark.django_db
+def test_tenant_admin_can_test_metadata_ocr_regex(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    admin = get_user_model().objects.create_user(username="admin")
+    TenantMembership.objects.create(tenant=tenant, user=admin, role=roles["admin"])
+    client.force_login(admin)
+
+    response = client.post(
+        reverse(
+            "documents:settings_metadata_regex_test",
+            kwargs={"tenant_slug": tenant.slug},
+        ),
+        data=json.dumps(
+            {
+                "pattern": r"Auftrag:\s*(?P<number>[A-Z]+-\d+)",
+                "replacement": r"\g<number>",
+                "sample_text": "Rechnung\nAuftrag: AB-4711",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "matched": True,
+        "value": "AB-4711",
+    }
 
 
 @pytest.mark.django_db
@@ -4572,6 +4611,168 @@ def test_update_document_metadata_writes_audit_event():
     document.refresh_from_db()
     assert document.metadata == {"vorgang": "Prüfung"}
     assert AuditEvent.objects.filter(event_type="document_metadata.updated").exists()
+
+
+@pytest.mark.django_db
+def test_ocr_regex_fills_empty_text_metadata_without_overwriting_value():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Rechnungen").execute()
+    CreateDocumentMetadataField(
+        tenant=tenant,
+        space=space,
+        name="Auftragsnummer",
+        slug="auftragsnummer",
+        field_type=DocumentMetadataField.FieldType.TEXT,
+        regex_pattern=r"Auftrag:\s*(?P<number>[A-Z]+-\d+)",
+        regex_replacement=r"\g<number>",
+    ).execute()
+    document, _document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Rechnung",
+        space=space,
+        file_obj=BytesIO(b"invoice"),
+        original_filename="rechnung.pdf",
+        content_type="application/pdf",
+        auto_start_ocr=False,
+    ).execute()
+
+    ApplyOcrMetadataRules(
+        document=document,
+        ocr_text="Rechnung\nAuftrag: AB-4711",
+    ).execute()
+    document.refresh_from_db()
+    assert document.metadata["auftragsnummer"] == "AB-4711"
+
+    document.metadata = {"auftragsnummer": "MANUELL-1"}
+    document.save(update_fields=["metadata", "updated_at"])
+    ApplyOcrMetadataRules(
+        document=document,
+        ocr_text="Auftrag: AB-9999",
+    ).execute()
+    document.refresh_from_db()
+    assert document.metadata["auftragsnummer"] == "MANUELL-1"
+
+
+@pytest.mark.django_db
+def test_matching_metadata_values_create_and_reconcile_automatic_relations():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Belege").execute()
+    field = CreateDocumentMetadataField(
+        tenant=tenant,
+        space=space,
+        name="Vorgangsnummer",
+        slug="vorgangsnummer",
+        field_type=DocumentMetadataField.FieldType.TEXT,
+        auto_link_matching_values=True,
+    ).execute()
+    first, _first_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Erster Beleg",
+        space=space,
+        file_obj=BytesIO(b"first"),
+        original_filename="first.pdf",
+        content_type="application/pdf",
+        auto_start_ocr=False,
+    ).execute()
+    second, _second_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Zweiter Beleg",
+        space=space,
+        file_obj=BytesIO(b"second"),
+        original_filename="second.pdf",
+        content_type="application/pdf",
+        auto_start_ocr=False,
+    ).execute()
+    UpdateDocumentMetadata(first, {field.slug: "V-4711"}).execute()
+    UpdateDocumentMetadata(second, {field.slug: "V-4711"}).execute()
+
+    relation = DocumentRelation.objects.get()
+    assert relation.automatic_metadata_field == field
+
+    UpdateDocumentMetadata(second, {field.slug: "V-9999"}).execute()
+    assert not DocumentRelation.objects.exists()
+
+    AddDocumentRelation(document=first, related_document=second).execute()
+    UpdateDocumentMetadata(second, {field.slug: "V-4711"}).execute()
+    UpdateDocumentMetadata(second, {field.slug: "V-9999"}).execute()
+    manual_relation = DocumentRelation.objects.get()
+    assert manual_relation.automatic_metadata_field is None
+
+
+@pytest.mark.django_db
+def test_metadata_link_maintenance_reconciles_existing_box_documents():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Altbestand").execute()
+    CreateDocumentMetadataField(
+        tenant=tenant,
+        space=space,
+        name="Vorgang",
+        slug="vorgang",
+        field_type=DocumentMetadataField.FieldType.TEXT,
+        auto_link_matching_values=True,
+    ).execute()
+    documents = [
+        Document.objects.create(
+            tenant=tenant,
+            space=space,
+            title=f"Altbeleg {index}",
+            metadata={"vorgang": "ALT-4711"},
+        )
+        for index in range(2)
+    ]
+    job = DocumentBoxMetadataLinkJob.objects.create(
+        tenant=tenant,
+        document_space=space,
+        total_documents=2,
+        max_document_id=documents[-1].id,
+    )
+
+    result = process_document_box_metadata_link_job.run(job.id)
+
+    job.refresh_from_db()
+    assert result["status"] == DocumentBoxMetadataLinkJob.Status.COMPLETED
+    assert job.processed_documents == 2
+    assert job.changed_relations == 1
+    assert DocumentRelation.objects.get().automatic_metadata_field is not None
+
+
+@pytest.mark.django_db
+def test_tenant_admin_can_start_metadata_link_maintenance(client, monkeypatch):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Altbestand").execute()
+    roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
+    admin = get_user_model().objects.create_user(username="admin")
+    TenantMembership.objects.create(tenant=tenant, user=admin, role=roles["admin"])
+    Document.objects.create(tenant=tenant, space=space, title="Altbeleg")
+    queued = []
+    monkeypatch.setattr(
+        "doksio.documents.tasks.process_document_box_metadata_link_job.delay",
+        lambda job_id: queued.append(job_id),
+    )
+    client.force_login(admin)
+
+    response = client.post(
+        reverse(
+            "documents:settings_metadata_links",
+            kwargs={"tenant_slug": tenant.slug},
+        ),
+        {"space": space.id, "include_children": "on"},
+    )
+
+    job = DocumentBoxMetadataLinkJob.objects.get()
+    assert response.status_code == 302
+    assert job.total_documents == 1
+    assert job.include_children is True
+    assert queued == [job.id]
+
+    page = client.get(
+        reverse(
+            "documents:settings_metadata_links",
+            kwargs={"tenant_slug": tenant.slug},
+        )
+    )
+    assert page.status_code == 200
+    assert "Metadaten-Verknüpfungen abgleichen" in page.content.decode()
 
 
 @pytest.mark.django_db

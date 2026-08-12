@@ -146,6 +146,7 @@ class DocumentMetadataFieldAdmin(admin.ModelAdmin):
         "field_type",
         "allow_custom_choices",
         "einvoice_source",
+        "auto_link_matching_values",
         "is_required",
         "propagate_to_child_spaces",
         "is_active",

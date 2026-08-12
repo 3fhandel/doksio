@@ -539,6 +539,22 @@ HELP_TOPICS = (
                 ),
             ),
             HelpSection(
+                title="Metadaten automatisieren",
+                text=(
+                    "Textfelder können mit einem RegEx-Suchmuster und einer "
+                    "Ersetzung automatisch aus dem OCR-Volltext vorbelegt werden. "
+                    "Bereits vorhandene Werte werden dabei nicht überschrieben; "
+                    "mit dem Beispieltext im Feld-Dialog lässt sich die Regel vorab "
+                    "testen. Zusätzlich kann ein Metadatenfeld Dokumente mit "
+                    "demselben nichtleeren Wert automatisch verknüpfen. Ändert sich "
+                    "der Wert, gleicht Doksio diese automatischen Verknüpfungen ab, "
+                    "ohne manuelle Verknüpfungen zu entfernen."
+                    " Unter Einstellungen → Wartung → Metadaten-Verknüpfungen "
+                    "kann der Abgleich für bereits vorhandene Dokumente einer "
+                    "Box stapelweise nachgeholt werden."
+                ),
+            ),
+            HelpSection(
                 title="Zentrale Auswahllisten",
                 text=(
                     "Unter Einstellungen > Auswahllisten pflegst du wiederverwendbare "

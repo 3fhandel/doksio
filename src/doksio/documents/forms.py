@@ -480,6 +480,10 @@ class DocumentBoxOcrLayoutForm(DocumentBoxScanOptimizationForm):
     """Select the box scope for an OCR layout backfill."""
 
 
+class DocumentBoxMetadataLinkForm(DocumentBoxScanOptimizationForm):
+    """Select the box scope for metadata relation reconciliation."""
+
+
 class DocumentBoxTitleRefreshForm(forms.Form):
     def __init__(self, *args, tenant: Tenant, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -1163,6 +1167,30 @@ class DocumentMetadataFieldForm(forms.Form):
         required=False,
         widget=forms.Select(attrs={"class": "form-select"}),
     )
+    regex_pattern = forms.CharField(
+        label="OCR-RegEx Suchmuster",
+        required=False,
+        widget=forms.Textarea(attrs={"class": "form-control", "rows": 2}),
+        help_text=(
+            "Optional für Textfelder. Das Muster wird auf den vollständigen "
+            "OCR-Text angewendet."
+        ),
+    )
+    regex_replacement = forms.CharField(
+        label="OCR-RegEx Ersetzung",
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control"}),
+        help_text=r"Rückverweise sind möglich, zum Beispiel \g<nummer>.",
+    )
+    auto_link_matching_values = forms.BooleanField(
+        label="Dokumente bei identischem Wert automatisch verknüpfen",
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        help_text=(
+            "Verknüpft aktive Dokumente im Mandanten, wenn dieses Feld in "
+            "beiden Dokumenten denselben nichtleeren Wert besitzt."
+        ),
+    )
     sort_order = forms.IntegerField(
         label="Reihenfolge",
         min_value=0,
@@ -1262,6 +1290,25 @@ class DocumentMetadataFieldForm(forms.Form):
         cleaned_data["choices"] = choices
         if field_type != DocumentMetadataField.FieldType.CHOICE:
             cleaned_data["choice_list"] = None
+        regex_pattern = cleaned_data.get("regex_pattern", "").strip()
+        if regex_pattern and field_type not in {
+            DocumentMetadataField.FieldType.TEXT,
+            DocumentMetadataField.FieldType.MULTILINE_TEXT,
+        }:
+            self.add_error(
+                "regex_pattern",
+                "OCR-RegEx ist nur für Textfelder verfügbar.",
+            )
+        if regex_pattern:
+            try:
+                re.compile(regex_pattern, flags=re.MULTILINE)
+            except re.error as error:
+                self.add_error("regex_pattern", f"RegEx-Fehler: {error}")
+        elif cleaned_data.get("regex_replacement"):
+            self.add_error(
+                "regex_pattern",
+                "Für eine Ersetzung wird ein Suchmuster benötigt.",
+            )
         return cleaned_data
 
 

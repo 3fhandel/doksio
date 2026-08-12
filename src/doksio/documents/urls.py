@@ -232,6 +232,11 @@ urlpatterns = [
         name="settings_metadata_choice_lists",
     ),
     path(
+        "t/<slug:tenant_slug>/settings/metadata-fields/regex-test/",
+        views.tenant_settings_metadata_regex_test,
+        name="settings_metadata_regex_test",
+    ),
+    path(
         "t/<slug:tenant_slug>/settings/metadata-choice-lists/new/",
         views.tenant_settings_metadata_choice_list_form,
         name="settings_metadata_choice_list_create",
@@ -318,6 +323,16 @@ urlpatterns = [
         "t/<slug:tenant_slug>/settings/maintenance/ocr/",
         views.tenant_settings_ocr_layout,
         name="settings_ocr_layout",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/maintenance/metadata-links/",
+        views.tenant_settings_metadata_links,
+        name="settings_metadata_links",
+    ),
+    path(
+        "t/<slug:tenant_slug>/settings/maintenance/metadata-links/<int:job_id>/resume/",
+        views.tenant_settings_metadata_links_resume,
+        name="settings_metadata_links_resume",
     ),
     path(
         "t/<slug:tenant_slug>/settings/maintenance/ocr/<int:job_id>/resume/",

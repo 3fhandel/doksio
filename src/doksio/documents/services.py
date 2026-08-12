@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import mimetypes
+import re
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
@@ -704,6 +705,9 @@ class CreateDocumentMetadataField:
     choice_list: DocumentMetadataChoiceList | None = None
     allow_custom_choices: bool = False
     einvoice_source: str = DocumentMetadataField.EInvoiceSource.NONE
+    regex_pattern: str = ""
+    regex_replacement: str = ""
+    auto_link_matching_values: bool = False
     sort_order: int = 100
     is_required: bool = False
     propagate_to_child_spaces: bool = True
@@ -741,6 +745,9 @@ class CreateDocumentMetadataField:
             choice_list=choice_list,
             allow_custom_choices=self.allow_custom_choices,
             einvoice_source=self.einvoice_source,
+            regex_pattern=self.regex_pattern,
+            regex_replacement=self.regex_replacement,
+            auto_link_matching_values=self.auto_link_matching_values,
             sort_order=self.sort_order,
             is_required=self.is_required,
             propagate_to_child_spaces=self.propagate_to_child_spaces,
@@ -759,6 +766,10 @@ class CreateDocumentMetadataField:
                 "field_type": metadata_field.field_type,
                 "allow_custom_choices": metadata_field.allow_custom_choices,
                 "einvoice_source": metadata_field.einvoice_source,
+                "uses_ocr_regex": bool(metadata_field.regex_pattern),
+                "auto_link_matching_values": (
+                    metadata_field.auto_link_matching_values
+                ),
                 "propagate_to_child_spaces": (
                     metadata_field.propagate_to_child_spaces
                 ),
@@ -778,6 +789,9 @@ class UpdateDocumentMetadataField:
     choice_list: DocumentMetadataChoiceList | None = None
     allow_custom_choices: bool = False
     einvoice_source: str = DocumentMetadataField.EInvoiceSource.NONE
+    regex_pattern: str = ""
+    regex_replacement: str = ""
+    auto_link_matching_values: bool = False
     sort_order: int = 100
     is_required: bool = False
     propagate_to_child_spaces: bool = True
@@ -814,6 +828,11 @@ class UpdateDocumentMetadataField:
         )
         self.metadata_field.allow_custom_choices = self.allow_custom_choices
         self.metadata_field.einvoice_source = self.einvoice_source
+        self.metadata_field.regex_pattern = self.regex_pattern
+        self.metadata_field.regex_replacement = self.regex_replacement
+        self.metadata_field.auto_link_matching_values = (
+            self.auto_link_matching_values
+        )
         self.metadata_field.sort_order = self.sort_order
         self.metadata_field.is_required = self.is_required
         self.metadata_field.propagate_to_child_spaces = self.propagate_to_child_spaces
@@ -828,6 +847,9 @@ class UpdateDocumentMetadataField:
                 "choice_list",
                 "allow_custom_choices",
                 "einvoice_source",
+                "regex_pattern",
+                "regex_replacement",
+                "auto_link_matching_values",
                 "sort_order",
                 "is_required",
                 "propagate_to_child_spaces",
@@ -848,6 +870,10 @@ class UpdateDocumentMetadataField:
                 "field_type": self.metadata_field.field_type,
                 "allow_custom_choices": self.metadata_field.allow_custom_choices,
                 "einvoice_source": self.metadata_field.einvoice_source,
+                "uses_ocr_regex": bool(self.metadata_field.regex_pattern),
+                "auto_link_matching_values": (
+                    self.metadata_field.auto_link_matching_values
+                ),
                 "propagate_to_child_spaces": (
                     self.metadata_field.propagate_to_child_spaces
                 ),
@@ -1064,6 +1090,7 @@ class AddDocumentRelation:
     document: Document
     related_document: Document
     actor: get_user_model() | None = None
+    automatic_metadata_field: DocumentMetadataField | None = None
 
     @transaction.atomic
     def execute(self) -> DocumentRelation:
@@ -1071,6 +1098,10 @@ class AddDocumentRelation:
             raise ValueError("Related document belongs to a different tenant.")
         if self.related_document.id == self.document.id:
             raise ValueError("Document cannot be related to itself.")
+        if self.automatic_metadata_field is not None and (
+            self.automatic_metadata_field.tenant_id != self.document.tenant_id
+        ):
+            raise ValueError("Automatic metadata field belongs to another tenant.")
 
         first_document, second_document = _ordered_relation_documents(
             self.document,
@@ -1082,6 +1113,7 @@ class AddDocumentRelation:
             second_document=second_document,
             defaults={
                 "created_by": self.actor,
+                "automatic_metadata_field": self.automatic_metadata_field,
             },
         )
 
@@ -1096,6 +1128,11 @@ class AddDocumentRelation:
             data={
                 "first_document_id": first_document.id,
                 "second_document_id": second_document.id,
+                "automatic_metadata_field_id": (
+                    self.automatic_metadata_field.id
+                    if self.automatic_metadata_field
+                    else None
+                ),
             },
         ).execute()
 
@@ -2839,6 +2876,10 @@ class CreateDocumentFromUpload:
                 **metadata_from_einvoice,
             }
         document.save(update_fields=update_fields)
+        ReconcileAutomaticMetadataRelations(
+            document=document,
+            actor=self.created_by,
+        ).execute()
         RecordAuditEvent(
             tenant=self.tenant,
             actor=self.created_by,
@@ -3527,7 +3568,10 @@ class AddDocumentComment:
 
         mentioned_users = [
             user
-            for user in {user.id: user for user in [*directly_mentioned_users, *role_users]}.values()
+            for user in {
+                user.id: user
+                for user in [*directly_mentioned_users, *role_users]
+            }.values()
             if user != self.actor and can_view_document(user, self.document)
         ]
         if mentioned_users:
@@ -3741,4 +3785,137 @@ class UpdateDocumentMetadata:
             },
         ).execute()
         _schedule_search_index_rebuild(self.document)
+        ReconcileAutomaticMetadataRelations(
+            document=self.document,
+            actor=self.actor,
+        ).execute()
         return self.document
+
+
+def metadata_value_from_ocr_regex(
+    pattern: str,
+    replacement: str,
+    ocr_text: str,
+) -> str:
+    if not pattern or not ocr_text:
+        return ""
+    match = re.search(pattern, ocr_text, flags=re.MULTILINE)
+    if match is None:
+        return ""
+    if replacement:
+        value = match.expand(replacement)
+    elif match.groups():
+        value = match.group(1)
+    else:
+        value = match.group(0)
+    return value.strip()
+
+
+@dataclass(frozen=True)
+class ApplyOcrMetadataRules:
+    document: Document
+    ocr_text: str
+    actor: get_user_model() | None = None
+
+    def execute(self) -> Document:
+        metadata = dict(self.document.metadata or {})
+        changed = False
+        for field in effective_metadata_fields(self.document.space):
+            if field.field_type not in {
+                DocumentMetadataField.FieldType.TEXT,
+                DocumentMetadataField.FieldType.MULTILINE_TEXT,
+            }:
+                continue
+            if metadata.get(field.slug) not in (None, ""):
+                continue
+            value = metadata_value_from_ocr_regex(
+                field.regex_pattern,
+                field.regex_replacement,
+                self.ocr_text,
+            )
+            if not value:
+                continue
+            metadata[field.slug] = value
+            changed = True
+        if not changed:
+            return self.document
+        return UpdateDocumentMetadata(
+            document=self.document,
+            metadata=metadata,
+            actor=self.actor,
+        ).execute()
+
+
+@dataclass(frozen=True)
+class ReconcileAutomaticMetadataRelations:
+    document: Document
+    actor: get_user_model() | None = None
+
+    def execute(self) -> int:
+        changed_relations = 0
+        effective_fields = effective_metadata_fields(self.document.space)
+        enabled_fields = [
+            field for field in effective_fields if field.auto_link_matching_values
+        ]
+        enabled_field_ids = {field.id for field in enabled_fields}
+        stale_for_disabled_fields = DocumentRelation.objects.filter(
+            Q(first_document=self.document) | Q(second_document=self.document),
+            automatic_metadata_field__isnull=False,
+        ).exclude(automatic_metadata_field_id__in=enabled_field_ids)
+        for relation in list(stale_for_disabled_fields):
+            RemoveDocumentRelation(relation=relation, actor=self.actor).execute()
+            changed_relations += 1
+
+        for field in enabled_fields:
+            value = (self.document.metadata or {}).get(field.slug)
+            matching_documents = Document.objects.none()
+            if value not in (None, "", []):
+                matching_documents = Document.objects.filter(
+                    tenant=self.document.tenant,
+                    status=Document.Status.ACTIVE,
+                    **{f"metadata__{field.slug}": value},
+                ).exclude(id=self.document.id)
+                if field.propagate_to_child_spaces:
+                    matching_documents = matching_documents.filter(
+                        Q(space=field.space)
+                        | Q(
+                            space__path__startswith=(
+                                f"{field.space.path.rstrip('/')}/"
+                            )
+                        )
+                    )
+                else:
+                    matching_documents = matching_documents.filter(space=field.space)
+
+            matching_ids = set(
+                matching_documents.values_list("id", flat=True)
+            )
+            stale_relations = DocumentRelation.objects.filter(
+                Q(first_document=self.document) | Q(second_document=self.document),
+                automatic_metadata_field=field,
+            ).exclude(
+                Q(first_document_id__in=matching_ids)
+                | Q(second_document_id__in=matching_ids)
+            )
+            for relation in list(stale_relations):
+                RemoveDocumentRelation(relation=relation, actor=self.actor).execute()
+                changed_relations += 1
+
+            for matching_document in matching_documents:
+                first_document, second_document = _ordered_relation_documents(
+                    self.document,
+                    matching_document,
+                )
+                relation_exists = DocumentRelation.objects.filter(
+                    first_document=first_document,
+                    second_document=second_document,
+                ).exists()
+                AddDocumentRelation(
+                    document=self.document,
+                    related_document=matching_document,
+                    actor=self.actor,
+                    automatic_metadata_field=field,
+                ).execute()
+                if not relation_exists:
+                    changed_relations += 1
+        return changed_relations

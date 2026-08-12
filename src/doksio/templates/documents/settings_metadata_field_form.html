@@ -72,6 +72,39 @@
           {{ form.einvoice_source.errors }}
           <div class="form-text">Optional. Beim Import wird dieses Metadatenfeld automatisch aus einer erkannten eRechnung befüllt.</div>
         </div>
+        <div class="col-12">
+          <h3 class="h6 mb-2">Automatische Befüllung aus OCR</h3>
+          <div class="row g-3">
+            <div class="col-md-7">
+              <label class="form-label" for="{{ form.regex_pattern.id_for_label }}">{{ form.regex_pattern.label }}</label>
+              {{ form.regex_pattern }}
+              <div class="form-text">{{ form.regex_pattern.help_text }}</div>
+              {{ form.regex_pattern.errors }}
+            </div>
+            <div class="col-md-5">
+              <label class="form-label" for="{{ form.regex_replacement.id_for_label }}">{{ form.regex_replacement.label }}</label>
+              {{ form.regex_replacement }}
+              <div class="form-text">{{ form.regex_replacement.help_text }}</div>
+              {{ form.regex_replacement.errors }}
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="metadata-regex-test-text">OCR-Beispieltext</label>
+              <textarea class="form-control" id="metadata-regex-test-text" rows="4" placeholder="Hier OCR-Volltext einfügen"></textarea>
+              <div class="d-flex align-items-center gap-3 mt-2">
+                <button class="btn btn-outline-primary" type="button" id="metadata-regex-test-button">RegEx testen</button>
+                <div class="small" id="metadata-regex-test-result" aria-live="polite"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12">
+          <div class="form-check">
+            {{ form.auto_link_matching_values }}
+            <label class="form-check-label" for="{{ form.auto_link_matching_values.id_for_label }}">{{ form.auto_link_matching_values.label }}</label>
+          </div>
+          <div class="form-text">{{ form.auto_link_matching_values.help_text }}</div>
+          {{ form.auto_link_matching_values.errors }}
+        </div>
         <div class="col-md-4">
           <div class="form-check">
             {{ form.is_required }}
@@ -97,4 +130,46 @@
       <button class="btn btn-primary mt-4" type="submit">{{ submit_label }}</button>
     </form>
   </div>
+{% endblock %}
+
+{% block extra_body %}
+  {{ block.super }}
+  <script>
+    (() => {
+      const button = document.getElementById("metadata-regex-test-button");
+      if (!button) return;
+      const result = document.getElementById("metadata-regex-test-result");
+      const pattern = document.getElementById("{{ form.regex_pattern.id_for_label }}");
+      const replacement = document.getElementById("{{ form.regex_replacement.id_for_label }}");
+      const sampleText = document.getElementById("metadata-regex-test-text");
+      const csrfToken = document.querySelector("[name=csrfmiddlewaretoken]").value;
+
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        result.className = "small text-secondary";
+        result.textContent = "Teste RegEx...";
+        try {
+          const response = await fetch("{% url 'documents:settings_metadata_regex_test' tenant.slug %}", {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
+            body: JSON.stringify({
+              pattern: pattern.value,
+              replacement: replacement.value,
+              sample_text: sampleText.value,
+            }),
+          });
+          const data = await response.json();
+          result.className = `small ${response.ok && data.matched ? "text-success" : response.ok ? "text-warning" : "text-danger"}`;
+          result.textContent = response.ok
+            ? (data.matched ? `Ermittelter Wert: ${data.value}` : "Kein Treffer im Beispieltext.")
+            : (data.error || "Der Test ist fehlgeschlagen.");
+        } catch (_error) {
+          result.className = "small text-danger";
+          result.textContent = "Der Test konnte nicht ausgeführt werden.";
+        } finally {
+          button.disabled = false;
+        }
+      });
+    })();
+  </script>
 {% endblock %}

@@ -935,6 +935,13 @@ class RunOcrJob:
         if not self.job.metadata.get("layout_backfill"):
             self._prefill_document_title(extraction)
             self._prefill_document_date(extraction)
+            from doksio.documents.services import ApplyOcrMetadataRules
+
+            ApplyOcrMetadataRules(
+                document=self.job.document_file.document,
+                ocr_text=extraction.text,
+                actor=self.job.created_by,
+            ).execute()
         transaction.on_commit(
             lambda: self._rebuild_document_search_index(),
         )

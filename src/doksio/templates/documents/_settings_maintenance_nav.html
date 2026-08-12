@@ -10,6 +10,14 @@
     </div>
   </a>
   <a
+    class="list-group-item list-group-item-action {% if maintenance_section == 'metadata_links' %}active{% endif %}"
+    href="{% url 'documents:settings_metadata_links' tenant.slug %}"
+    {% if maintenance_section == "metadata_links" %}aria-current="page"{% endif %}
+  >
+    <div class="fw-semibold">Metadaten-Verknüpfungen</div>
+    <div class="small {% if maintenance_section != 'metadata_links' %}text-secondary{% else %}opacity-75{% endif %}">Bestand nachträglich abgleichen</div>
+  </a>
+  <a
     class="list-group-item list-group-item-action {% if maintenance_section == 'titles' %}active{% endif %}"
     href="{% url 'documents:settings_title_refresh' tenant.slug %}"
     {% if maintenance_section == "titles" %}aria-current="page"{% endif %}

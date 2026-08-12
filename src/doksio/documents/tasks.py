@@ -14,6 +14,7 @@ from doksio.accounts.models import Notification
 from doksio.accounts.services import CreateNotification
 from doksio.documents.models import (
     Document,
+    DocumentBoxMetadataLinkJob,
     DocumentBoxOcrLayoutJob,
     DocumentBoxScanOptimizationJob,
     DocumentBoxTitleRefreshJob,
@@ -27,9 +28,77 @@ from doksio.documents.services import (
     CreateDocumentBoxScanOptimizationJob,
     CreateDocumentBoxTitleRefreshJob,
     OptimizeDocumentBoxScans,
+    ReconcileAutomaticMetadataRelations,
     RunDocumentBoxScanOptimizationBatch,
     RunDocumentBoxTitleRefreshBatch,
 )
+
+
+@shared_task
+def process_document_box_metadata_link_job(job_id: int) -> dict:
+    with transaction.atomic():
+        job = DocumentBoxMetadataLinkJob.objects.select_for_update().get(id=job_id)
+        if job.status != DocumentBoxMetadataLinkJob.Status.QUEUED:
+            return {"job_id": job.id, "status": job.status, "claimed": False}
+        now = timezone.now()
+        job.status = DocumentBoxMetadataLinkJob.Status.RUNNING
+        job.started_at = job.started_at or now
+        job.heartbeat_at = now
+        job.save(update_fields=["status", "started_at", "heartbeat_at", "updated_at"])
+
+    box_filter = Q(space=job.document_space)
+    if job.include_children:
+        box_filter |= Q(space__path__startswith=f"{job.document_space.path}/")
+    documents = list(
+        Document.objects.filter(
+            box_filter,
+            tenant=job.tenant,
+            status=Document.Status.ACTIVE,
+            id__gt=job.last_document_id,
+            id__lte=job.max_document_id,
+        )
+        .select_related("space", "tenant")
+        .order_by("id")[: job.batch_size]
+    )
+    for document in documents:
+        try:
+            job.changed_relations += ReconcileAutomaticMetadataRelations(
+                document=document,
+                actor=job.created_by,
+            ).execute()
+        except Exception as error:
+            job.errors += 1
+            job.error_message = str(error)[:1000]
+        job.processed_documents += 1
+        job.last_document_id = document.id
+        job.heartbeat_at = timezone.now()
+        job.save(
+            update_fields=[
+                "processed_documents",
+                "last_document_id",
+                "changed_relations",
+                "errors",
+                "error_message",
+                "heartbeat_at",
+                "updated_at",
+            ]
+        )
+
+    if job.last_document_id < job.max_document_id:
+        job.status = DocumentBoxMetadataLinkJob.Status.QUEUED
+        job.save(update_fields=["status", "updated_at"])
+        process_document_box_metadata_link_job.delay(job.id)
+    else:
+        job.status = DocumentBoxMetadataLinkJob.Status.COMPLETED
+        job.completed_at = timezone.now()
+        job.save(update_fields=["status", "completed_at", "updated_at"])
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "processed_documents": job.processed_documents,
+        "changed_relations": job.changed_relations,
+        "errors": job.errors,
+    }
 
 
 @shared_task

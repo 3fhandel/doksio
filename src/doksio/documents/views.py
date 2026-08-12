@@ -61,6 +61,7 @@ from doksio.audit.models import AuditEvent
 from doksio.audit.services import RecordAuditEvent
 from doksio.documents.forms import (
     DeleteDocumentMetadataFieldForm,
+    DocumentBoxMetadataLinkForm,
     DocumentBoxOcrLayoutForm,
     DocumentBoxScanOptimizationForm,
     DocumentBoxTitleRefreshForm,
@@ -89,6 +90,7 @@ from doksio.documents.mentions import mention_suggestions_for_tenant
 from doksio.documents.metadata import effective_metadata_fields
 from doksio.documents.models import (
     Document,
+    DocumentBoxMetadataLinkJob,
     DocumentBoxOcrLayoutJob,
     DocumentBoxScanOptimizationJob,
     DocumentBoxTitleRefreshJob,
@@ -166,6 +168,7 @@ from doksio.documents.services import (
     UpdateDocumentMetadata,
     UpdateDocumentMetadataField,
     UpdateDocumentSpace,
+    metadata_value_from_ocr_regex,
     pdf_page_count,
 )
 from doksio.documents.title_rules import (
@@ -4280,6 +4283,94 @@ def tenant_settings_ocr_layout_resume(
     return redirect("documents:settings_ocr_layout", tenant_slug=tenant.slug)
 
 
+def tenant_settings_metadata_links(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+
+    if request.method == "POST":
+        form = DocumentBoxMetadataLinkForm(request.POST, tenant=tenant)
+        if form.is_valid():
+            space = form.cleaned_data["space"]
+            include_children = form.cleaned_data["include_children"]
+            box_filter = Q(space=space)
+            if include_children:
+                box_filter |= Q(space__path__startswith=f"{space.path}/")
+            documents = Document.objects.filter(
+                box_filter,
+                tenant=tenant,
+                status=Document.Status.ACTIVE,
+            )
+            summary = documents.aggregate(total=Count("id"), maximum=Max("id"))
+            job = DocumentBoxMetadataLinkJob.objects.create(
+                tenant=tenant,
+                document_space=space,
+                include_children=include_children,
+                total_documents=summary["total"] or 0,
+                max_document_id=summary["maximum"] or 0,
+                created_by=request.user,
+            )
+            from doksio.documents.tasks import process_document_box_metadata_link_job
+
+            process_document_box_metadata_link_job.delay(job.id)
+            messages.success(
+                request,
+                "Metadaten-Verknüpfungen werden für den Bestand abgeglichen.",
+            )
+            return redirect(
+                "documents:settings_metadata_links",
+                tenant_slug=tenant.slug,
+            )
+    else:
+        form = DocumentBoxMetadataLinkForm(tenant=tenant)
+
+    return render(
+        request,
+        "documents/settings_maintenance_metadata_links.html",
+        {
+            "tenant": tenant,
+            "form": form,
+            "metadata_link_jobs": (
+                tenant.document_box_metadata_link_jobs.select_related(
+                    "document_space", "created_by"
+                )[:8]
+            ),
+            "maintenance_section": "metadata_links",
+            "active_settings_section": "maintenance",
+        },
+    )
+
+
+def tenant_settings_metadata_links_resume(
+    request: HttpRequest,
+    tenant_slug: str,
+    job_id: int,
+) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return _tenant_login_redirect(request, tenant_slug)
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+    job = get_object_or_404(DocumentBoxMetadataLinkJob, id=job_id, tenant=tenant)
+    if job.is_resumable:
+        job.status = DocumentBoxMetadataLinkJob.Status.QUEUED
+        job.save(update_fields=["status", "updated_at"])
+        from doksio.documents.tasks import process_document_box_metadata_link_job
+
+        process_document_box_metadata_link_job.delay(job.id)
+        messages.success(request, "Die Verknüpfungswartung wird fortgesetzt.")
+    else:
+        messages.info(request, "Dieser Wartungsjob läuft oder ist bereits beendet.")
+    return redirect("documents:settings_metadata_links", tenant_slug=tenant.slug)
+
+
 def tenant_settings_background_jobs(
     request: HttpRequest,
     tenant_slug: str,
@@ -5474,6 +5565,11 @@ def tenant_settings_metadata_field_create(
                 choice_list=form.cleaned_data["choice_list"],
                 allow_custom_choices=form.cleaned_data["allow_custom_choices"],
                 einvoice_source=form.cleaned_data["einvoice_source"],
+                regex_pattern=form.cleaned_data["regex_pattern"],
+                regex_replacement=form.cleaned_data["regex_replacement"],
+                auto_link_matching_values=form.cleaned_data[
+                    "auto_link_matching_values"
+                ],
                 sort_order=form.cleaned_data["sort_order"],
                 is_required=form.cleaned_data["is_required"],
                 propagate_to_child_spaces=form.cleaned_data[
@@ -5506,6 +5602,28 @@ def tenant_settings_metadata_field_create(
             "active_settings_section": "document_boxes",
         },
     )
+
+
+def tenant_settings_metadata_regex_test(
+    request: HttpRequest,
+    tenant_slug: str,
+) -> JsonResponse:
+    if not request.user.is_authenticated or request.method != "POST":
+        raise PermissionDenied
+    tenant = get_tenant_for_user(request.user, tenant_slug)
+    if tenant is None or not can_manage_document_spaces(request.user, tenant):
+        raise PermissionDenied
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+        pattern = str(payload.get("pattern", "")).strip()
+        replacement = str(payload.get("replacement", ""))
+        sample_text = str(payload.get("sample_text", ""))
+        if not pattern:
+            raise ValueError("Bitte ein Suchmuster angeben.")
+        value = metadata_value_from_ocr_regex(pattern, replacement, sample_text)
+    except (json.JSONDecodeError, re.error, ValueError) as error:
+        return JsonResponse({"ok": False, "error": str(error)}, status=400)
+    return JsonResponse({"ok": True, "matched": bool(value), "value": value})
 
 
 def tenant_settings_metadata_field_edit(
@@ -5546,6 +5664,11 @@ def tenant_settings_metadata_field_edit(
                 choice_list=form.cleaned_data["choice_list"],
                 allow_custom_choices=form.cleaned_data["allow_custom_choices"],
                 einvoice_source=form.cleaned_data["einvoice_source"],
+                regex_pattern=form.cleaned_data["regex_pattern"],
+                regex_replacement=form.cleaned_data["regex_replacement"],
+                auto_link_matching_values=form.cleaned_data[
+                    "auto_link_matching_values"
+                ],
                 sort_order=form.cleaned_data["sort_order"],
                 is_required=form.cleaned_data["is_required"],
                 propagate_to_child_spaces=form.cleaned_data[
@@ -5573,6 +5696,11 @@ def tenant_settings_metadata_field_edit(
                 "choice_list": metadata_field.choice_list_id,
                 "allow_custom_choices": metadata_field.allow_custom_choices,
                 "einvoice_source": metadata_field.einvoice_source,
+                "regex_pattern": metadata_field.regex_pattern,
+                "regex_replacement": metadata_field.regex_replacement,
+                "auto_link_matching_values": (
+                    metadata_field.auto_link_matching_values
+                ),
                 "sort_order": metadata_field.sort_order,
                 "is_required": metadata_field.is_required,
                 "propagate_to_child_spaces": (
