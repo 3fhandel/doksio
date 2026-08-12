@@ -229,19 +229,26 @@ def http_import(request: HttpRequest, tenant_slug: str, source_id: int) -> JsonR
         return JsonResponse({"error": str(exc)}, status=400)
 
     if document is None:
+        split_result = (import_job.metadata or {}).get("pdf_page_split_result", {})
         return JsonResponse(
             {
                 "document_id": None,
                 "inbox_item_id": import_job.inbox_item_id,
+                "inbox_item_ids": split_result.get(
+                    "inbox_item_ids",
+                    [import_job.inbox_item_id] if import_job.inbox_item_id else [],
+                ),
                 "import_job_id": import_job.id,
                 "status": import_job.status,
                 "staged": True,
             },
             status=202,
         )
+    split_result = (import_job.metadata or {}).get("pdf_page_split_result", {})
     return JsonResponse(
         {
             "document_id": document.id,
+            "document_ids": split_result.get("document_ids", [document.id]),
             "import_job_id": import_job.id,
             "status": import_job.status,
             "title": document.title,

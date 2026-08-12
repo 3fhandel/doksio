@@ -15,6 +15,7 @@ from email.parser import BytesParser
 from email.utils import getaddresses, parsedate_to_datetime
 from fnmatch import fnmatch
 from io import BytesIO
+from pathlib import PurePath
 from typing import BinaryIO
 
 from django.contrib.auth import get_user_model
@@ -22,15 +23,16 @@ from django.core.mail import get_connection
 from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
+from pypdf import PdfReader, PdfWriter
 
 from doksio.accounts.models import Notification, TenantMembership
 from doksio.accounts.permissions import TenantPermissions
 from doksio.accounts.services import CreateNotification
 from doksio.audit.services import RecordAuditEvent
-from doksio.documents.models import Document, DocumentImportBatchItem, DocumentSpace
+from doksio.documents.models import Document, DocumentSpace
 from doksio.documents.services import (
-    CreateDocumentImportBatch,
     CreateDocumentFromUpload,
+    CreateDocumentImportBatch,
     DuplicateDocumentError,
     SetDocumentTags,
 )
@@ -42,6 +44,8 @@ from doksio.ingestion.models import (
 )
 from doksio.project.email import (
     BrandedEmailMultiAlternatives as EmailMultiAlternatives,
+)
+from doksio.project.email import (
     attach_branded_html,
 )
 from doksio.tenancy.models import Tenant
@@ -127,8 +131,112 @@ class ImportDocument:
     title: str = ""
     actor: get_user_model() | None = None
     metadata: dict | None = None
+    allow_pdf_page_split: bool = field(default=True, repr=False, compare=False)
+    is_pdf_split_page: bool = field(default=False, repr=False, compare=False)
+    allowed_duplicate_document_ids: tuple[int, ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+    )
 
     def execute(self) -> tuple[Document | None, ImportJob]:
+        if self._should_split_pdf_pages():
+            return self._import_pdf_pages()
+        return self._execute_single()
+
+    def _should_split_pdf_pages(self) -> bool:
+        if not self.allow_pdf_page_split or self.source is None:
+            return False
+        content_type = self.content_type.split(";", 1)[0].strip().lower()
+        common_settings = (self.source.settings or {}).get("common", {})
+        return bool(
+            content_type == "application/pdf"
+            and common_settings.get("split_pdf_pages", False)
+        )
+
+    def _import_pdf_pages(self) -> tuple[Document | None, ImportJob]:
+        original_position = self.file_obj.tell()
+        try:
+            payload = self.file_obj.read()
+        finally:
+            self.file_obj.seek(original_position)
+
+        reader = PdfReader(BytesIO(payload))
+        if len(reader.pages) <= 1:
+            return ImportDocument(
+                tenant=self.tenant,
+                document_space=self.document_space,
+                file_obj=BytesIO(payload),
+                original_filename=self.original_filename,
+                content_type=self.content_type,
+                source=self.source,
+                title=self.title,
+                actor=self.actor,
+                metadata=self.metadata,
+                allow_pdf_page_split=False,
+            ).execute()
+
+        page_count = len(reader.pages)
+        imported_results: list[tuple[Document | None, ImportJob]] = []
+        filename = PurePath(self.original_filename)
+        filename_stem = filename.stem or "stapelscan"
+        current_split_document_ids: list[int] = []
+        for page_number, page in enumerate(reader.pages, start=1):
+            writer = PdfWriter()
+            writer.add_page(page)
+            page_file = BytesIO()
+            writer.write(page_file)
+            page_file.seek(0)
+            page_metadata = dict(self.metadata or {})
+            page_metadata["pdf_page_split"] = {
+                "source_filename": self.original_filename,
+                "page_number": page_number,
+                "page_count": page_count,
+            }
+            page_title = (
+                f"{self.title} – Seite {page_number}"
+                if self.title.strip()
+                else ""
+            )
+            result = ImportDocument(
+                tenant=self.tenant,
+                document_space=self.document_space,
+                file_obj=page_file,
+                original_filename=f"{filename_stem}-seite-{page_number:03d}.pdf",
+                content_type="application/pdf",
+                source=self.source,
+                title=page_title,
+                actor=self.actor,
+                metadata=page_metadata,
+                allow_pdf_page_split=False,
+                is_pdf_split_page=True,
+                allowed_duplicate_document_ids=tuple(current_split_document_ids),
+            ).execute()
+            imported_results.append(result)
+            if result[0] is not None:
+                current_split_document_ids.append(result[0].id)
+
+        first_document, first_job = imported_results[0]
+        split_document_ids = [
+            document.id for document, _job in imported_results if document is not None
+        ]
+        split_inbox_item_ids = [
+            job.inbox_item_id
+            for _document, job in imported_results
+            if job.inbox_item_id is not None
+        ]
+        first_job.metadata = {
+            **(first_job.metadata or {}),
+            "pdf_page_split_result": {
+                "document_ids": split_document_ids,
+                "inbox_item_ids": split_inbox_item_ids,
+                "page_count": page_count,
+            },
+        }
+        first_job.save(update_fields=["metadata", "updated_at"])
+        return first_document, first_job
+
+    def _execute_single(self) -> tuple[Document | None, ImportJob]:
         if (
             self.document_space is not None
             and self.document_space.tenant_id != self.tenant.id
@@ -251,6 +359,11 @@ class ImportDocument:
                 auto_extract_einvoice=True,
                 auto_start_workflows=(
                     self.source.start_workflows if self.source is not None else True
+                ),
+                allowed_duplicate_document_ids=(
+                    self.allowed_duplicate_document_ids
+                    if self.is_pdf_split_page
+                    else ()
                 ),
             ).execute()
             if self.source and self.source.default_tags:

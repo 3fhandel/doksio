@@ -5,8 +5,10 @@ from io import BytesIO
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.files.storage import default_storage
 from django.test import override_settings
 from django.urls import reverse
+from pypdf import PdfReader, PdfWriter
 
 from doksio.accounts.models import Notification, TenantMembership
 from doksio.accounts.services import EnsureDefaultTenantRoles
@@ -29,6 +31,15 @@ from doksio.ocr.models import OcrJob
 from doksio.tenancy.models import Tenant
 
 MINIMAL_PDF_BYTES = b"%PDF-1.4\n% Doksio test PDF\n%%EOF\n"
+
+
+def _pdf_with_pages(page_count: int) -> bytes:
+    writer = PdfWriter()
+    for _page_number in range(page_count):
+        writer.add_blank_page(width=595, height=842)
+    output = BytesIO()
+    writer.write(output)
+    return output.getvalue()
 
 
 class FakeImapConnection:
@@ -143,6 +154,64 @@ def test_import_document_creates_document_job_and_default_tags():
 
 
 @pytest.mark.django_db
+def test_import_source_can_create_one_document_per_pdf_page():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Stapelscans").execute()
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Scanner",
+        source_type=ImportSource.SourceType.HTTP_API,
+        settings={"common": {"split_pdf_pages": True}},
+        default_tags=["stapelscan"],
+        auto_start_ocr=False,
+        start_workflows=False,
+    )
+    source_pdf = _pdf_with_pages(3)
+
+    first_document, first_job = ImportDocument(
+        tenant=tenant,
+        source=source,
+        document_space=space,
+        file_obj=BytesIO(source_pdf),
+        original_filename="scan.pdf",
+        content_type="application/pdf",
+    ).execute()
+
+    documents = list(Document.objects.order_by("id"))
+    assert first_document == documents[0]
+    assert [document.title for document in documents] == [
+        "scan-seite-001",
+        "scan-seite-002",
+        "scan-seite-003",
+    ]
+    assert ImportJob.objects.filter(status=ImportJob.Status.IMPORTED).count() == 3
+    assert first_job.metadata["pdf_page_split_result"] == {
+        "document_ids": [document.id for document in documents],
+        "inbox_item_ids": [],
+        "page_count": 3,
+    }
+    assert set(
+        DocumentTagAssignment.objects.values_list("tag__name", flat=True)
+    ) == {"stapelscan"}
+    for document in documents:
+        original_file = document.files.get(file_kind=DocumentFile.Kind.ORIGINAL)
+        with default_storage.open(original_file.storage_key, "rb") as stored_file:
+            assert len(PdfReader(stored_file).pages) == 1
+
+    with pytest.raises(DuplicateDocumentError):
+        ImportDocument(
+            tenant=tenant,
+            source=source,
+            document_space=space,
+            file_obj=BytesIO(source_pdf),
+            original_filename="scan-erneut.pdf",
+            content_type="application/pdf",
+        ).execute()
+    assert Document.objects.count() == 3
+
+
+@pytest.mark.django_db
 def test_import_document_rejects_duplicate_file_by_checksum():
     tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
     roles = EnsureDefaultTenantRoles(tenant=tenant).execute()
@@ -234,6 +303,41 @@ def test_http_import_endpoint_imports_with_valid_token(client):
     assert response.json()["document_id"] == document.id
     assert document.title == "rechnung"
     assert import_job.status == ImportJob.Status.IMPORTED
+
+
+@pytest.mark.django_db
+def test_http_import_returns_all_documents_created_from_pdf_pages(client):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Stapelscans").execute()
+    source = ImportSource.objects.create(
+        tenant=tenant,
+        document_space=space,
+        name="Scanner",
+        source_type=ImportSource.SourceType.HTTP_API,
+        token="secret-token",
+        settings={"common": {"split_pdf_pages": True}},
+        auto_start_ocr=False,
+        start_workflows=False,
+    )
+
+    response = client.put(
+        reverse(
+            "ingestion:http_import",
+            kwargs={"tenant_slug": tenant.slug, "source_id": source.id},
+        ),
+        data=_pdf_with_pages(3),
+        content_type="application/pdf",
+        headers={
+            "X-Doksio-Import-Token": "secret-token",
+            "X-Doksio-Filename": "stapel.pdf",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["document_ids"] == list(
+        Document.objects.order_by("id").values_list("id", flat=True)
+    )
+    assert len(response.json()["document_ids"]) == 3
 
 
 @pytest.mark.django_db
@@ -591,6 +695,7 @@ def test_tenant_admin_can_create_import_source_from_import_settings(client):
             "document_space": str(space.id),
             "allowed_content_types_text": "application/pdf",
             "max_file_size_mb": "25",
+            "split_pdf_pages": "on",
             "auto_start_ocr": "on",
             "start_workflows": "on",
             "default_tags_text": "api\neingang",
@@ -606,6 +711,7 @@ def test_tenant_admin_can_create_import_source_from_import_settings(client):
         "common": {
             "max_file_size_mb": 25,
             "allowed_content_types": ["application/pdf"],
+            "split_pdf_pages": True,
         },
     }
 
@@ -639,6 +745,8 @@ def test_tenant_admin_can_create_import_source_from_import_settings(client):
     assert "http://testserver" not in content
     assert '--header "X-Doksio-Filename' not in content
     assert "Dateiname-Header optional" in content
+    assert 'name="split_pdf_pages"' in content
+    assert response.context["form"]["split_pdf_pages"].value() is True
 
 
 @pytest.mark.django_db
@@ -1460,7 +1568,10 @@ def test_process_email_import_source_handles_unprocessable_message(monkeypatch):
     assert sent_messages[0].alternatives[0][1] == "text/html"
     assert "Nicht importierbare Mail" not in sent_messages[0].alternatives[0][0]
     assert "Bitte senden Sie einen PDF-Anhang." in sent_messages[0].alternatives[0][0]
-    assert "Falls der Button nicht funktioniert" not in sent_messages[0].alternatives[0][0]
+    assert (
+        "Falls der Button nicht funktioniert"
+        not in sent_messages[0].alternatives[0][0]
+    )
     assert "https://github.com/3fhandel/doksio" in sent_messages[0].alternatives[0][0]
     mime_message = sent_messages[0].message()
     assert "multipart/related" in {

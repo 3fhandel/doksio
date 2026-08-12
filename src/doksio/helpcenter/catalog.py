@@ -423,6 +423,16 @@ HELP_TOPICS = (
                     ),
                 ),
             ),
+            HelpSection(
+                title="Mehrseitige Stapelscans",
+                text=(
+                    "In den Einstellungen einer Importquelle kann festgelegt "
+                    "werden, dass jede Seite eines eingehenden PDFs als eigenes "
+                    "Dokument behandelt wird. Doksio zerlegt das PDF vor OCR, "
+                    "Titelfindung und Workflow-Start. In einem Posteingang erscheint "
+                    "jede Seite als einzeln zuordenbare Datei."
+                ),
+            ),
         ),
         quick_tips=(
             (

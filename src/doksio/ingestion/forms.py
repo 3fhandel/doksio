@@ -187,6 +187,15 @@ class ImportSourceForm(forms.Form):
         ),
         widget=forms.Textarea(attrs={"class": "form-control", "rows": 3}),
     )
+    split_pdf_pages = forms.BooleanField(
+        label="Jede PDF-Seite als eigenes Dokument importieren",
+        required=False,
+        help_text=(
+            "Für Stapelscans: Mehrseitige PDFs werden vor der weiteren "
+            "Verarbeitung in einzelne Dokumente zerlegt."
+        ),
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
     folder_path = forms.CharField(
         label="Quellordner",
         required=False,
@@ -430,6 +439,7 @@ class ImportSourceForm(forms.Form):
             "allowed_content_types_text": "\n".join(
                 common.get("allowed_content_types", [])
             ),
+            "split_pdf_pages": common.get("split_pdf_pages", False),
             "folder_path": folder.get("path", ""),
             "folder_file_pattern": folder.get("file_pattern", "*"),
             "folder_recursive": folder.get("recursive", False),
@@ -643,6 +653,8 @@ class ImportSourceForm(forms.Form):
                 self.cleaned_data.get("allowed_content_types_text", "")
             ),
         }
+        if self.cleaned_data.get("split_pdf_pages"):
+            common["split_pdf_pages"] = True
         routing_rules = self.cleaned_data["routing_rules_text"]
         settings = {}
         if routing_rules:

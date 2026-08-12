@@ -311,6 +311,13 @@
               <label class="form-check-label" for="{{ form.start_workflows.id_for_label }}">Workflows automatisch starten</label>
             </div>
           </div>
+          <div class="col-12 mt-3" data-import-settings-section="http_api folder email">
+            <div class="form-check">
+              {{ form.split_pdf_pages }}
+              <label class="form-check-label" for="{{ form.split_pdf_pages.id_for_label }}">{{ form.split_pdf_pages.label }}</label>
+              <div class="form-text">{{ form.split_pdf_pages.help_text }}</div>
+            </div>
+          </div>
         </div>
 
       <div class="mt-3">

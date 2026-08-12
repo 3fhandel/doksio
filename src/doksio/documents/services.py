@@ -2630,6 +2630,7 @@ class CreateDocumentFromUpload:
     auto_extract_einvoice: bool = True
     auto_start_workflows: bool = True
     document_date: date | None = None
+    allowed_duplicate_document_ids: tuple[int, ...] = ()
 
     def execute(self) -> tuple[Document, DocumentFile]:
         if self.space.tenant_id != self.tenant.id:
@@ -2656,7 +2657,12 @@ class CreateDocumentFromUpload:
                     .order_by("created_at", "id")
                     .first()
                 )
-                if existing_file is not None:
+                duplicate_is_allowed = bool(
+                    existing_file is not None
+                    and existing_file.document_id
+                    in self.allowed_duplicate_document_ids
+                )
+                if existing_file is not None and not duplicate_is_allowed:
                     RecordAuditEvent(
                         tenant=self.tenant,
                         actor=self.created_by,

@@ -9,6 +9,7 @@
 - Die Buildnummer in der Kopfzeile öffnet jetzt dieses Änderungsprotokoll.
 - Dokumente können aus PDF- und Bilddateien zu einem neuen PDF zusammengeführt werden.
 - Beim Zusammenführen ist die Box des Ausgangsdokuments vorausgewählt und die Treffer lassen sich sortieren.
+- Importquellen können mehrseitige Stapelscan-PDFs automatisch seitenweise als einzelne Dokumente importieren.
 
 ### Änderungen
 
