@@ -30,6 +30,10 @@ from doksio.workflows.models import (
     WorkflowTask,
     WorkflowTemplate,
 )
+from doksio.workflows.policies import (
+    can_complete_workflow_task,
+    filter_workflow_tasks_for_user,
+)
 from doksio.workflows.services import (
     CompleteWorkflowTask,
     CreateWorkflowStep,
@@ -37,10 +41,6 @@ from doksio.workflows.services import (
     StartMatchingWorkflowsForDocument,
     StartWorkflowForDocument,
     UpdateWorkflowStep,
-)
-from doksio.workflows.policies import (
-    can_complete_workflow_task,
-    filter_workflow_tasks_for_user,
 )
 
 
@@ -1354,6 +1354,10 @@ def test_supervisor_task_overview_shows_backlog_and_supervised_tasks(client):
         can_access_all_document_spaces=False,
     )
     supervisor = get_user_model().objects.create_user(username="supervisor")
+    UserProfile.objects.create(
+        user=supervisor,
+        display_name="Sabine Aufsicht",
+    )
     membership = TenantMembership.objects.create(
         tenant=tenant,
         user=supervisor,
@@ -1420,12 +1424,26 @@ def test_supervisor_task_overview_shows_backlog_and_supervised_tasks(client):
     assert overview_response.context["summary"]["open_documents"] == 2
     assert overview_response.context["summary"]["active_instances"] == 2
     assert overview_response.context["summary"]["completed_last_7_days"] == 1
+    assert overview_response.context["completion_rows"] == [
+        {
+            "completed_by_id": supervisor.id,
+            "completed_by__username": "supervisor",
+            "completed_by__email": "",
+            "completed_by__doksio_profile__display_name": "Sabine Aufsicht",
+            "completed_steps": 1,
+            "display_name": "Sabine Aufsicht",
+            "bar_width": 100,
+        }
+    ]
     assert len(overview_response.context["backlog_rows"]) == 1
     assert "Rechnungsprüfung" in content
     assert "Sachlich prüfen" in content
     assert "Verdeckte Prüfung" not in content
     assert "Verdeckt prüfen" not in content
     assert "Backlog nach Workflow" in content
+    assert "Erledigte Schritte nach Benutzer" in content
+    assert "Sabine Aufsicht" in content
+    assert "1 gesamt" in content
     assert "2 Aufgaben" in content
     assert "Supervisor" in content
     assert 'id="contextualHelpLabel">Aufgaben und Workflows</h2>' in content

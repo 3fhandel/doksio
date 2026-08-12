@@ -73,6 +73,29 @@
         </aside>
       </div>
 
+      <section class="app-card supervisor-completion-panel mb-3">
+        <header>
+          <div>
+            <h2 class="h5 mb-1">Erledigte Schritte nach Benutzer</h2>
+            <p class="text-secondary small mb-0">Abgeschlossene Arbeitsschritte in den letzten 7 Tagen.</p>
+          </div>
+          <span class="supervisor-completion-total">{{ summary.completed_last_7_days }} gesamt</span>
+        </header>
+        <div class="supervisor-completion-list">
+          {% for row in completion_rows %}
+            <div class="supervisor-completion-row">
+              <strong title="{{ row.display_name }}">{{ row.display_name }}</strong>
+              <div class="supervisor-completion-track" aria-hidden="true">
+                <span style="width: {{ row.bar_width }}%"></span>
+              </div>
+              <span class="supervisor-completion-count">{{ row.completed_steps }}</span>
+            </div>
+          {% empty %}
+            <div class="supervisor-backlog-empty">In den letzten 7 Tagen wurden keine Schritte erledigt.</div>
+          {% endfor %}
+        </div>
+      </section>
+
       <div class="d-flex align-items-center justify-content-between gap-3 mb-2">
         <div>
           <h2 class="h5 mb-1">Offene Aufgaben</h2>

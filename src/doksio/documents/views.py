@@ -1415,6 +1415,39 @@ def supervisor_task_list(request: HttpRequest, tenant_slug: str) -> HttpResponse
     )
     summary["completed_last_7_days"] = completed_tasks_queryset.count()
 
+    completion_rows = list(
+        completed_tasks_queryset.order_by()
+        .values(
+            "completed_by_id",
+            "completed_by__username",
+            "completed_by__email",
+            "completed_by__doksio_profile__display_name",
+        )
+        .annotate(completed_steps=Count("id"))
+        .order_by("-completed_steps", "completed_by__username")
+    )
+    largest_completion_count = max(
+        (row["completed_steps"] for row in completion_rows),
+        default=0,
+    )
+    for row in completion_rows:
+        row["display_name"] = (
+            row["completed_by__doksio_profile__display_name"]
+            or row["completed_by__email"]
+            or row["completed_by__username"]
+            or "Automatisch/System"
+        )
+        row["bar_width"] = (
+            max(
+                4,
+                round(
+                    (row["completed_steps"] / largest_completion_count) * 100
+                ),
+            )
+            if largest_completion_count
+            else 0
+        )
+
     backlog_rows = list(
         workflow_tasks_queryset.order_by()
         .values("instance__template_id", "instance__template__name")
@@ -1453,6 +1486,7 @@ def supervisor_task_list(request: HttpRequest, tenant_slug: str) -> HttpResponse
             "tenant": tenant,
             "summary": summary,
             "backlog_rows": backlog_rows,
+            "completion_rows": completion_rows,
             "workflow_tasks": workflow_tasks_page_obj.object_list,
             "workflow_tasks_page_obj": workflow_tasks_page_obj,
             "workflow_filter_options": workflow_filter_options,
@@ -4295,7 +4329,9 @@ def tenant_settings_background_jobs(
                 "completed_at": job.completed_at,
             }
         )
-    for job in tenant.document_box_ocr_layout_jobs.select_related("document_space")[:10]:
+    for job in tenant.document_box_ocr_layout_jobs.select_related(
+        "document_space"
+    )[:10]:
         recent_jobs.append(
             {
                 "title": f"OCR-Suchmarkierungen: {job.document_space.path}",
@@ -4369,7 +4405,10 @@ def tenant_settings_background_job_cancel(
     if matching_job is None or not matching_job.can_cancel:
         messages.error(
             request,
-            "Der Job ist nicht mehr sicher abbrechbar oder der Worker ist nicht erreichbar.",
+            (
+                "Der Job ist nicht mehr sicher abbrechbar oder der Worker ist "
+                "nicht erreichbar."
+            ),
         )
         return redirect(
             "documents:settings_background_jobs",

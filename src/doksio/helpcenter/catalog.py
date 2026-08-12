@@ -508,6 +508,10 @@ HELP_TOPICS = (
                     "Supervisor-Gruppen festgelegt werden. Deren Mitglieder dürfen "
                     "jeden offenen Schritt dieses Workflows bearbeiten. Die Aufgaben "
                     "erscheinen dadurch nicht unter „Meine Aufgaben“. Unter "
+                    "der Supervisor-Übersicht sehen sie Backlog, offene Aufgaben "
+                    "und die in den letzten sieben Tagen je Benutzer erledigten "
+                    "Arbeitsschritte. Der Workflow-Filter gilt auch für diese "
+                    "Auswertung. Unter "
                     "„Auswertungen“ können Supervisor den betreffenden Workflow "
                     "auswählen und seine Kennzahlen einsehen."
                 ),
