@@ -132,6 +132,7 @@ def test_canonical_changelog_contains_chronological_build_history():
     content = Path("CHANGELOG.md").read_text(encoding="utf-8")
     builds = [
         "## Build {{ build_number }}",
+        "## Build 20260810-1230",
         "## Build 20260806-1453",
         "## Build 20260805-1020",
         "## Build 20260707-0054",

@@ -6,10 +6,21 @@
 
 ### Neuerungen
 
+- Importquellen können mehrseitige Stapelscan-PDFs automatisch seitenweise als einzelne Dokumente importieren.
+
+### Änderungen
+
+- Die Supervisor-Übersicht zeigt für die letzten sieben Tage, wer wie viele Workflow-Schritte erledigt hat.
+
+## Build 20260810-1230
+
+**Datum/Uhrzeit:** 10.08.2026, 12:30 Uhr
+
+### Neuerungen
+
 - Die Buildnummer in der Kopfzeile öffnet jetzt dieses Änderungsprotokoll.
 - Dokumente können aus PDF- und Bilddateien zu einem neuen PDF zusammengeführt werden.
 - Beim Zusammenführen ist die Box des Ausgangsdokuments vorausgewählt und die Treffer lassen sich sortieren.
-- Importquellen können mehrseitige Stapelscan-PDFs automatisch seitenweise als einzelne Dokumente importieren.
 
 ### Änderungen
 
@@ -18,7 +29,6 @@
 - Die Buildnummer wird in lokalen und produktiven Containern automatisch aus den Buildmetadaten ermittelt.
 - Änderungen am Änderungsprotokoll werden im lokalen Testbetrieb ohne Neustart sichtbar.
 - Die normale Volltextsuche nutzt den PostgreSQL-Suchindex ohne zusätzliche langsame Teiltextprüfung und überträgt weniger interne Indexdaten; Teilwörter bleiben über den gleichnamigen Schalter verfügbar.
-- Die Supervisor-Übersicht zeigt für die letzten sieben Tage, wer wie viele Workflow-Schritte erledigt hat.
 
 ## Build 20260806-1453
 

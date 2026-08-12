@@ -41,6 +41,9 @@ permission-related, or UI change:
 7. Never overwrite an older build entry. Before starting the next build entry,
    preserve the previous entry with its fixed build number and timestamp and
    keep all historical entries in reverse chronological order.
+8. The placeholder entry may contain only changes from the calendar day of the
+   current Git build. When the build date changes, move all older-day bullets
+   into a fixed historical entry using the last commit timestamp of that day.
 
 A user-visible change is not complete until its changelog impact has been
 reviewed, even when no changelog bullet is ultimately necessary.
