@@ -352,7 +352,7 @@ class SearchDocuments:
                 workflow_total_count__gt=0,
                 workflow_open_count=0,
             )
-        sort = self.filters.get("sort") or "relevance"
+        sort = self.filters.get("sort") or "created_desc"
         if sort == "relevance" and not has_text_query:
             sort = "created_desc"
         return self._sort(documents, sort=sort)

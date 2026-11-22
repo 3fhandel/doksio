@@ -11,6 +11,7 @@
 ### Änderungen
 
 - Die Erweiterte Prüfhilfe zeigt den Haken jetzt grün, damit geprüfte Stellen schneller erkennbar sind.
+- Suchergebnisse zeigen standardmäßig die neuesten Dokumente zuerst; andere Sortierungen bleiben auswählbar.
 
 ## Build 20260812-0854
 

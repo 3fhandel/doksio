@@ -325,6 +325,6 @@ class DocumentSearchForm(forms.Form):
         label="Sortierung",
         required=False,
         choices=SORT_CHOICES,
-        initial="relevance",
+        initial="created_desc",
         widget=forms.Select(attrs={"class": "form-select"}),
     )

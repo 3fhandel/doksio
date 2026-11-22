@@ -92,6 +92,11 @@ HELP_TOPICS = (
                         "dort durchsuchen und einzeln oder gemeinsam auswählen."
                     ),
                     (
+                        "Treffer werden standardmäßig mit dem neuesten Dokument "
+                        "zuerst angezeigt. Im Filterbereich kannst du eine andere "
+                        "Sortierung wählen."
+                    ),
+                    (
                         "Bei Auswahllisten-Metadaten kannst du direkt in das Feld "
                         "tippen und anschließend einen passenden Eintrag wählen."
                     ),

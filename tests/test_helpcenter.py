@@ -74,6 +74,7 @@ def test_help_overview_shows_user_topics_and_hides_restricted_topics(client):
     assert "Scans mit vorhandenen OCR-Suchmarkierungen" in content
     assert "wechselt zwischen Dokumenten der geöffneten Liste" in content
     assert "in der verbleibenden Liste weiterarbeiten" in content
+    assert "neuesten Dokument zuerst" in content
     assert "Wöchentliche Zusammenfassung" in content
     assert "standardmäßig aktive Wochenübersicht" in content
     assert 'id="administration"' not in content

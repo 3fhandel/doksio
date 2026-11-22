@@ -22,6 +22,7 @@ from doksio.documents.services import (
     SetDocumentTags,
 )
 from doksio.ocr.models import OcrJob
+from doksio.search.forms import DocumentSearchForm
 from doksio.search.services import (
     RebuildDocumentSearchIndex,
     SearchDocuments,
@@ -44,6 +45,22 @@ def _create_document(tenant, space, title, filename=None, document_date=None):
         document_date=document_date,
     ).execute()
     return document, document_file
+
+
+@pytest.mark.django_db
+def test_search_defaults_to_newest_documents_first():
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    form = DocumentSearchForm(tenant=tenant)
+
+    assert form.fields["sort"].initial == "created_desc"
+
+    older_space = CreateDocumentSpace(tenant=tenant, name="Eingang").execute()
+    older, _file = _create_document(tenant, older_space, "Älteres Dokument")
+    newer, _file = _create_document(tenant, older_space, "Neueres Dokument")
+
+    results = SearchDocuments(tenant=tenant, filters={}).execute()
+
+    assert list(results) == [newer, older]
 
 
 @pytest.mark.django_db
