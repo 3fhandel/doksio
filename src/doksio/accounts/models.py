@@ -53,6 +53,7 @@ class UserProfile(models.Model):
     notifications_enabled = models.BooleanField(default=True)
     workflow_notifications_enabled = models.BooleanField(default=True)
     mention_notifications_enabled = models.BooleanField(default=True)
+    weekly_summary_enabled = models.BooleanField(default=True)
     notification_preferences = models.JSONField(
         default=default_notification_preferences,
         blank=True,
@@ -65,6 +66,38 @@ class UserProfile(models.Model):
 
     def __str__(self) -> str:
         return f"Profil {self.user}"
+
+
+class WeeklySummaryDelivery(models.Model):
+    """Records one tenant-scoped weekly summary delivery per user and week."""
+
+    tenant = models.ForeignKey(
+        "tenancy.Tenant",
+        on_delete=models.CASCADE,
+        related_name="weekly_summary_deliveries",
+    )
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="weekly_summary_deliveries",
+    )
+    week_start = models.DateField()
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-week_start", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "recipient", "week_start"],
+                name="accounts_unique_weekly_summary_delivery",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "week_start"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.recipient} in {self.tenant}: {self.week_start:%d.%m.%Y}"
 
 
 class Notification(models.Model):

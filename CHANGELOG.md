@@ -6,6 +6,8 @@
 
 ### Neuerungen
 
+- Eine standardmäßig aktive Wochenübersicht informiert montags per E-Mail über offene Aufgaben, erledigte Schritte, Wiedervorlagen und ungelesene Benachrichtigungen.
+
 ### Änderungen
 
 - Die Erweiterte Prüfhilfe zeigt den Haken jetzt grün, damit geprüfte Stellen schneller erkennbar sind.

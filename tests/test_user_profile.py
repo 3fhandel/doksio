@@ -290,6 +290,7 @@ def test_profile_view_saves_notifications(client):
     )
     assert profile.notification_preferences["import_failed"]["in_app"] is False
     assert profile.notification_preferences["document_reminder"]["in_app"] is False
+    assert profile.weekly_summary_enabled is False
 
 
 @pytest.mark.django_db
@@ -310,6 +311,7 @@ def test_profile_notifications_view_renders_workflow_notification_setting(client
     assert "Wenn dir ein Workflow-Schritt zugeordnet wird" in content
     assert "Importfehler" in content
     assert "Wiedervorlage fällig" in content
+    assert "Wöchentliche Zusammenfassung per E-Mail" in content
 
 
 @pytest.mark.django_db
@@ -320,6 +322,7 @@ def test_profile_notification_defaults_enable_mention_email():
     form = UserProfileForm(profile=profile)
 
     assert form.fields["notification_document_comment_mention_email"].initial is True
+    assert form.fields["weekly_summary_enabled"].initial is True
 
 
 @pytest.mark.django_db

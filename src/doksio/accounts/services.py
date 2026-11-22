@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
@@ -19,6 +20,7 @@ from doksio.accounts.models import (
     TenantPermission,
     TenantRole,
     UserProfile,
+    WeeklySummaryDelivery,
     default_notification_preferences,
 )
 from doksio.accounts.permissions import DEFAULT_ROLE_PERMISSIONS, PERMISSION_DEFINITIONS
@@ -33,6 +35,118 @@ from doksio.project.email import (
 )
 from doksio.project.url_helpers import build_public_url
 from doksio.tenancy.models import Tenant
+
+
+@dataclass(frozen=True)
+class SendWeeklySummary:
+    tenant: Tenant
+    recipient: get_user_model()
+    week_start: date
+
+    def execute(self) -> WeeklySummaryDelivery | None:
+        from doksio.documents.models import Document, DocumentReminder
+        from doksio.documents.policies import filter_documents_for_user
+        from doksio.workflows.models import WorkflowTask
+        from doksio.workflows.policies import filter_workflow_tasks_for_user
+
+        if not self.recipient.email or not self.recipient.is_active:
+            return None
+        profile = UserProfile.objects.filter(user=self.recipient).first()
+        if profile is None or not profile.weekly_summary_enabled:
+            return None
+        smtp_settings = TenantSmtpSettings.objects.filter(
+            tenant=self.tenant,
+            is_active=True,
+        ).first()
+        if smtp_settings is None:
+            return None
+        if WeeklySummaryDelivery.objects.filter(
+            tenant=self.tenant,
+            recipient=self.recipient,
+            week_start=self.week_start,
+        ).exists():
+            return None
+
+        period_end = self.week_start
+        period_start = period_end - timedelta(days=7)
+        period_start_at = timezone.make_aware(datetime.combine(period_start, time.min))
+        period_end_at = timezone.make_aware(datetime.combine(period_end, time.min))
+
+        open_tasks = filter_workflow_tasks_for_user(
+            WorkflowTask.objects.filter(
+                tenant=self.tenant,
+                status=WorkflowTask.Status.OPEN,
+            ),
+            self.recipient,
+            self.tenant,
+        ).count()
+        completed_tasks = WorkflowTask.objects.filter(
+            tenant=self.tenant,
+            status=WorkflowTask.Status.COMPLETED,
+            completed_by=self.recipient,
+            completed_at__gte=period_start_at,
+            completed_at__lt=period_end_at,
+        ).count()
+        visible_documents = filter_documents_for_user(
+            Document.objects.filter(tenant=self.tenant),
+            self.recipient,
+            self.tenant,
+        )
+        reminders = DocumentReminder.objects.filter(
+            tenant=self.tenant,
+            recipient=self.recipient,
+            document__in=visible_documents,
+            completed_at__isnull=True,
+            document__status="active",
+        )
+        open_reminders = reminders.count()
+        due_reminders = reminders.filter(remind_on__lte=period_end).count()
+        unread_notifications = Notification.objects.filter(
+            tenant=self.tenant,
+            recipient=self.recipient,
+            read_at__isnull=True,
+        ).count()
+
+        recipient_name = profile.display_name or self.recipient.get_username()
+        content = "\n".join(
+            [
+                f"Hallo {recipient_name},",
+                "",
+                "hier ist deine persönliche Wochenübersicht:",
+                f"• {open_tasks} offene Workflow-Aufgaben",
+                f"• {completed_tasks} erledigte Workflow-Schritte in der letzten Woche",
+                (
+                    f"• {open_reminders} offene Wiedervorlagen, "
+                    f"davon {due_reminders} fällig"
+                ),
+                f"• {unread_notifications} ungelesene Benachrichtigungen",
+            ]
+        )
+        tasks_url = build_public_url(
+            reverse("documents:tasks", kwargs={"tenant_slug": self.tenant.slug})
+        )
+        message = EmailMultiAlternatives(
+            subject=f"Deine Doksio-Wochenübersicht – {self.tenant.name}",
+            body=content,
+            from_email=_tenant_smtp_from_email(smtp_settings),
+            to=[self.recipient.email],
+            connection=_tenant_smtp_connection(smtp_settings),
+        )
+        attach_branded_html(
+            message,
+            heading="Deine Wochenübersicht",
+            content=content,
+            tenant_name=self.tenant.name,
+            action_url=tasks_url,
+            action_label="Meine Aufgaben öffnen",
+            preheader=f"{open_tasks} offene Aufgaben in {self.tenant.name}",
+        )
+        message.send()
+        return WeeklySummaryDelivery.objects.create(
+            tenant=self.tenant,
+            recipient=self.recipient,
+            week_start=self.week_start,
+        )
 
 
 @dataclass(frozen=True)

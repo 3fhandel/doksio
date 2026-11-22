@@ -235,6 +235,12 @@ class UserProfileForm(forms.Form):
         required=False,
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
+    weekly_summary_enabled = forms.BooleanField(
+        label="Wöchentliche Zusammenfassung per E-Mail",
+        required=False,
+        initial=True,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
 
     def __init__(self, *args, profile: UserProfile, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -285,6 +291,7 @@ class UserProfileForm(forms.Form):
             self.initial["mention_notifications_enabled"] = (
                 profile.mention_notifications_enabled
             )
+            self.initial["weekly_summary_enabled"] = profile.weekly_summary_enabled
         preferences = notification_preferences_for_profile(profile)
         for event_key, event_label in NOTIFICATION_EVENTS:
             for channel_key, channel_label in NOTIFICATION_CHANNELS:

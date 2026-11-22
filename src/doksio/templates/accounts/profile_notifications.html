@@ -77,6 +77,19 @@
           </tbody>
         </table>
       </div>
+
+      <div class="border-top mt-3 pt-3">
+        <div class="form-check">
+          {{ form.weekly_summary_enabled }}
+          <label class="form-check-label fw-semibold" for="{{ form.weekly_summary_enabled.id_for_label }}">
+            Wöchentliche Zusammenfassung per E-Mail
+          </label>
+        </div>
+        <div class="small text-secondary ms-4 mt-1">
+          Montags erhältst du je Mandant eine Übersicht über offene Aufgaben,
+          erledigte Schritte, Wiedervorlagen und ungelesene Benachrichtigungen.
+        </div>
+      </div>
     </div>
 
     <div class="profile-actions">

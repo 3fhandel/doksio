@@ -354,6 +354,31 @@ HELP_TOPICS = (
         ),
     ),
     HelpTopic(
+        slug="benachrichtigungen",
+        title="Benachrichtigungen",
+        summary="Persönliche Hinweise und die Wochenübersicht einstellen.",
+        icon="bell",
+        sections=(
+            HelpSection(
+                title="Benachrichtigungskanäle",
+                text=(
+                    "Im Profil legst du für jedes Ereignis fest, ob du in Doksio, "
+                    "per E-Mail oder über beide Wege benachrichtigt werden möchtest."
+                ),
+            ),
+            HelpSection(
+                title="Wöchentliche Zusammenfassung",
+                text=(
+                    "Die standardmäßig aktive Wochenübersicht wird montags per "
+                    "E-Mail versendet. Sie fasst für jeden Mandanten offene "
+                    "Workflow-Aufgaben, erledigte Schritte, Wiedervorlagen und "
+                    "ungelesene Benachrichtigungen zusammen. Du kannst sie im "
+                    "Profil jederzeit ausschalten."
+                ),
+            ),
+        ),
+    ),
+    HelpTopic(
         slug="kommentare",
         title="Kommentare und Erwähnungen",
         summary="Kollegen einbeziehen und Gespräche am Dokument nachvollziehen.",
@@ -632,7 +657,7 @@ CONTEXT_TOPIC_SLUGS = {
     ("documents", "import_batch_detail"): "stapelimport",
     ("search", "documents"): "dokumente-finden",
     ("workflows", "list"): "aufgaben-workflows",
-    ("accounts", "profile_notifications"): "kommentare",
+    ("accounts", "profile_notifications"): "benachrichtigungen",
     ("accounts", "profile_reminders"): "dokument-bearbeiten",
     ("accounts", "profile_shortcuts"): "tastenkuerzel",
     ("documents", "settings_metadata_choice_lists"): "administration",

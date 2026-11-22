@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from celery.schedules import crontab
+
 BASE_DIR = Path(__file__).resolve().parents[4]
 SRC_DIR = BASE_DIR / "src"
 
@@ -174,6 +176,10 @@ CELERY_RESULT_BACKEND = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60
 CELERY_BEAT_SCHEDULE = {
+    "dispatch-weekly-summaries": {
+        "task": "doksio.accounts.tasks.dispatch_weekly_summaries",
+        "schedule": crontab(hour=7, minute=0, day_of_week="monday"),
+    },
     "dispatch-due-document-reminders": {
         "task": "doksio.documents.tasks.dispatch_due_document_reminders",
         "schedule": 60.0,

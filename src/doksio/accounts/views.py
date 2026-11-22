@@ -362,12 +362,16 @@ def profile_notifications(request: HttpRequest, tenant_slug: str) -> HttpRespons
             user_profile.mention_notifications_enabled = notification_preferences[
                 Notification.Type.DOCUMENT_COMMENT_MENTION
             ]["in_app"]
+            user_profile.weekly_summary_enabled = form.cleaned_data[
+                "weekly_summary_enabled"
+            ]
             user_profile.notification_preferences = notification_preferences
             user_profile.save(
                 update_fields=[
                     "notifications_enabled",
                     "workflow_notifications_enabled",
                     "mention_notifications_enabled",
+                    "weekly_summary_enabled",
                     "notification_preferences",
                     "updated_at",
                 ]
