@@ -6,6 +6,16 @@
 
 ### Neuerungen
 
+### Änderungen
+
+- Die Erweiterte Prüfhilfe zeigt den Haken jetzt grün, damit geprüfte Stellen schneller erkennbar sind.
+
+## Build 20260812-0854
+
+**Datum/Uhrzeit:** 12.08.2026, 08:54 Uhr
+
+### Neuerungen
+
 - Importquellen können mehrseitige Stapelscan-PDFs automatisch seitenweise als einzelne Dokumente importieren.
 - Text-Metadatenfelder können per RegEx aus dem OCR-Volltext befüllt werden.
 - Dokumente können bei identischen Werten eines Metadatenfelds automatisch verknüpft werden.

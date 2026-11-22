@@ -247,7 +247,9 @@ HELP_TOPICS = (
                     "Die normale Prüfhilfe unterstützt beim zeilenweisen Lesen. "
                     "Wenn die "
                     "erweiterte Prüfhilfe für die Box aktiv ist, können zusätzlich "
-                    "persistente Prüfsymbole auf einzelnen Seiten gesetzt werden."
+                    "persistente Prüfsymbole auf einzelnen Seiten gesetzt werden. "
+                    "Der grüne Haken kennzeichnet geprüfte Stellen; Ausrufe- und "
+                    "Fragezeichen markieren Auffälligkeiten oder Klärungsbedarf."
                 ),
             ),
             HelpSection(

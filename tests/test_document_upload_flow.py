@@ -2452,6 +2452,8 @@ def test_document_review_markers_are_shared_and_persistent(client):
     assert "data-advanced-review-toggle" not in detail_content
     assert 'aria-label="Prüfmarkierung auswählen"' in detail_content
     assert 'data-review-symbol="check"' in detail_content
+    assert 'aria-label="Grüner Haken"' in detail_content
+    assert "Schwarzer Haken" not in detail_content
     assert "document-review-swatch-check active" not in detail_content
     assert "Symbol verkleinern" in detail_content
     assert "Symbol vergrößern" in detail_content
