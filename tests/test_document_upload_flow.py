@@ -110,6 +110,19 @@ def _bloated_scanned_pdf_bytes() -> bytes:
     return output.getvalue()
 
 
+def _shadowed_scanned_pdf_bytes() -> bytes:
+    from PIL import Image, ImageDraw
+
+    output = BytesIO()
+    image = Image.new("L", (1200, 1600), 255)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, 1199, 95), fill=200)
+    for y_position in range(120, 1450, 80):
+        draw.line((80, y_position, 1120, y_position), fill=0, width=2)
+    image.save(output, format="PDF", resolution=200)
+    return output.getvalue()
+
+
 def _sample_pdf_bytes(page_count: int = 3) -> bytes:
     import pypdfium2 as pdfium
 
@@ -5302,6 +5315,41 @@ def test_optimize_document_box_scans_replaces_bloated_scan_pdf(
         event_type="document_box.scan_optimization.completed",
         object_id=str(space.id),
     ).exists()
+
+
+@pytest.mark.django_db
+def test_optimize_document_box_scans_accepts_light_scanner_shadows(
+    monkeypatch,
+    django_capture_on_commit_callbacks,
+):
+    tenant = Tenant.objects.create(name="Acme GmbH", slug="acme")
+    space = CreateDocumentSpace(tenant=tenant, name="Lieferscheine").execute()
+    monkeypatch.setattr(
+        "doksio.documents.thumbnails._render_thumbnail_bytes",
+        lambda _document_file: b"thumbnail-bytes",
+    )
+    _document, document_file = CreateDocumentFromUpload(
+        tenant=tenant,
+        title="Lieferschein mit Scan-Schatten",
+        space=space,
+        file_obj=BytesIO(_shadowed_scanned_pdf_bytes()),
+        original_filename="lieferschein.pdf",
+        content_type="application/pdf",
+        auto_start_ocr=False,
+    ).execute()
+    old_byte_size = document_file.byte_size
+
+    with django_capture_on_commit_callbacks(execute=True):
+        result = OptimizeDocumentBoxScans(
+            tenant=tenant,
+            document_space=space,
+        ).execute()
+
+    document_file.refresh_from_db()
+    assert result.optimized == 1
+    assert document_file.byte_size < old_byte_size * 0.5
+    with default_storage.open(document_file.storage_key, "rb") as optimized_file:
+        assert b"CCITTFaxDecode" in optimized_file.read()
 
 
 @pytest.mark.django_db

@@ -2600,7 +2600,11 @@ def _is_scanned_bilevel_render(image) -> bool:
     total = sum(histogram) or 1
     blackish = sum(histogram[:48])
     whiteish = sum(histogram[208:])
-    return (blackish + whiteish) / total >= 0.97
+    # Scanner shadows and lightly tinted paper can occupy several percent of an
+    # otherwise monochrome business document. At 92 percent, photographs still
+    # remain far outside the accepted range while typical delivery-note scans
+    # can use compact CCITT Group 4 compression.
+    return (blackish + whiteish) / total >= 0.92
 
 
 def pdf_page_count(document_file: DocumentFile) -> int:

@@ -121,6 +121,7 @@ def test_help_overview_shows_administration_to_tenant_admin(client):
     assert "RegEx-Suchmuster" in content
     assert "automatisch verknüpfen" in content
     assert "Metadaten-Verknüpfungen" in content
+    assert "helle Scanner-Schatten" in content
 
 
 @pytest.mark.django_db

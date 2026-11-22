@@ -628,6 +628,16 @@ HELP_TOPICS = (
                     "Unterbrechung fortgesetzt werden."
                 ),
             ),
+            HelpSection(
+                title="Speicher von Scans optimieren",
+                text=(
+                    "Die Scan-Optimierung unter Einstellungen > Wartung erkennt "
+                    "auch helle Scanner-Schatten in überwiegend schwarzweißen "
+                    "Belegen. Geeignete Scan-PDFs werden platzsparend gespeichert; "
+                    "PDFs mit Textschicht sowie bildreiche Dokumente bleiben "
+                    "unverändert."
+                ),
+            ),
         ),
         quick_tips=(
             (
